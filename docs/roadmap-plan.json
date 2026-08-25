@@ -1,0 +1,1423 @@
+{
+  "commit_message": "Import Nerve roadmap: 12 epics, 97 tickets",
+  "nodes": [
+    {
+      "key": "e1",
+      "title": "E1 \u2014 The port and the mount table",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e1"
+      ],
+      "description": "Epic E1: The port and the mount table.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e1.1",
+      "title": "E1.1 \u2014 FileSystem interface: create, mkdir, remove, remove_all, read, write, read_dir, stat, rename, chmod",
+      "type": "task",
+      "parent_key": "e1",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e1"
+      ],
+      "description": "FileSystem interface: create, mkdir, remove, remove_all, read, write, read_dir, stat, rename, chmod\n\n## Acceptance\n\nAll ten verbs defined in the core, no driver imported\n\nSource: docs/roadmap.md (E1.1)"
+    },
+    {
+      "key": "e1.2",
+      "title": "E1.2 \u2014 Caps descriptors: append-only, read-destructive, read-only, broadcast, object-store; resolved per path",
+      "type": "task",
+      "parent_key": "e1",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e1"
+      ],
+      "description": "Caps descriptors: append-only, read-destructive, read-only, broadcast, object-store; resolved per path\n\n## Acceptance\n\nA queue mount reports read-destructive on its job path and not on its config path\n\nSource: docs/roadmap.md (E1.2)"
+    },
+    {
+      "key": "e1.3",
+      "title": "E1.3 \u2014 Accessor set: AsSymlinker, AsStreamer, AsTruncater, with a NoCaps embeddable default",
+      "type": "task",
+      "parent_key": "e1",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e1"
+      ],
+      "description": "Accessor set: AsSymlinker, AsStreamer, AsTruncater, with a NoCaps embeddable default\n\n## Acceptance\n\nA plugin supporting nothing optional compiles with zero accessor code\n\nSource: docs/roadmap.md (E1.3)"
+    },
+    {
+      "key": "e1.4",
+      "title": "E1.4 \u2014 Mount table: longest-prefix resolution, itself implementing FileSystem",
+      "type": "task",
+      "parent_key": "e1",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e1"
+      ],
+      "description": "Mount table: longest-prefix resolution, itself implementing FileSystem\n\n## Acceptance\n\nDispatcher forwards both descriptors and accessors to the resolved plugin\n\nSource: docs/roadmap.md (E1.4)"
+    },
+    {
+      "key": "e1.5",
+      "title": "E1.5 \u2014 Plugin registry: a mount is added by config, not by editing a switch or factory",
+      "type": "task",
+      "parent_key": "e1",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e1"
+      ],
+      "description": "Plugin registry: a mount is added by config, not by editing a switch or factory\n\n## Acceptance\n\nA new mount appears from a config file with no recompile\n\nSource: docs/roadmap.md (E1.5)"
+    },
+    {
+      "key": "e1.6",
+      "title": "E1.6 \u2014 Architecture boundary declared with depguard: internal/core/... may not import an adapter or a driver",
+      "type": "task",
+      "parent_key": "e1",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e1"
+      ],
+      "description": "Architecture boundary declared with depguard: internal/core/... may not import an adapter or a driver\n\n## Acceptance\n\nA driver import added to a core package fails lint, with the tenet named in the desc message\n\nSource: docs/roadmap.md (E1.6)"
+    },
+    {
+      "key": "e1.7",
+      "title": "E1.7 \u2014 Skip stateful open handles and a touch verb",
+      "type": "decision",
+      "parent_key": "e1",
+      "priority": 3,
+      "labels": [
+        "nerve",
+        "epic:e1"
+      ],
+      "description": "Skip stateful open handles and a touch verb\n\n## Acceptance\n\nRecorded as skipped; neither has a caller, and a port with no second implementation is an interface tax\n\nSource: docs/roadmap.md (E1.7)"
+    },
+    {
+      "key": "e2",
+      "title": "E2 \u2014 Storage plugins",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e2"
+      ],
+      "description": "Epic E2: Storage plugins.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e2.1",
+      "title": "E2.1 \u2014 memfs \u2014 in-memory, the reference implementation and test substrate",
+      "type": "task",
+      "parent_key": "e2",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e2"
+      ],
+      "description": "memfs \u2014 in-memory, the reference implementation and test substrate\n\n## Acceptance\n\nFull conformance suite passes against it\n\nSource: docs/roadmap.md (E2.1)"
+    },
+    {
+      "key": "e2.2",
+      "title": "E2.2 \u2014 localfs \u2014 host disk passthrough",
+      "type": "task",
+      "parent_key": "e2",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e2"
+      ],
+      "description": "localfs \u2014 host disk passthrough\n\n## Acceptance\n\nConformance suite passes\n\nSource: docs/roadmap.md (E2.2)"
+    },
+    {
+      "key": "e2.3",
+      "title": "E2.3 \u2014 sqlfs \u2014 SQLite-backed tree",
+      "type": "task",
+      "parent_key": "e2",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e2"
+      ],
+      "description": "sqlfs \u2014 SQLite-backed tree\n\n## Acceptance\n\nConformance suite passes\n\nSource: docs/roadmap.md (E2.3)"
+    },
+    {
+      "key": "e2.4",
+      "title": "E2.4 \u2014 Object store plugin behind one port; MinIO locally",
+      "type": "task",
+      "parent_key": "e2",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e2"
+      ],
+      "description": "Object store plugin behind one port; MinIO locally\n\n## Acceptance\n\nObject-store descriptor set; prefix semantics, no true directories\n\nSource: docs/roadmap.md (E2.4)"
+    },
+    {
+      "key": "e2.5",
+      "title": "E2.5 \u2014 kvfs \u2014 namespaced key-value for sessions and agent state",
+      "type": "task",
+      "parent_key": "e2",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e2"
+      ],
+      "description": "kvfs \u2014 namespaced key-value for sessions and agent state\n\n## Acceptance\n\nConformance suite passes\n\nSource: docs/roadmap.md (E2.5)"
+    },
+    {
+      "key": "e2.6",
+      "title": "E2.6 \u2014 Plugin conformance suite: one test set every plugin runs, honouring declared descriptors",
+      "type": "task",
+      "parent_key": "e2",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e2"
+      ],
+      "description": "Plugin conformance suite: one test set every plugin runs, honouring declared descriptors\n\n## Acceptance\n\nAdding a plugin means running the suite, not writing a new one\n\nSource: docs/roadmap.md (E2.6)"
+    },
+    {
+      "key": "e2.7",
+      "title": "E2.7 \u2014 Utility plugins: httpfs, proxyfs, heartbeatfs, serverinfofs, devfs, hellofs",
+      "type": "task",
+      "parent_key": "e2",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e2"
+      ],
+      "description": "Utility plugins: httpfs, proxyfs, heartbeatfs, serverinfofs, devfs, hellofs\n\n## Acceptance\n\nEach mounts and answers stat\n\nSource: docs/roadmap.md (E2.7)"
+    },
+    {
+      "key": "e2.8",
+      "title": "E2.8 \u2014 Object-backed key-value, sharing the kvfs port",
+      "type": "task",
+      "parent_key": "e2",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e2"
+      ],
+      "description": "Object-backed key-value, sharing the kvfs port\n\n## Acceptance\n\nSecond KV implementation nameable\n\nSource: docs/roadmap.md (E2.8)"
+    },
+    {
+      "key": "e3",
+      "title": "E3 \u2014 Streams and queues",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e3"
+      ],
+      "description": "Epic E3: Streams and queues.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e3.1",
+      "title": "E3.1 \u2014 queuefs over RabbitMQ, read-destructive, with a transactional outbox",
+      "type": "task",
+      "parent_key": "e3",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e3"
+      ],
+      "description": "queuefs over RabbitMQ, read-destructive, with a transactional outbox\n\n## Acceptance\n\nLosing the broker loses no durable state; a new consumer can be backfilled from Postgres\n\nSource: docs/roadmap.md (E3.1)"
+    },
+    {
+      "key": "e3.2",
+      "title": "E3.2 \u2014 streamfs \u2014 ring-buffer append stream, implements Streamer",
+      "type": "task",
+      "parent_key": "e3",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e3"
+      ],
+      "description": "streamfs \u2014 ring-buffer append stream, implements Streamer\n\n## Acceptance\n\nReader observes writes without polling the whole file\n\nSource: docs/roadmap.md (E3.2)"
+    },
+    {
+      "key": "e3.3",
+      "title": "E3.3 \u2014 streamrotatefs \u2014 rotating log stream",
+      "type": "task",
+      "parent_key": "e3",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e3"
+      ],
+      "description": "streamrotatefs \u2014 rotating log stream\n\n## Acceptance\n\nRotation is observable through read_dir\n\nSource: docs/roadmap.md (E3.3)"
+    },
+    {
+      "key": "e3.4",
+      "title": "E3.4 \u2014 Work bus over the same broker \u2014 do not build a second distribution abstraction",
+      "type": "task",
+      "parent_key": "e3",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e3"
+      ],
+      "description": "Work bus over the same broker \u2014 do not build a second distribution abstraction\n\n## Acceptance\n\nPublish and handle paths exercised by a crash-simulation test\n\nSource: docs/roadmap.md (E3.4)"
+    },
+    {
+      "key": "e3.5",
+      "title": "E3.5 \u2014 WriteObserver hook: a VFS write emits a work event",
+      "type": "task",
+      "parent_key": "e3",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e3"
+      ],
+      "description": "WriteObserver hook: a VFS write emits a work event\n\n## Acceptance\n\nIndexing triggers on write, not on the caller remembering to ask\n\nSource: docs/roadmap.md (E3.5)"
+    },
+    {
+      "key": "e3.6",
+      "title": "E3.6 \u2014 Completion notification for awaiting async work",
+      "type": "task",
+      "parent_key": "e3",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e3"
+      ],
+      "description": "Completion notification for awaiting async work\n\n## Acceptance\n\nCaller can block on a job finishing without polling\n\nSource: docs/roadmap.md (E3.6)"
+    },
+    {
+      "key": "e3.7",
+      "title": "E3.7 \u2014 Export refresh: cache invalidation after a materialisation",
+      "type": "task",
+      "parent_key": "e3",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e3"
+      ],
+      "description": "Export refresh: cache invalidation after a materialisation\n\n## Acceptance\n\nStale export is not served after its inputs change\n\nSource: docs/roadmap.md (E3.7)"
+    },
+    {
+      "key": "e4",
+      "title": "E4 \u2014 Versioning",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e4"
+      ],
+      "description": "Epic E4: Versioning.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e4.1",
+      "title": "E4.1 \u2014 Content-addressed object store",
+      "type": "task",
+      "parent_key": "e4",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e4"
+      ],
+      "description": "Content-addressed object store\n\n## Acceptance\n\nIdentical content stored once\n\nSource: docs/roadmap.md (E4.1)"
+    },
+    {
+      "key": "e4.2",
+      "title": "E4.2 \u2014 RefStore port with a local implementation",
+      "type": "task",
+      "parent_key": "e4",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e4"
+      ],
+      "description": "RefStore port with a local implementation\n\n## Acceptance\n\nSecond implementation nameable\n\nSource: docs/roadmap.md (E4.2)"
+    },
+    {
+      "key": "e4.3",
+      "title": "E4.3 \u2014 Versioner: status, commit, list_versions, read_version, diff, restore, reconcile, purge",
+      "type": "task",
+      "parent_key": "e4",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e4"
+      ],
+      "description": "Versioner: status, commit, list_versions, read_version, diff, restore, reconcile, purge\n\n## Acceptance\n\nRound trip: commit, mutate, diff, restore\n\nSource: docs/roadmap.md (E4.3)"
+    },
+    {
+      "key": "e4.4",
+      "title": "E4.4 \u2014 Working-copy port over the mutable tree",
+      "type": "task",
+      "parent_key": "e4",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e4"
+      ],
+      "description": "Working-copy port over the mutable tree\n\n## Acceptance\n\nReconcile resolves divergence between working state and refs\n\nSource: docs/roadmap.md (E4.4)"
+    },
+    {
+      "key": "e4.5",
+      "title": "E4.5 \u2014 Concurrency proof: a fault-injecting ref store that conflicts once",
+      "type": "task",
+      "parent_key": "e4",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e4"
+      ],
+      "description": "Concurrency proof: a fault-injecting ref store that conflicts once\n\n## Acceptance\n\nConflict path is exercised, not asserted around\n\nSource: docs/roadmap.md (E4.5)"
+    },
+    {
+      "key": "e5",
+      "title": "E5 \u2014 Namespacing and isolation",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e5"
+      ],
+      "description": "Epic E5: Namespacing and isolation.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e5.1",
+      "title": "E5.1 \u2014 Path derivation in one place: workspace and user scope",
+      "type": "task",
+      "parent_key": "e5",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e5"
+      ],
+      "description": "Path derivation in one place: workspace and user scope\n\n## Acceptance\n\nSingle function computes every scoped path\n\nSource: docs/roadmap.md (E5.1)"
+    },
+    {
+      "key": "e5.2",
+      "title": "E5.2 \u2014 Refuse multi-tenancy; drop tenantId",
+      "type": "decision",
+      "parent_key": "e5",
+      "priority": 3,
+      "labels": [
+        "nerve",
+        "epic:e5"
+      ],
+      "description": "Refuse multi-tenancy; drop tenantId\n\n## Acceptance\n\nRecorded. The Forge is one tenant; workspace and user scoping stay\n\nSource: docs/roadmap.md (E5.2)"
+    },
+    {
+      "key": "e5.3",
+      "title": "E5.3 \u2014 Workspace lifecycle: create idempotent, list, delete",
+      "type": "task",
+      "parent_key": "e5",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e5"
+      ],
+      "description": "Workspace lifecycle: create idempotent, list, delete\n\n## Acceptance\n\nDelete removes files, vectors, graph nodes, KV keys and queue entries\n\nSource: docs/roadmap.md (E5.3)"
+    },
+    {
+      "key": "e5.4",
+      "title": "E5.4 \u2014 Cross-user isolation test",
+      "type": "task",
+      "parent_key": "e5",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e5"
+      ],
+      "description": "Cross-user isolation test\n\n## Acceptance\n\nA bug in one user's workspace is not observable from another's\n\nSource: docs/roadmap.md (E5.4)"
+    },
+    {
+      "key": "e6",
+      "title": "E6 \u2014 Ingestion",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e6"
+      ],
+      "description": "Epic E6: Ingestion.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e6.1",
+      "title": "E6.1 \u2014 Resource routes: create, upload, upload-complete, signed download, delete",
+      "type": "task",
+      "parent_key": "e6",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e6"
+      ],
+      "description": "Resource routes: create, upload, upload-complete, signed download, delete\n\n## Acceptance\n\nLarge file streams and finalises separately\n\nSource: docs/roadmap.md (E6.1)"
+    },
+    {
+      "key": "e6.2",
+      "title": "E6.2 \u2014 Async pipeline consuming the queue",
+      "type": "task",
+      "parent_key": "e6",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e6"
+      ],
+      "description": "Async pipeline consuming the queue\n\n## Acceptance\n\nIngestion does not block the request\n\nSource: docs/roadmap.md (E6.2)"
+    },
+    {
+      "key": "e6.3",
+      "title": "E6.3 \u2014 Processors as one package per format, starting text and PDF",
+      "type": "task",
+      "parent_key": "e6",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e6"
+      ],
+      "description": "Processors as one package per format, starting text and PDF\n\n## Acceptance\n\nAdding a format is a package, not a switch edit\n\nSource: docs/roadmap.md (E6.3)"
+    },
+    {
+      "key": "e6.4",
+      "title": "E6.4 \u2014 L0/L1/L2 sidecar generation",
+      "type": "task",
+      "parent_key": "e6",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e6"
+      ],
+      "description": "L0/L1/L2 sidecar generation\n\n## Acceptance\n\nEvery ingested document has abstract, overview and detail\n\nSource: docs/roadmap.md (E6.4)"
+    },
+    {
+      "key": "e6.5",
+      "title": "E6.5 \u2014 Content escalation routes: abstract, overview, read, stat, download",
+      "type": "task",
+      "parent_key": "e6",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e6"
+      ],
+      "description": "Content escalation routes: abstract, overview, read, stat, download\n\n## Acceptance\n\nRetrieval returns L0; caller escalates only where needed\n\nSource: docs/roadmap.md (E6.5)"
+    },
+    {
+      "key": "e6.6",
+      "title": "E6.6 \u2014 Indexing status endpoint",
+      "type": "task",
+      "parent_key": "e6",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e6"
+      ],
+      "description": "Indexing status endpoint\n\n## Acceptance\n\nCaller can tell when a document became searchable\n\nSource: docs/roadmap.md (E6.6)"
+    },
+    {
+      "key": "e6.7",
+      "title": "E6.7 \u2014 Indexer dispatch: fan work to handlers",
+      "type": "task",
+      "parent_key": "e6",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e6"
+      ],
+      "description": "Indexer dispatch: fan work to handlers\n\n## Acceptance\n\nHandler set extensible without editing dispatch\n\nSource: docs/roadmap.md (E6.7)"
+    },
+    {
+      "key": "e6.8",
+      "title": "E6.8 \u2014 Speculative readahead",
+      "type": "task",
+      "parent_key": "e6",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e6"
+      ],
+      "description": "Speculative readahead\n\n## Acceptance\n\nPrefetch measurably reduces first-read latency, or is removed\n\nSource: docs/roadmap.md (E6.8)"
+    },
+    {
+      "key": "e7",
+      "title": "E7 \u2014 Retrieval",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "Epic E7: Retrieval.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e7.1",
+      "title": "E7.1 \u2014 LLM gateway: one routed path for embeddings, extraction and summarisation",
+      "type": "task",
+      "parent_key": "e7",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "LLM gateway: one routed path for embeddings, extraction and summarisation\n\n## Acceptance\n\nNo plugin holds a provider client\n\nSource: docs/roadmap.md (E7.1)"
+    },
+    {
+      "key": "e7.2",
+      "title": "E7.2 \u2014 EmbeddingProvider port over Ollama",
+      "type": "task",
+      "parent_key": "e7",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "EmbeddingProvider port over Ollama\n\n## Acceptance\n\nSwapping provider is config\n\nSource: docs/roadmap.md (E7.2)"
+    },
+    {
+      "key": "e7.3",
+      "title": "E7.3 \u2014 vectorfs over pgvector",
+      "type": "task",
+      "parent_key": "e7",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "vectorfs over pgvector\n\n## Acceptance\n\nANN query returns ranked results through the VFS verbs\n\nSource: docs/roadmap.md (E7.3)"
+    },
+    {
+      "key": "e7.4",
+      "title": "E7.4 \u2014 EntityExtractor port; entity and relation extraction",
+      "type": "task",
+      "parent_key": "e7",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "EntityExtractor port; entity and relation extraction\n\n## Acceptance\n\nExtraction runs through the gateway\n\nSource: docs/roadmap.md (E7.4)"
+    },
+    {
+      "key": "e7.5",
+      "title": "E7.5 \u2014 graphfs \u2014 in-memory graph, blob-persisted, single-hop expansion",
+      "type": "task",
+      "parent_key": "e7",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "graphfs \u2014 in-memory graph, blob-persisted, single-hop expansion\n\n## Acceptance\n\nGraphRAG expansion returns neighbours of a matched entity\n\nSource: docs/roadmap.md (E7.5)"
+    },
+    {
+      "key": "e7.6",
+      "title": "E7.6 \u2014 graphdbfs \u2014 real graph backend, multi-hop traversal, configurable hop depth",
+      "type": "task",
+      "parent_key": "e7",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "graphdbfs \u2014 real graph backend, multi-hop traversal, configurable hop depth\n\n## Acceptance\n\nTwo-hop Cypher-equivalent query returns results\n\nSource: docs/roadmap.md (E7.6)"
+    },
+    {
+      "key": "e7.7",
+      "title": "E7.7 \u2014 Open decision: graph backend choice, constrained to free and laptop-local",
+      "type": "decision",
+      "parent_key": "e7",
+      "priority": 3,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "Open decision: graph backend choice, constrained to free and laptop-local\n\n## Acceptance\n\nBackend named with the second implementation nameable\n\nSource: docs/roadmap.md (E7.7)"
+    },
+    {
+      "key": "e7.8",
+      "title": "E7.8 \u2014 hybridfs \u2014 Reciprocal Rank Fusion over vector and graph",
+      "type": "task",
+      "parent_key": "e7",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "hybridfs \u2014 Reciprocal Rank Fusion over vector and graph\n\n## Acceptance\n\nFusion needs no score calibration between the two rankers\n\nSource: docs/roadmap.md (E7.8)"
+    },
+    {
+      "key": "e7.9",
+      "title": "E7.9 \u2014 Search routes: find, search, retrieve, glob, grep, scoped by URI prefix",
+      "type": "task",
+      "parent_key": "e7",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "Search routes: find, search, retrieve, glob, grep, scoped by URI prefix\n\n## Acceptance\n\nOne find serves memories, documents and skills by changing the prefix\n\nSource: docs/roadmap.md (E7.9)"
+    },
+    {
+      "key": "e7.10",
+      "title": "E7.10 \u2014 DocStore port behind the vector index",
+      "type": "task",
+      "parent_key": "e7",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "DocStore port behind the vector index\n\n## Acceptance\n\nLocal and object-store implementations both pass\n\nSource: docs/roadmap.md (E7.10)"
+    },
+    {
+      "key": "e7.11",
+      "title": "E7.11 \u2014 Graph persistence and snapshot ports",
+      "type": "task",
+      "parent_key": "e7",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e7"
+      ],
+      "description": "Graph persistence and snapshot ports\n\n## Acceptance\n\nGraph survives restart; snapshot restores it\n\nSource: docs/roadmap.md (E7.11)"
+    },
+    {
+      "key": "e8",
+      "title": "E8 \u2014 Memory",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "Epic E8: Memory.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e8.1",
+      "title": "E8.1 \u2014 Sessions: KV metadata plus append-only message log",
+      "type": "task",
+      "parent_key": "e8",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "Sessions: KV metadata plus append-only message log\n\n## Acceptance\n\nCreate, list, get, delete, append\n\nSource: docs/roadmap.md (E8.1)"
+    },
+    {
+      "key": "e8.2",
+      "title": "E8.2 \u2014 context route: builds prompt context from profile and hybrid retrieval",
+      "type": "task",
+      "parent_key": "e8",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "context route: builds prompt context from profile and hybrid retrieval\n\n## Acceptance\n\nReturns memories and documents for a turn\n\nSource: docs/roadmap.md (E8.2)"
+    },
+    {
+      "key": "e8.3",
+      "title": "E8.3 \u2014 Commit: extraction of structured facts with priorities",
+      "type": "task",
+      "parent_key": "e8",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "Commit: extraction of structured facts with priorities\n\n## Acceptance\n\nTranscript becomes typed memories\n\nSource: docs/roadmap.md (E8.3)"
+    },
+    {
+      "key": "e8.4",
+      "title": "E8.4 \u2014 Commit: transcript compression",
+      "type": "task",
+      "parent_key": "e8",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "Commit: transcript compression\n\n## Acceptance\n\nCold transcript reduced to what is worth keeping\n\nSource: docs/roadmap.md (E8.4)"
+    },
+    {
+      "key": "e8.5",
+      "title": "E8.5 \u2014 Commit: batched category deduplication",
+      "type": "task",
+      "parent_key": "e8",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "Commit: batched category deduplication\n\n## Acceptance\n\nA restated fact does not become a second memory\n\nSource: docs/roadmap.md (E8.5)"
+    },
+    {
+      "key": "e8.6",
+      "title": "E8.6 \u2014 Commit: consolidation into narratives",
+      "type": "task",
+      "parent_key": "e8",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "Commit: consolidation into narratives\n\n## Acceptance\n\nRelated facts merge\n\nSource: docs/roadmap.md (E8.6)"
+    },
+    {
+      "key": "e8.7",
+      "title": "E8.7 \u2014 Commit: reconciliation against contradicting prior memories",
+      "type": "task",
+      "parent_key": "e8",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "Commit: reconciliation against contradicting prior memories\n\n## Acceptance\n\nContradiction resolved, not duplicated\n\nSource: docs/roadmap.md (E8.7)"
+    },
+    {
+      "key": "e8.8",
+      "title": "E8.8 \u2014 Temporal validity intervals and as-of queries",
+      "type": "task",
+      "parent_key": "e8",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "Temporal validity intervals and as-of queries\n\n## Acceptance\n\nReconstructs what was believed at a past moment\n\nSource: docs/roadmap.md (E8.8)"
+    },
+    {
+      "key": "e8.9",
+      "title": "E8.9 \u2014 Memory lifecycle routes: archive, consolidate, restore, temporal graph query",
+      "type": "task",
+      "parent_key": "e8",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "Memory lifecycle routes: archive, consolidate, restore, temporal graph query\n\n## Acceptance\n\nArchived memory is recoverable, not deleted\n\nSource: docs/roadmap.md (E8.9)"
+    },
+    {
+      "key": "e8.10",
+      "title": "E8.10 \u2014 Session archival",
+      "type": "task",
+      "parent_key": "e8",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e8"
+      ],
+      "description": "Session archival\n\n## Acceptance\n\nCold transcript moved aside with a summary retained\n\nSource: docs/roadmap.md (E8.10)"
+    },
+    {
+      "key": "e9",
+      "title": "E9 \u2014 The resource kernel",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e9"
+      ],
+      "description": "Epic E9: The resource kernel.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e9.1",
+      "title": "E9.1 \u2014 Skills registry: list, create, get, delete, search, tree, bundle, copy",
+      "type": "task",
+      "parent_key": "e9",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e9"
+      ],
+      "description": "Skills registry: list, create, get, delete, search, tree, bundle, copy\n\n## Acceptance\n\nSemantic discovery returns relevant skills for a task\n\nSource: docs/roadmap.md (E9.1)"
+    },
+    {
+      "key": "e9.2",
+      "title": "E9.2 \u2014 Blueprints on the identical shape",
+      "type": "task",
+      "parent_key": "e9",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e9"
+      ],
+      "description": "Blueprints on the identical shape\n\n## Acceptance\n\nThe shape generalises with no new route logic\n\nSource: docs/roadmap.md (E9.2)"
+    },
+    {
+      "key": "e9.3",
+      "title": "E9.3 \u2014 Extract the kernel from what E9.1 and E9.2 actually needed",
+      "type": "task",
+      "parent_key": "e9",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e9"
+      ],
+      "description": "Extract the kernel from what E9.1 and E9.2 actually needed\n\n## Acceptance\n\nA third document kind needs config, not code\n\nSource: docs/roadmap.md (E9.3)"
+    },
+    {
+      "key": "e9.4",
+      "title": "E9.4 \u2014 Relations: list, link, unlink",
+      "type": "task",
+      "parent_key": "e9",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e9"
+      ],
+      "description": "Relations: list, link, unlink\n\n## Acceptance\n\nCurated edges distinct from extracted ones\n\nSource: docs/roadmap.md (E9.4)"
+    },
+    {
+      "key": "e9.5",
+      "title": "E9.5 \u2014 Threads: durable agent-run outputs",
+      "type": "task",
+      "parent_key": "e9",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e9"
+      ],
+      "description": "Threads: durable agent-run outputs\n\n## Acceptance\n\nResults survive the requesting connection\n\nSource: docs/roadmap.md (E9.5)"
+    },
+    {
+      "key": "e9.6",
+      "title": "E9.6 \u2014 Filesystem passthrough routes: ls, stat, tree, mkdir, cp, mv, find, glob, grep, symlink, delete",
+      "type": "task",
+      "parent_key": "e9",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e9"
+      ],
+      "description": "Filesystem passthrough routes: ls, stat, tree, mkdir, cp, mv, find, glob, grep, symlink, delete\n\n## Acceptance\n\nAgent walks its workspace as a directory tree\n\nSource: docs/roadmap.md (E9.6)"
+    },
+    {
+      "key": "e9.7",
+      "title": "E9.7 \u2014 KV routes: get, put, delete",
+      "type": "task",
+      "parent_key": "e9",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e9"
+      ],
+      "description": "KV routes: get, put, delete\n\n## Acceptance\n\nNamespaced scratch state\n\nSource: docs/roadmap.md (E9.7)"
+    },
+    {
+      "key": "e10",
+      "title": "E10 \u2014 Projections and analytics",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e10"
+      ],
+      "description": "Epic E10: Projections and analytics.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e10.1",
+      "title": "E10.1 \u2014 Projection manifest format: slice and rollup",
+      "type": "task",
+      "parent_key": "e10",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e10"
+      ],
+      "description": "Projection manifest format: slice and rollup\n\n## Acceptance\n\nManifest declares the projection; no schema written by hand\n\nSource: docs/roadmap.md (E10.1)"
+    },
+    {
+      "key": "e10.2",
+      "title": "E10.2 \u2014 DuckDB materialisation to Parquet",
+      "type": "task",
+      "parent_key": "e10",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e10"
+      ],
+      "description": "DuckDB materialisation to Parquet\n\n## Acceptance\n\nSlice Parquet per manifest\n\nSource: docs/roadmap.md (E10.2)"
+    },
+    {
+      "key": "e10.3",
+      "title": "E10.3 \u2014 Rollup across slices",
+      "type": "task",
+      "parent_key": "e10",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e10"
+      ],
+      "description": "Rollup across slices\n\n## Acceptance\n\nOne combined Parquet per workspace\n\nSource: docs/roadmap.md (E10.3)"
+    },
+    {
+      "key": "e10.4",
+      "title": "E10.4 \u2014 Convergence proof",
+      "type": "task",
+      "parent_key": "e10",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e10"
+      ],
+      "description": "Convergence proof\n\n## Acceptance\n\nRe-running is a no-op producing the same result\n\nSource: docs/roadmap.md (E10.4)"
+    },
+    {
+      "key": "e10.5",
+      "title": "E10.5 \u2014 Scheduler with write-ahead log",
+      "type": "task",
+      "parent_key": "e10",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e10"
+      ],
+      "description": "Scheduler with write-ahead log\n\n## Acceptance\n\nInterrupted job is recoverable\n\nSource: docs/roadmap.md (E10.5)"
+    },
+    {
+      "key": "e10.6",
+      "title": "E10.6 \u2014 Single-consumer guarantee",
+      "type": "task",
+      "parent_key": "e10",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e10"
+      ],
+      "description": "Single-consumer guarantee\n\n## Acceptance\n\nTwo nodes cannot corrupt the same Parquet; crash simulation in tests\n\nSource: docs/roadmap.md (E10.6)"
+    },
+    {
+      "key": "e10.7",
+      "title": "E10.7 \u2014 Natural-language workspace query",
+      "type": "task",
+      "parent_key": "e10",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e10"
+      ],
+      "description": "Natural-language workspace query\n\n## Acceptance\n\nNL to SQL over the rollup\n\nSource: docs/roadmap.md (E10.7)"
+    },
+    {
+      "key": "e11",
+      "title": "E11 \u2014 Sandboxed execution",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e11"
+      ],
+      "description": "Epic E11: Sandboxed execution.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e11.1",
+      "title": "E11.1 \u2014 Mount the scoped VFS as a real filesystem",
+      "type": "task",
+      "parent_key": "e11",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e11"
+      ],
+      "description": "Mount the scoped VFS as a real filesystem\n\n## Acceptance\n\nAgent code sees an ordinary directory tree\n\nSource: docs/roadmap.md (E11.1)"
+    },
+    {
+      "key": "e11.2",
+      "title": "E11.2 \u2014 Open decision: Go FUSE library, with the sandbox boundary named",
+      "type": "decision",
+      "parent_key": "e11",
+      "priority": 3,
+      "labels": [
+        "nerve",
+        "epic:e11"
+      ],
+      "description": "Open decision: Go FUSE library, with the sandbox boundary named\n\n## Acceptance\n\nLibrary chosen; escape surface written down\n\nSource: docs/roadmap.md (E11.2)"
+    },
+    {
+      "key": "e11.3",
+      "title": "E11.3 \u2014 Scope enforcement at the mount",
+      "type": "task",
+      "parent_key": "e11",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e11"
+      ],
+      "description": "Scope enforcement at the mount\n\n## Acceptance\n\nA process inside cannot address a path outside its workspace\n\nSource: docs/roadmap.md (E11.3)"
+    },
+    {
+      "key": "e11.4",
+      "title": "E11.4 \u2014 Escape test suite: path traversal, symlink escape, handle reuse",
+      "type": "task",
+      "parent_key": "e11",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e11"
+      ],
+      "description": "Escape test suite: path traversal, symlink escape, handle reuse\n\n## Acceptance\n\nEach attempt fails and is asserted\n\nSource: docs/roadmap.md (E11.4)"
+    },
+    {
+      "key": "e11.5",
+      "title": "E11.5 \u2014 Lifecycle: mount, run, unmount, cleanup on crash",
+      "type": "task",
+      "parent_key": "e11",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e11"
+      ],
+      "description": "Lifecycle: mount, run, unmount, cleanup on crash\n\n## Acceptance\n\nNo orphaned mounts after a killed process\n\nSource: docs/roadmap.md (E11.5)"
+    },
+    {
+      "key": "e11.6",
+      "title": "E11.6 \u2014 Refuse 9P and the gVisor gofer wrapper",
+      "type": "decision",
+      "parent_key": "e11",
+      "priority": 3,
+      "labels": [
+        "nerve",
+        "epic:e11"
+      ],
+      "description": "Refuse 9P and the gVisor gofer wrapper\n\n## Acceptance\n\nRecorded. Fleet-scale Kubernetes machinery; revisit on evidence\n\nSource: docs/roadmap.md (E11.6)"
+    },
+    {
+      "key": "e12",
+      "title": "E12 \u2014 Operability and toolchain",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Epic E12: Operability and toolchain.\n\nSource: docs/roadmap.md"
+    },
+    {
+      "key": "e12.1",
+      "title": "E12.1 \u2014 Layered config: defaults, file, environment, flags",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Layered config: defaults, file, environment, flags\n\n## Acceptance\n\nLater wins; invalid config fails at boot\n\nSource: docs/roadmap.md (E12.1)"
+    },
+    {
+      "key": "e12.2",
+      "title": "E12.2 \u2014 Effective-config endpoint, secrets redacted",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Effective-config endpoint, secrets redacted\n\n## Acceptance\n\n\"What is it configured as\" never requires guessing\n\nSource: docs/roadmap.md (E12.2)"
+    },
+    {
+      "key": "e12.3",
+      "title": "E12.3 \u2014 Retry with explicit retryable versus fail-fast classification",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Retry with explicit retryable versus fail-fast classification\n\n## Acceptance\n\nA validation error is never retried\n\nSource: docs/roadmap.md (E12.3)"
+    },
+    {
+      "key": "e12.4",
+      "title": "E12.4 \u2014 Timeouts on every remote call; deadlines propagate to the driver",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Timeouts on every remote call; deadlines propagate to the driver\n\n## Acceptance\n\nNo unbounded call\n\nSource: docs/roadmap.md (E12.4)"
+    },
+    {
+      "key": "e12.5",
+      "title": "E12.5 \u2014 Circuit breakers with domain fallbacks",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Circuit breakers with domain fallbacks\n\n## Acceptance\n\nOne failing provider degrades a feature, not a path\n\nSource: docs/roadmap.md (E12.5)"
+    },
+    {
+      "key": "e12.6",
+      "title": "E12.6 \u2014 OpenTelemetry traces, metrics and logs",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "OpenTelemetry traces, metrics and logs\n\n## Acceptance\n\n\"Why is it slow\" answerable without adding code\n\nSource: docs/roadmap.md (E12.6)"
+    },
+    {
+      "key": "e12.7",
+      "title": "E12.7 \u2014 Traffic accounting surfaced through a server-info mount",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Traffic accounting surfaced through a server-info mount\n\n## Acceptance\n\nPer-plugin counters readable\n\nSource: docs/roadmap.md (E12.7)"
+    },
+    {
+      "key": "e12.8",
+      "title": "E12.8 \u2014 One command up, one command down",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "One command up, one command down\n\n## Acceptance\n\nReturning after three weeks requires no recall\n\nSource: docs/roadmap.md (E12.8)"
+    },
+    {
+      "key": "e12.9",
+      "title": "E12.9 \u2014 Refuse the Kubernetes writer/reader split",
+      "type": "decision",
+      "parent_key": "e12",
+      "priority": 3,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Refuse the Kubernetes writer/reader split\n\n## Acceptance\n\nRecorded. One process until it demonstrably hurts\n\nSource: docs/roadmap.md (E12.9)"
+    },
+    {
+      "key": "e12.10",
+      "title": "E12.10 \u2014 Health and liveness endpoints",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Health and liveness endpoints\n\n## Acceptance\n\nProbe answers without touching a dependency\n\nSource: docs/roadmap.md (E12.10)"
+    },
+    {
+      "key": "e12.11",
+      "title": "E12.11 \u2014 Key-space partitioning for contended structures",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Key-space partitioning for contended structures\n\n## Acceptance\n\nContention measurably reduced, or the partitioning is removed\n\nSource: docs/roadmap.md (E12.11)"
+    },
+    {
+      "key": "e12.12",
+      "title": "E12.12 \u2014 Pinned toolchain (Go 1.24.6) and a reproducible build",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Pinned toolchain (Go 1.24.6) and a reproducible build\n\n## Acceptance\n\nSame source produces the same binary on a clean checkout\n\nSource: docs/roadmap.md (E12.12)"
+    },
+    {
+      "key": "e12.13",
+      "title": "E12.13 \u2014 gofmt gate",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "gofmt gate\n\n## Acceptance\n\nUnformatted code fails the build; no formatting opinions anywhere else\n\nSource: docs/roadmap.md (E12.13)"
+    },
+    {
+      "key": "e12.14",
+      "title": "E12.14 \u2014 golangci-lint v2 config: errcheck, staticcheck, depguard",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "golangci-lint v2 config: errcheck, staticcheck, depguard\n\n## Acceptance\n\nConfig loads under v2 nesting (linters: settings:); E1.6 rules live here\n\nSource: docs/roadmap.md (E12.14)"
+    },
+    {
+      "key": "e12.15",
+      "title": "E12.15 \u2014 Context-discipline linters: no Context in a struct, ctx first parameter",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Context-discipline linters: no Context in a struct, ctx first parameter\n\n## Acceptance\n\nTenet 4 violation fails lint. Confirm exact linter names with golangci-lint help linters\n\nSource: docs/roadmap.md (E12.15)"
+    },
+    {
+      "key": "e12.16",
+      "title": "E12.16 \u2014 goleak in the test suite",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "goleak in the test suite\n\n## Acceptance\n\nA goroutine with no cancel path fails its test. Not statically checkable\n\nSource: docs/roadmap.md (E12.16)"
+    },
+    {
+      "key": "e12.17",
+      "title": "E12.17 \u2014 Timeout coverage on every outbound call",
+      "type": "task",
+      "parent_key": "e12",
+      "priority": 2,
+      "labels": [
+        "nerve",
+        "epic:e12"
+      ],
+      "description": "Timeout coverage on every outbound call\n\n## Acceptance\n\nNo linter does this. Enforced by review and a test that asserts a deadline reaches the driver\n\nSource: docs/roadmap.md (E12.17)"
+    }
+  ],
+  "edges": [
+    {
+      "from_key": "e2",
+      "to_key": "e1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e3",
+      "to_key": "e1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e3",
+      "to_key": "e2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e4",
+      "to_key": "e1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e4",
+      "to_key": "e2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e5",
+      "to_key": "e1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e6",
+      "to_key": "e3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e6",
+      "to_key": "e4",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e6",
+      "to_key": "e5",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7",
+      "to_key": "e6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8",
+      "to_key": "e7",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e9",
+      "to_key": "e4",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e10",
+      "to_key": "e6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e11",
+      "to_key": "e5",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e1.6",
+      "to_key": "e12.14",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e1.2",
+      "to_key": "e1.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e1.3",
+      "to_key": "e1.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e1.4",
+      "to_key": "e1.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e1.5",
+      "to_key": "e1.4",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e2.6",
+      "to_key": "e2.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e2.2",
+      "to_key": "e2.6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e2.3",
+      "to_key": "e2.6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e2.4",
+      "to_key": "e2.6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e2.5",
+      "to_key": "e2.6",
+      "type": "blocks"
+    }
+  ]
+}
