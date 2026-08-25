@@ -1,0 +1,17 @@
+# Build output
+/bin/
+/dist/
+
+# Local state for the compose stack
+/.data/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~

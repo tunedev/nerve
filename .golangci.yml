@@ -1,0 +1,30 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - depguard
+    - errcheck
+
+  settings:
+    depguard:
+      rules:
+        # Tenet 1: dependencies point inward. The core owns its interfaces and
+        # must not know which adapter satisfies them.
+        core:
+          files:
+            - "**/internal/core/**"
+          deny:
+            - pkg: "database/sql"
+              desc: "core owns ports; SQL belongs in internal/adapters/outbound"
+            - pkg: "github.com/jackc/pgx"
+              desc: "core owns ports; the Postgres driver belongs in an adapter"
+            - pkg: "github.com/rabbitmq"
+              desc: "core owns ports; the broker client belongs in an adapter"
+            - pkg: "net/http"
+              desc: "core owns ports; transport belongs in internal/adapters/inbound"
+
+  exclusions:
+    rules:
+      - path: _test\.go$
+        linters: [errcheck]
