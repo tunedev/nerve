@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -37,6 +38,27 @@ func TestRegisterKindsMakesMemfsMountable(t *testing.T) {
 	}
 	if string(content) != "text" {
 		t.Errorf("Read(/scratch/notes) = %q, want %q", content, "text")
+	}
+}
+
+// sqlfs is registered here rather than mounted, because building one opens a
+// database this test would have no way to close: the plugin comes back out of
+// the registry wrapped (nrv-mii). What the composition root is answerable for
+// is that the kind a config can name is there, and that the setting it declares
+// is the one an operator is allowed to read back.
+func TestRegisterKindsDeclaresSqlfsAndItsDatabaseFile(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	if public := registry.Public(sqlfs.Kind); !slices.Equal(public, []string{sqlfs.PathSetting}) {
+		t.Errorf("Public(sqlfs) = %v, want [%s]", public, sqlfs.PathSetting)
+	}
+
+	_, err := registry.Table([]vfs.MountSpec{{Prefix: "/scratch", Kind: sqlfs.Kind}})
+	if !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("Table(sqlfs with no database file) = %v, want fs.ErrInvalid", err)
 	}
 }
 
