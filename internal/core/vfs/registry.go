@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Factory builds one plugin from the settings its config names.
@@ -34,14 +35,22 @@ type MountSpec struct {
 // Nothing here knows a concrete plugin. Kinds are registered at composition,
 // which is the only place that does, and a registry is written there and read
 // afterwards rather than shared across goroutines.
+//
+// Every plugin it builds comes back bounded by timeout, so "no unbounded call"
+// is a property of the only route into the tree rather than a habit each
+// factory has to remember.
 type Registry struct {
 	factories map[string]Factory
+	timeout   time.Duration
 }
 
-// NewRegistry returns a registry holding no kinds. Every kind is unknown until
-// something registers it.
-func NewRegistry() *Registry {
-	return &Registry{factories: make(map[string]Factory)}
+// NewRegistry returns a registry holding no kinds, which bounds every plugin it
+// builds by timeout. Every kind is unknown until something registers it.
+//
+// The timeout is a parameter rather than a constant because a deadline is
+// operational: an operator changes it in config, never in a recompile.
+func NewRegistry(timeout time.Duration) *Registry {
+	return &Registry{factories: make(map[string]Factory), timeout: timeout}
 }
 
 // Register puts factory under kind. It fails with fs.ErrExist on a kind already
@@ -56,9 +65,10 @@ func (r *Registry) Register(kind string, factory Factory) error {
 	return nil
 }
 
-// Build makes the plugin one spec names. A kind no one registered fails with
-// fs.ErrNotExist naming what is registered, because a misspelled kind is the
-// boot failure this ticket exists to make legible.
+// Build makes the plugin one spec names and hands it back bounded, because a
+// mount may be remote and no caller of the tree can tell. A kind no one
+// registered fails with fs.ErrNotExist naming what is registered, because a
+// misspelled kind is a boot failure worth making legible.
 func (r *Registry) Build(spec MountSpec) (FileSystem, error) {
 	factory, known := r.factories[spec.Kind]
 	if !known {
@@ -69,7 +79,7 @@ func (r *Registry) Build(spec MountSpec) (FileSystem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("mount %q of kind %q: %w", spec.Prefix, spec.Kind, err)
 	}
-	return fsys, nil
+	return WithTimeout(fsys, r.timeout), nil
 }
 
 // Table builds every spec and mounts it, which is how a config document becomes

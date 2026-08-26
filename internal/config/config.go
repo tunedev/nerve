@@ -22,6 +22,7 @@ import (
 // adapter that uses one, not of the layer that resolves it.
 type Config struct {
 	LogLevel    string `json:"log-level"`
+	CallTimeout string `json:"call-timeout"`
 	PostgresDSN string `json:"postgres-dsn"`
 	RabbitMQURL string `json:"rabbitmq-url"`
 	OllamaURL   string `json:"ollama-url"`
@@ -41,6 +42,7 @@ type Config struct {
 func Defaults() Config {
 	return Config{
 		LogLevel:    "info",
+		CallTimeout: "10s",
 		PostgresDSN: "postgres://nerve:nerve@localhost:5432/nerve?sslmode=disable",
 		RabbitMQURL: "amqp://nerve:nerve@localhost:5672/",
 		OllamaURL:   "http://localhost:11434",
@@ -166,6 +168,7 @@ type field struct {
 
 var fields = []field{
 	{"log-level", "debug, info, warn or error", func(c *Config) *string { return &c.LogLevel }},
+	{"call-timeout", "deadline given to every remote call", func(c *Config) *string { return &c.CallTimeout }},
 	{"postgres-dsn", "Postgres connection string", func(c *Config) *string { return &c.PostgresDSN }},
 	{"rabbitmq-url", "RabbitMQ connection URL", func(c *Config) *string { return &c.RabbitMQURL }},
 	{"ollama-url", "Ollama base URL", func(c *Config) *string { return &c.OllamaURL }},

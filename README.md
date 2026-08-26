@@ -88,6 +88,11 @@ and a mount appears by adding a line rather than by editing code. A kind the bui
 have stops the boot naming the ones it does. Mounts come from the file alone, because
 neither an environment variable nor a flag carries a list.
 
+Every mount is bounded. `call-timeout` is the deadline each verb carries before it reaches
+a plugin, because a mount may be remote and no caller of the tree can tell. It is a ceiling
+rather than an extension — a caller with less time left keeps its own — and no spelling of
+the setting asks for an unbounded call: zero and negative stop the boot.
+
 ## Layout
 
 ```
