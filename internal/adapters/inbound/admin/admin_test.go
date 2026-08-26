@@ -16,9 +16,12 @@ func withPassword() config.Config {
 	cfg := config.Defaults()
 	cfg.PostgresDSN = "postgres://nerve:hunter2@db:5432/nerve?sslmode=disable"
 	cfg.Mounts = []config.Mount{{
-		Prefix:   "/blob",
-		Kind:     "s3",
-		Settings: map[string]string{"endpoint": "https://key:s3cret@minio:9000"},
+		Prefix: "/blob",
+		Kind:   "s3",
+		Settings: map[string]string{
+			"endpoint":          "https://key:s3cret@minio:9000",
+			"secret_access_key": "AKIAIOSFODNN7EXAMPLE",
+		},
 	}}
 	return cfg
 }
@@ -27,7 +30,7 @@ func withPassword() config.Config {
 func get(t *testing.T, cfg config.Config, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	admin.Handler(cfg.Effective()).ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+	admin.Handler(cfg.Effective(nil)).ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 	return rec
 }
 
@@ -45,7 +48,7 @@ func TestConfigEndpointAnswersWithoutGuessing(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	for _, secret := range []string{"hunter2", "s3cret"} {
+	for _, secret := range []string{"hunter2", "s3cret", "AKIAIOSFODNN7EXAMPLE"} {
 		if strings.Contains(body, secret) {
 			t.Errorf("body carries %q:\n%s", secret, body)
 		}
@@ -55,8 +58,8 @@ func TestConfigEndpointAnswersWithoutGuessing(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
 		t.Fatalf("decode body %s: %v", body, err)
 	}
-	if len(answer.Settings) != len(cfg.Effective().Settings) {
-		t.Errorf("body names %d settings, want %d", len(answer.Settings), len(cfg.Effective().Settings))
+	if len(answer.Settings) != len(cfg.Effective(nil).Settings) {
+		t.Errorf("body names %d settings, want %d", len(answer.Settings), len(cfg.Effective(nil).Settings))
 	}
 	if len(answer.Mounts) != 1 || answer.Mounts[0].Prefix != "/blob" {
 		t.Errorf("body mounts = %+v, want the one at /blob", answer.Mounts)

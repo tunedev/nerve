@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 
@@ -137,5 +138,27 @@ func TestAnEmptyRegistryTellsTheOperatorItIsEmpty(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "this build has no kinds") {
 		t.Errorf("error %q does not say the registry is empty", err)
+	}
+}
+
+// A kind says which of its settings can be read back. Nothing else can tell a
+// bucket name from an access key, so what a kind does not name is not echoed.
+func TestRegistryReportsTheSettingsAKindDeclares(t *testing.T) {
+	registry := vfs.NewRegistry()
+	if err := registry.Register("s3", recording, "endpoint", "bucket"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := registry.Register("silent", recording); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	if got := registry.Public("s3"); !slices.Equal(got, []string{"endpoint", "bucket"}) {
+		t.Errorf("Public(s3) = %v, want the declared keys", got)
+	}
+	if got := registry.Public("silent"); len(got) != 0 {
+		t.Errorf("Public(silent) = %v, want none — a kind that declares nothing echoes nothing", got)
+	}
+	if got := registry.Public("unregistered"); len(got) != 0 {
+		t.Errorf("Public(unregistered) = %v, want none", got)
 	}
 }

@@ -36,24 +36,37 @@ type MountSpec struct {
 // afterwards rather than shared across goroutines.
 type Registry struct {
 	factories map[string]Factory
+	public    map[string][]string
 }
 
 // NewRegistry returns a registry holding no kinds. Every kind is unknown until
 // something registers it.
 func NewRegistry() *Registry {
-	return &Registry{factories: make(map[string]Factory)}
+	return &Registry{factories: make(map[string]Factory), public: make(map[string][]string)}
 }
 
 // Register puts factory under kind. It fails with fs.ErrExist on a kind already
 // taken, because two factories under one name make which plugin a config gets
 // depend on registration order.
-func (r *Registry) Register(kind string, factory Factory) error {
+//
+// public names the setting keys this kind is safe to read back to an operator.
+// Everything it does not name is a credential as far as anyone else is
+// concerned, so a kind that names nothing reads back as nothing. Only the kind
+// knows which of its settings is a secret, and only here does it get to say.
+func (r *Registry) Register(kind string, factory Factory, public ...string) error {
 	if _, taken := r.factories[kind]; taken {
 		return fmt.Errorf("register kind %q: %w", kind, fs.ErrExist)
 	}
 
 	r.factories[kind] = factory
+	r.public[kind] = public
 	return nil
+}
+
+// Public reports the setting keys kind declared safe to read back. A kind that
+// declared none, and a kind nobody registered, have none.
+func (r *Registry) Public(kind string) []string {
+	return r.public[kind]
 }
 
 // Build makes the plugin one spec names. A kind no one registered fails with

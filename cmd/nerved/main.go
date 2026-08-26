@@ -64,10 +64,12 @@ func main() {
 	fmt.Printf("admin http://%s/config\n", cfg.AdminAddr)
 
 	// Redaction happens once, at composition, so the surface never holds a
-	// value it would have to remember to hide.
+	// value it would have to remember to hide. What a mount setting reads back
+	// as is the registry's answer: only the kind that registered knows which of
+	// its settings is a credential, and what it does not declare is redacted.
 	srv := &http.Server{
 		Addr:              cfg.AdminAddr,
-		Handler:           admin.Handler(cfg.Effective()),
+		Handler:           admin.Handler(cfg.Effective(registry.Public)),
 		ReadHeaderTimeout: readHeaderTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,

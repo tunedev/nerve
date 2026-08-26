@@ -1,10 +1,13 @@
 package config
 
-import "net/url"
+import (
+	"net/url"
+	"slices"
+)
 
 // Effective is the resolved config as an operator reads it back: every setting
 // under the one name it is spelled with everywhere else, in the order the field
-// table declares, with any password replaced.
+// table declares, with any credential replaced.
 //
 // It is a separate type from Config because it is a copy. Redaction here must
 // never reach the values the process actually runs on.
@@ -20,10 +23,25 @@ type Setting struct {
 	Value string `json:"value"`
 }
 
+// PublicSettings reports which of a kind's mount setting keys are safe to echo
+// back. A kind that names none, and a kind nobody registered, have none.
+//
+// It is a declaration rather than a rule about values because no rule about a
+// value can tell a bucket name from an access key. A kind knows which of its
+// own settings is a credential; nothing else does.
+type PublicSettings func(kind string) []string
+
+// redacted is what stands in for a value that is not echoed. It is the string
+// url.URL.Redacted uses, so one answer reads the same way throughout.
+const redacted = "xxxxx"
+
 // Effective builds the operator's view. Redaction happens here rather than in
 // the surface that serves it, so no surface can forget, and a second surface
 // costs nothing.
-func (c Config) Effective() Effective {
+//
+// A nil public declares nothing, which redacts every mount setting: the answer
+// is safe before anyone has said what is safe.
+func (c Config) Effective(public PublicSettings) Effective {
 	settings := make([]Setting, len(fields))
 	for i, f := range fields {
 		settings[i] = Setting{Name: f.name, Value: redact(*f.of(&c))}
@@ -31,16 +49,15 @@ func (c Config) Effective() Effective {
 
 	mounts := make([]Mount, len(c.Mounts))
 	for i, m := range c.Mounts {
-		mounts[i] = Mount{Prefix: m.Prefix, Kind: m.Kind, Settings: redactAll(m.Settings)}
+		mounts[i] = Mount{Prefix: m.Prefix, Kind: m.Kind, Settings: echo(m, public)}
 	}
 
 	return Effective{Settings: settings, Mounts: mounts}
 }
 
 // redact replaces the password inside a URL and returns anything else as
-// written. A credential in a connection string is the only secret this config
-// can carry — a secret proper has a different lifecycle and does not live here
-// — and a value that is not a URL has nothing to hide.
+// written. It is what an echoed value still gets: a setting a kind declares
+// safe can still be written as a connection string with a password in it.
 func redact(value string) string {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.User == nil {
@@ -52,16 +69,26 @@ func redact(value string) string {
 	return parsed.Redacted()
 }
 
-// redactAll is redact over a mount's settings, into a new map so the original
-// is untouched.
-func redactAll(settings map[string]string) map[string]string {
-	if settings == nil {
+// echo copies a mount's settings, keeping the value of every key its kind
+// declares public and replacing every other. Keys are kept either way, so the
+// answer still shows which settings a mount carries.
+func echo(m Mount, public PublicSettings) map[string]string {
+	if m.Settings == nil {
 		return nil
 	}
 
-	out := make(map[string]string, len(settings))
-	for name, value := range settings {
-		out[name] = redact(value)
+	var declared []string
+	if public != nil {
+		declared = public(m.Kind)
+	}
+
+	out := make(map[string]string, len(m.Settings))
+	for name, value := range m.Settings {
+		if slices.Contains(declared, name) {
+			out[name] = redact(value)
+			continue
+		}
+		out[name] = redacted
 	}
 	return out
 }

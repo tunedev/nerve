@@ -15,7 +15,7 @@ func TestEffectiveRedactsThePassword(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.PostgresDSN = "postgres://nerve:hunter2@db:5432/nerve?sslmode=disable"
 
-	value := settingValue(t, cfg.Effective(), "postgres-dsn")
+	value := settingValue(t, cfg.Effective(nil), "postgres-dsn")
 
 	if strings.Contains(value, "hunter2") {
 		t.Errorf("postgres-dsn = %q, still carries the password", value)
@@ -34,7 +34,7 @@ func TestEffectiveLeavesEverythingElseAlone(t *testing.T) {
 	cfg.LogLevel = "debug"
 	cfg.OllamaURL = "http://localhost:11434"
 
-	effective := cfg.Effective()
+	effective := cfg.Effective(nil)
 
 	if got := settingValue(t, effective, "log-level"); got != "debug" {
 		t.Errorf("log-level = %q, want %q", got, "debug")
@@ -48,7 +48,7 @@ func TestEffectiveLeavesEverythingElseAlone(t *testing.T) {
 // one thing that would put "what is it configured as" back to guessing, so the
 // count is checked against the struct rather than against a list kept by hand.
 func TestEffectiveNamesEverySetting(t *testing.T) {
-	effective := config.Defaults().Effective()
+	effective := config.Defaults().Effective(nil)
 
 	typ := reflect.TypeOf(config.Config{})
 	for i := range typ.NumField() {
@@ -71,9 +71,9 @@ func TestEffectiveNamesEverySetting(t *testing.T) {
 	}
 }
 
-// Mount settings are operator-written strings that can carry a credential of
-// their own, so the same rule reaches them.
-func TestEffectiveRedactsMountSettings(t *testing.T) {
+// A setting a kind declares safe to echo is still an operator-written string,
+// so a credential written inside it is still replaced.
+func TestEffectiveRedactsAPasswordInADeclaredSetting(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Mounts = []config.Mount{{
 		Prefix:   "/blob",
@@ -81,7 +81,7 @@ func TestEffectiveRedactsMountSettings(t *testing.T) {
 		Settings: map[string]string{"endpoint": "https://key:s3cret@minio:9000", "bucket": "nerve"},
 	}}
 
-	mounts := cfg.Effective().Mounts
+	mounts := cfg.Effective(declaring("s3", "endpoint", "bucket")).Mounts
 	if len(mounts) != 1 {
 		t.Fatalf("Mounts has %d entries, want 1", len(mounts))
 	}
@@ -101,7 +101,7 @@ func TestEffectiveDoesNotChangeTheConfig(t *testing.T) {
 	cfg.PostgresDSN = dsn
 	cfg.Mounts = []config.Mount{{Prefix: "/blob", Kind: "s3", Settings: map[string]string{"endpoint": "https://key:s3cret@minio:9000"}}}
 
-	_ = cfg.Effective()
+	_ = cfg.Effective(declaring("s3", "endpoint"))
 
 	if cfg.PostgresDSN != dsn {
 		t.Errorf("PostgresDSN = %q, want the unredacted %q", cfg.PostgresDSN, dsn)
@@ -113,7 +113,7 @@ func TestEffectiveDoesNotChangeTheConfig(t *testing.T) {
 
 // The view is JSON, because the surface that serves it is.
 func TestEffectiveMarshals(t *testing.T) {
-	data, err := json.Marshal(config.Defaults().Effective())
+	data, err := json.Marshal(config.Defaults().Effective(nil))
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
@@ -132,4 +132,73 @@ func settingValue(t *testing.T, effective config.Effective, name string) string 
 	}
 	t.Fatalf("no setting named %q in %+v", name, effective.Settings)
 	return ""
+}
+
+// A credential that is not inside a URL is the shape a real storage kind
+// carries: an access key, an API token, a password field. None of them is
+// echoed, because the kind did not declare them.
+func TestEffectiveRedactsSettingsAKindDidNotDeclare(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Mounts = []config.Mount{{
+		Prefix: "/blob",
+		Kind:   "s3",
+		Settings: map[string]string{
+			"bucket":            "nerve",
+			"access_key_id":     "AKIAIOSFODNN7EXAMPLE",
+			"secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+			"api_token":         "sk-live-abcdef123456",
+			"password":          "hunter2",
+		},
+	}}
+
+	settings := cfg.Effective(declaring("s3", "bucket")).Mounts[0].Settings
+
+	if got := settings["bucket"]; got != "nerve" {
+		t.Errorf("bucket = %q, want %q", got, "nerve")
+	}
+	for name, secret := range map[string]string{
+		"access_key_id":     "AKIAIOSFODNN7EXAMPLE",
+		"secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		"api_token":         "sk-live-abcdef123456",
+		"password":          "hunter2",
+	} {
+		if got := settings[name]; strings.Contains(got, secret) {
+			t.Errorf("%s = %q, still carries the secret", name, got)
+		}
+		if _, named := settings[name]; !named {
+			t.Errorf("%s is missing; a redacted setting is still named", name)
+		}
+	}
+}
+
+// A kind nobody registered, and a kind that declared nothing, echo nothing.
+// Redaction is what happens when no one said otherwise.
+func TestEffectiveRedactsWhenNothingIsDeclared(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Mounts = []config.Mount{{
+		Prefix:   "/blob",
+		Kind:     "unregistered",
+		Settings: map[string]string{"bucket": "nerve"},
+	}}
+
+	for name, public := range map[string]config.PublicSettings{
+		"nil":             nil,
+		"declaresNothing": declaring("unregistered"),
+		"otherKind":       declaring("s3", "bucket"),
+	} {
+		if got := cfg.Effective(public).Mounts[0].Settings["bucket"]; got == "nerve" {
+			t.Errorf("%s: bucket = %q, want it redacted", name, got)
+		}
+	}
+}
+
+// declaring is a PublicSettings that names keys for one kind and nothing for
+// any other.
+func declaring(kind string, keys ...string) config.PublicSettings {
+	return func(k string) []string {
+		if k != kind {
+			return nil
+		}
+		return keys
+	}
 }
