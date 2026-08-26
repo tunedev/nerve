@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -21,7 +22,7 @@ func recording(settings map[string]string) (vfs.FileSystem, error) {
 func registered(t *testing.T, name string, factory vfs.Factory) *vfs.Registry {
 	t.Helper()
 
-	registry := vfs.NewRegistry()
+	registry := vfs.NewRegistry(time.Minute)
 	if err := registry.Register(name, factory); err != nil {
 		t.Fatalf("register %q: %v", name, err)
 	}
@@ -120,7 +121,7 @@ func TestATableRefusesTwoMountsAtOnePrefix(t *testing.T) {
 }
 
 func TestConfigNamingNoMountsMountsNothing(t *testing.T) {
-	table, err := vfs.NewRegistry().Table(nil)
+	table, err := vfs.NewRegistry(time.Minute).Table(nil)
 	if err != nil {
 		t.Fatalf("build table: %v", err)
 	}
@@ -132,7 +133,7 @@ func TestConfigNamingNoMountsMountsNothing(t *testing.T) {
 
 // A registry with nothing in it still says something an operator can act on.
 func TestAnEmptyRegistryTellsTheOperatorItIsEmpty(t *testing.T) {
-	_, err := vfs.NewRegistry().Table([]vfs.MountSpec{{Prefix: "/", Kind: "disk"}})
+	_, err := vfs.NewRegistry(time.Minute).Table([]vfs.MountSpec{{Prefix: "/", Kind: "disk"}})
 	if err == nil {
 		t.Fatal("building an unregistered kind succeeded")
 	}
@@ -144,7 +145,7 @@ func TestAnEmptyRegistryTellsTheOperatorItIsEmpty(t *testing.T) {
 // A kind says which of its settings can be read back. Nothing else can tell a
 // bucket name from an access key, so what a kind does not name is not echoed.
 func TestRegistryReportsTheSettingsAKindDeclares(t *testing.T) {
-	registry := vfs.NewRegistry()
+	registry := vfs.NewRegistry(time.Minute)
 	if err := registry.Register("s3", recording, "endpoint", "bucket"); err != nil {
 		t.Fatalf("register: %v", err)
 	}

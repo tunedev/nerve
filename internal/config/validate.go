@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // logLevels are the levels nerved understands, lowest first.
@@ -19,6 +20,7 @@ var logLevels = []string{"debug", "info", "warn", "error"}
 func (c Config) Validate() error {
 	return errors.Join(
 		oneOf("log-level", c.LogLevel, logLevels),
+		positiveDuration("call-timeout", c.CallTimeout),
 		reachable("postgres-dsn", c.PostgresDSN, "postgres", "postgresql"),
 		reachable("rabbitmq-url", c.RabbitMQURL, "amqp", "amqps"),
 		reachable("ollama-url", c.OllamaURL, "http", "https"),
@@ -32,6 +34,20 @@ func oneOf(name, value string, allowed []string) error {
 		return nil
 	}
 	return fmt.Errorf("%s is %q, want one of %s", name, value, strings.Join(allowed, ", "))
+}
+
+// positiveDuration accepts a Go duration with time left in it. Zero and
+// negative are rejected rather than read as "no timeout": a call with no
+// deadline is what the setting exists to prevent.
+func positiveDuration(name, value string) error {
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return fmt.Errorf("%s is not a duration: %w", name, err)
+	}
+	if d <= 0 {
+		return fmt.Errorf("%s is %s, want a positive duration", name, d)
+	}
+	return nil
 }
 
 // reachable accepts a URL that names one of the given schemes and a host, which
