@@ -43,7 +43,8 @@ fmt-check: ## Fail if anything is unformatted
 	@out=$$(gofmt -l .); if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
 
 .PHONY: lint
-lint: ## Run golangci-lint
+lint: ## Verify the lint config, then run golangci-lint
+	golangci-lint config verify
 	golangci-lint run
 
 .PHONY: check

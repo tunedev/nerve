@@ -5,6 +5,7 @@ linters:
   enable:
     - depguard
     - errcheck
+    - staticcheck
 
   settings:
     depguard:
@@ -23,6 +24,23 @@ linters:
               desc: "core owns ports; the broker client belongs in an adapter"
             - pkg: "net/http"
               desc: "core owns ports; transport belongs in internal/adapters/inbound"
+
+    errcheck:
+      # An unchecked type assertion is the discovery move the settled decision
+      # forbids: capability is reached through an accessor, never through
+      # fs.(Symlinker).
+      check-type-assertions: true
+
+    staticcheck:
+      # The default set minus its own -ST1000: every package here carries a
+      # package comment, and this keeps that true.
+      checks:
+        - all
+        - "-ST1003"
+        - "-ST1016"
+        - "-ST1020"
+        - "-ST1021"
+        - "-ST1022"
 
   exclusions:
     rules:
