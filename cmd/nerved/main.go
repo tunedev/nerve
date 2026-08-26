@@ -47,9 +47,11 @@ func main() {
 
 	// Storage kinds register on this registry, here at composition and nowhere
 	// else, because this is the only place that knows a concrete plugin. The
-	// table itself comes from config, and so does the deadline it bounds every
-	// mount by: a mount may be remote, and no caller of the tree can tell.
-	registry := vfs.NewRegistry(cfg.CallTimeoutDuration())
+	// table itself comes from config, and so do the deadline every mount is
+	// bounded by and the policy its transient failures are retried under: a
+	// mount may be remote, and no caller of the tree can tell.
+	retry := cfg.RetryPolicy()
+	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), retry)
 
 	mounts := cfg.MountSpecs()
 	table, err := registry.Table(mounts)
@@ -60,6 +62,7 @@ func main() {
 	fmt.Printf("nerved %s (%s)\n", version, runtime.Version())
 	fmt.Printf("log level %s\n", cfg.LogLevel)
 	fmt.Printf("call timeout %s\n", cfg.CallTimeoutDuration())
+	fmt.Printf("retry %d attempts, backoff up to %s\n", retry.Attempts, retry.Backoff)
 	for _, spec := range mounts {
 		fmt.Printf("mount %s kind %s %+v\n", spec.Prefix, spec.Kind, table.Capabilities(spec.Prefix))
 	}

@@ -22,6 +22,8 @@ func (c Config) Validate() error {
 		oneOf("log-level", c.LogLevel, logLevels),
 		positiveDuration("call-timeout", c.CallTimeout),
 		nonNegativeDuration("drain-delay", c.DrainDelay),
+		atLeastOne("retry-attempts", c.RetryAttempts),
+		positiveDuration("retry-backoff", c.RetryBackoff),
 		reachable("postgres-dsn", c.PostgresDSN, "postgres", "postgresql"),
 		reachable("rabbitmq-url", c.RabbitMQURL, "amqp", "amqps"),
 		reachable("ollama-url", c.OllamaURL, "http", "https"),
@@ -61,6 +63,20 @@ func nonNegativeDuration(name, value string) error {
 	}
 	if d < 0 {
 		return fmt.Errorf("%s is %s, want zero or a positive duration", name, d)
+	}
+	return nil
+}
+
+// atLeastOne accepts a whole number of attempts with a call in it. Zero is
+// rejected rather than read as "no retry": a call that is never made is not
+// what the setting means, and one attempt already says it.
+func atLeastOne(name, value string) error {
+	attempts, err := strconv.Atoi(value)
+	if err != nil {
+		return fmt.Errorf("%s is not a number: %w", name, err)
+	}
+	if attempts < 1 {
+		return fmt.Errorf("%s is %d, want at least 1", name, attempts)
 	}
 	return nil
 }

@@ -319,7 +319,7 @@ func TestCapabilitiesComeFromThePlugin(t *testing.T) {
 // through the registry, and the registry hands back a bounded one.
 func TestTheRegistryBuildsNothingUnbounded(t *testing.T) {
 	note := &noting{}
-	registry := vfs.NewRegistry(time.Minute)
+	registry := vfs.NewRegistry(time.Minute, vfs.Retry{})
 	if err := registry.Register("noting", func(map[string]string) (vfs.FileSystem, error) {
 		return note, nil
 	}); err != nil {

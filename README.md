@@ -105,6 +105,16 @@ the setting asks for an unbounded call: zero and negative stop the boot. Opening
 is a call and is bounded like one; the transfer it returns is not, and runs until the
 caller closes it or cancels.
 
+A transient failure is attempted again; nothing else is. `retry-attempts` and
+`retry-backoff` say how many attempts a call gets and how long the waits between them are —
+random up to a ceiling that doubles, so callers that failed together do not come back
+together. Two things have to be true before an attempt is repeated, and the second is the
+one usually skipped: the error is one a plugin marked transient, since a validation error,
+a missing entry or a refusal is an answer that another attempt cannot change; and the call
+can be made twice, which `Remove`, `Rename` and `Symlink` cannot, nor a read of a
+read-destructive path or a write to an append-only one. The bound sits inside the retry, so
+each attempt is a call with its own deadline.
+
 ## Layout
 
 ```
