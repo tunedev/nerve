@@ -78,8 +78,12 @@ VALUES ('/', '', '/', ?, ?, x'')
 
 // Open returns the tree held in the database at file, creating the file and its
 // schema when they are not there yet.
-func Open(file string) (*FS, error) {
-	db, err := sql.Open("sqlite", dsn(file))
+func Open(file string) (*FS, error) { return open(file, busyTimeout) }
+
+// open takes the lock wait as a parameter, so a test can see what a caller gets
+// when the wait runs out without waiting out the real one.
+func open(file string, wait time.Duration) (*FS, error) {
+	db, err := sql.Open("sqlite", dsn(file, wait))
 	if err != nil {
 		return nil, fmt.Errorf("open %q: %w", file, err)
 	}
@@ -104,10 +108,10 @@ func Open(file string) (*FS, error) {
 // Transactions take their write lock at BEGIN. Taking it later means two
 // transactions can both read and then both try to upgrade, which SQLite can
 // only resolve by failing one of them.
-func dsn(file string) string {
+func dsn(file string, wait time.Duration) string {
 	pragmas := url.Values{"_pragma": {
 		"journal_mode(WAL)",
-		fmt.Sprintf("busy_timeout(%d)", busyTimeout.Milliseconds()),
+		fmt.Sprintf("busy_timeout(%d)", wait.Milliseconds()),
 	}}
 	pragmas.Set("_txlock", "immediate")
 	return "file:" + file + "?" + pragmas.Encode()
@@ -213,13 +217,13 @@ type querier interface {
 func (f *FS) inTx(ctx context.Context, work func(*sql.Tx) error) error {
 	tx, err := f.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin: %w", err)
+		return fmt.Errorf("begin: %w", transient(err))
 	}
 	if err := work(tx); err != nil {
-		return errors.Join(err, tx.Rollback())
+		return transient(errors.Join(err, tx.Rollback()))
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
+		return fmt.Errorf("commit: %w", transient(err))
 	}
 	return nil
 }

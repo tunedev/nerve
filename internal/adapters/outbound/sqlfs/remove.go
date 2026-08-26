@@ -48,7 +48,7 @@ func (f *FS) Remove(ctx context.Context, name string) error {
 func (f *FS) RemoveAll(ctx context.Context, name string) error {
 	if isRoot(name) {
 		if _, err := f.db.ExecContext(ctx, `DELETE FROM entries WHERE path <> '/'`); err != nil {
-			return fmt.Errorf("remove_all %q: %w", name, err)
+			return fmt.Errorf("remove_all %q: %w", name, transient(err))
 		}
 		return nil
 	}

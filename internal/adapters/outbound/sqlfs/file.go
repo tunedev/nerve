@@ -109,7 +109,7 @@ func (f *FS) Read(ctx context.Context, name string) ([]byte, error) {
 	case errors.Is(err, sql.ErrNoRows):
 		return nil, fmt.Errorf("read %q: %w", name, fs.ErrNotExist)
 	case err != nil:
-		return nil, fmt.Errorf("read %q: %w", name, err)
+		return nil, fmt.Errorf("read %q: %w", name, transient(err))
 	}
 
 	if fs.FileMode(mode).IsDir() { //nolint:gosec // the column holds what fs.FileMode was written as

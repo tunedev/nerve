@@ -4,7 +4,10 @@ go 1.27
 
 toolchain go1.27.0
 
-require go.uber.org/goleak v1.3.0
+require (
+	go.uber.org/goleak v1.3.0
+	modernc.org/sqlite v1.57.0
+)
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.4.0 // indirect
@@ -223,7 +226,6 @@ require (
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.57.0 // indirect
 	mvdan.cc/gofumpt v0.11.0 // indirect
 	mvdan.cc/unparam v0.0.0-20260818115549-3f964bcb5673 // indirect
 )
