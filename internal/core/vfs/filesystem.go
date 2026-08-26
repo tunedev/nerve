@@ -22,6 +22,11 @@ import (
 // because most storage kinds have no mode at all and would otherwise have to
 // invent one to be created.
 //
+// Optional verb sets are reached through the As* accessors and never by type
+// assertion, because every caller holds the mount dispatcher rather than a
+// plugin: an assertion would interrogate the wrapper. An accessor declared here
+// forces the dispatcher to forward.
+//
 // Errors are the io/fs sentinels — fs.ErrNotExist, fs.ErrExist,
 // fs.ErrPermission, fs.ErrInvalid — wrapped with whatever the plugin knows, and
 // matched by callers with errors.Is.
@@ -57,6 +62,15 @@ type FileSystem interface {
 
 	// Chmod sets the permission bits of path.
 	Chmod(ctx context.Context, path string, mode fs.FileMode) error
+
+	// AsSymlinker returns the plugin's link verbs, or nil if it has none.
+	AsSymlinker() Symlinker
+
+	// AsStreamer returns the plugin's streaming verbs, or nil if it has none.
+	AsStreamer() Streamer
+
+	// AsTruncater returns the plugin's truncate verb, or nil if it has none.
+	AsTruncater() Truncater
 }
 
 // FileInfo describes one entry. It is a struct rather than an interface so that

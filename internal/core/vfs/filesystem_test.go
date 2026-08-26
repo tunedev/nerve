@@ -9,7 +9,8 @@ import (
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
-// stub is the whole cost of satisfying the port: ten methods and nothing else.
+// stub writes the ten verbs and nothing else. It is not a FileSystem on its
+// own; embedding NoCaps alongside it is what completes the port.
 type stub struct{}
 
 func (stub) Create(context.Context, string) error                    { return nil }
@@ -23,13 +24,12 @@ func (stub) Stat(context.Context, string) (vfs.FileInfo, error)      { return vf
 func (stub) Rename(context.Context, string, string) error            { return nil }
 func (stub) Chmod(context.Context, string, fs.FileMode) error        { return nil }
 
-var _ vfs.FileSystem = stub{}
-
 // The verb set is fixed. A new capability arrives as a descriptor or an
-// accessor, never as an eleventh method, because every added verb is one more
+// accessor, never as an eleventh verb, because every added verb is one more
 // thing every plugin has to answer.
-func TestVerbSetIsTheTenVerbs(t *testing.T) {
+func TestPortIsTheTenVerbsPlusTheAccessors(t *testing.T) {
 	want := []string{
+		"AsStreamer", "AsSymlinker", "AsTruncater",
 		"Chmod", "Create", "Mkdir", "Read", "ReadDir",
 		"Remove", "RemoveAll", "Rename", "Stat", "Write",
 	}
@@ -41,7 +41,7 @@ func TestVerbSetIsTheTenVerbs(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("FileSystem verbs = %v, want %v", got, want)
+		t.Errorf("FileSystem methods = %v, want %v", got, want)
 	}
 }
 
