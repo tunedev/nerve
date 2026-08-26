@@ -1,5 +1,9 @@
 # The full local stack. No cloud account, no paid tier, works offline.
 # Versions are pinned deliberately; bump them on purpose, not by drift.
+# Published ports come from .env so a port already taken on the host is one
+# edit to an ignored file, not an edit to this one.
+# State lives in named volumes rather than bind mounts, so `docker compose down -v`
+# removes it. A bind mount leaves behind files owned by the container's user.
 name: nerve
 
 services:
@@ -9,9 +13,9 @@ services:
       POSTGRES_USER: nerve
       POSTGRES_PASSWORD: nerve
       POSTGRES_DB: nerve
-    ports: ["5432:5432"]
+    ports: ["${NERVE_POSTGRES_PORT:-5432}:5432"]
     volumes:
-      - ./.data/postgres:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nerve -d nerve"]
       interval: 5s
@@ -23,7 +27,9 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: nerve
       RABBITMQ_DEFAULT_PASS: nerve
-    ports: ["5672:5672", "15672:15672"]
+    ports:
+      - "${NERVE_RABBITMQ_PORT:-5672}:5672"
+      - "${NERVE_RABBITMQ_UI_PORT:-15672}:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -32,6 +38,16 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    ports: ["11434:11434"]
+    ports: ["${NERVE_OLLAMA_PORT:-11434}:11434"]
     volumes:
-      - ./.data/ollama:/root/.ollama
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  postgres-data:
+  ollama-data:

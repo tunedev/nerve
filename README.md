@@ -51,14 +51,21 @@ Everything runs locally, free, with no cloud account. If it does not work on a p
 a bug.
 
 ```
-make up      # Postgres with pgvector, RabbitMQ, Ollama
+make up      # Postgres with pgvector, RabbitMQ, Ollama — waits until each one answers
+make status  # what is running, and whether it is healthy
+make run     # the binary, against that stack
 make check   # formatting, lint, tests
-make run
-make down
+make down    # stop, keeping the data
 ```
 
-`make help` lists the rest. Copy `.env.example` to `.env` if you want to change anything;
-the defaults match the compose file and need no edits.
+`make help` lists the rest; `make logs` follows the stack; `make clean` also deletes the
+stack's data. That data lives in Docker volumes, not in the working tree, so removing it is
+`down -v` rather than a `rm` that trips over files the containers own.
+
+Copy `.env.example` to `.env` if you want to change anything. Both `make up` and `make run`
+read it, so a setting is spelled once. If one of the published ports is already taken on
+your machine, change `NERVE_POSTGRES_PORT`, `NERVE_RABBITMQ_PORT`, `NERVE_RABBITMQ_UI_PORT`
+or `NERVE_OLLAMA_PORT` — the URLs below them follow, and no versioned file is edited.
 
 ## Configuration
 
