@@ -4,12 +4,14 @@ import (
 	"context"
 	"io/fs"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
-// stub is the whole cost of satisfying the port: ten methods and nothing else.
+// stub is the whole cost of satisfying the port: ten verbs, a descriptor set,
+// and nothing else.
 type stub struct{}
 
 func (stub) Create(context.Context, string) error                    { return nil }
@@ -22,17 +24,22 @@ func (stub) ReadDir(context.Context, string) ([]vfs.FileInfo, error) { return ni
 func (stub) Stat(context.Context, string) (vfs.FileInfo, error)      { return vfs.FileInfo{}, nil }
 func (stub) Rename(context.Context, string, string) error            { return nil }
 func (stub) Chmod(context.Context, string, fs.FileMode) error        { return nil }
+func (stub) Capabilities(string) vfs.Caps                            { return vfs.Caps{} }
 
 var _ vfs.FileSystem = stub{}
 
-// The verb set is fixed. A new capability arrives as a descriptor or an
-// accessor, never as an eleventh method, because every added verb is one more
-// thing every plugin has to answer.
-func TestVerbSetIsTheTenVerbs(t *testing.T) {
-	want := []string{
+// The verb set is fixed at ten. A new capability arrives as a descriptor or an
+// accessor, never as an eleventh verb, because every added verb is one more
+// thing every plugin has to answer. The interface is therefore the ten verbs
+// plus the entry points to that discovery, and nothing else.
+func TestInterfaceIsTenVerbsPlusDiscovery(t *testing.T) {
+	verbs := []string{
 		"Chmod", "Create", "Mkdir", "Read", "ReadDir",
 		"Remove", "RemoveAll", "Rename", "Stat", "Write",
 	}
+	discovery := []string{"Capabilities"}
+
+	want := slices.Sorted(slices.Values(slices.Concat(verbs, discovery)))
 
 	iface := reflect.TypeOf((*vfs.FileSystem)(nil)).Elem()
 	got := make([]string, iface.NumMethod())
@@ -40,8 +47,8 @@ func TestVerbSetIsTheTenVerbs(t *testing.T) {
 		got[i] = iface.Method(i).Name
 	}
 
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("FileSystem verbs = %v, want %v", got, want)
+	if !slices.Equal(got, want) {
+		t.Errorf("FileSystem methods = %v, want %v", got, want)
 	}
 }
 

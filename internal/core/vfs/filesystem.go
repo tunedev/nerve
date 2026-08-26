@@ -9,14 +9,15 @@ import (
 // FileSystem is the verb set every storage kind answers, whatever it actually
 // stores. A vector index, a job queue and a disk directory all satisfy it; what
 // separates them is what they say about themselves per path, not which methods
-// they have.
+// they have. Capabilities is where they say it.
 //
 // Paths are slash-separated and rooted at "/", in the vocabulary of the mount
 // table rather than of any host. Implementations resolve them relative to their
 // own mount point.
 //
-// Every method takes a context because a mount may be remote: deadlines
-// propagate through to whatever the plugin talks to.
+// Every verb takes a context because a mount may be remote: deadlines propagate
+// through to whatever the plugin talks to. Capabilities is not a verb and takes
+// none.
 //
 // Mode is not a parameter of creation. Chmod is the one verb that sets it,
 // because most storage kinds have no mode at all and would otherwise have to
@@ -57,6 +58,11 @@ type FileSystem interface {
 
 	// Chmod sets the permission bits of path.
 	Chmod(ctx context.Context, path string, mode fs.FileMode) error
+
+	// Capabilities describes what the verbs above mean at path. It is not I/O:
+	// it takes no context and cannot fail, because a mount answers it from the
+	// shape it already knows.
+	Capabilities(path string) Caps
 }
 
 // FileInfo describes one entry. It is a struct rather than an interface so that
