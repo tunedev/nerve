@@ -2,6 +2,11 @@
 
 GO ?= go
 BIN := bin/nerved
+# A build is reproducible only when nothing about the build machine reaches the
+# binary. -trimpath drops the absolute source paths, CGO_ENABLED=0 drops the host
+# C toolchain, and go.mod's toolchain line pins the compiler itself.
+BUILD_ENV := CGO_ENABLED=0
+BUILD_FLAGS := -trimpath
 # The Go trees. Named rather than walking `.`, which would descend into .data.
 SRC := cmd internal
 
@@ -37,8 +42,18 @@ clean: ## Stop the stack, delete its data and the binary
 	rm -rf $(BIN)
 
 .PHONY: build
-build: ## Compile the binary
-	$(GO) build -o $(BIN) ./cmd/nerved
+build: ## Compile the binary reproducibly
+	$(BUILD_ENV) $(GO) build $(BUILD_FLAGS) -o $(BIN) ./cmd/nerved
+
+.PHONY: repro
+repro: ## Build HEAD in two clean checkouts and require identical binaries
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	for c in one two; do \
+		git clone -q --no-local . "$$tmp/$$c"; \
+		$(MAKE) -s -C "$$tmp/$$c" build; \
+	done; \
+	cmp "$$tmp/one/$(BIN)" "$$tmp/two/$(BIN)"; \
+	echo "reproducible: $$(sha256sum <"$$tmp/one/$(BIN)" | cut -d' ' -f1)"
 
 .PHONY: run
 run: ## Run the binary against the stack
@@ -66,4 +81,4 @@ lint: ## Verify the lint config, then run golangci-lint
 	golangci-lint run
 
 .PHONY: check
-check: fmt-check lint race ## Everything CI runs
+check: fmt-check lint race repro ## Everything CI runs

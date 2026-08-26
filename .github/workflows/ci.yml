@@ -17,15 +17,16 @@ jobs:
           cache: true
 
       - name: Formatting
-        run: |
-          out=$(gofmt -l .)
-          if [ -n "$out" ]; then echo "unformatted:"; echo "$out"; exit 1; fi
+        run: make fmt-check
 
       - name: Build
         run: go build ./...
 
+      - name: Reproducible build
+        run: make repro
+
       - name: Test (race detector)
-        run: go test -race ./...
+        run: make race
 
       - uses: golangci/golangci-lint-action@v9
         with:
