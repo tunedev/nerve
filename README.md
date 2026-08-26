@@ -41,11 +41,14 @@ things deliberately refused.
 
 ## Status
 
-Scaffolding, plus the first storage kind. The binary boots on a validated config, mounts
-whatever `memfs` trees the config names, prints the mount table it resolved, and serves a
+Scaffolding, plus the first three storage kinds. The binary boots on a validated config,
+mounts whatever the config names, prints the mount table it resolved, and serves a
 read-only operator surface until it is signalled, then drains. `memfs` keeps a tree in
 memory: a plain read-write tree that claims no descriptor, which is what makes it the
-reference every later plugin is read against. The roadmap is the work.
+reference every later plugin is read against. `localfs` passes the same verbs through to a
+host directory. `kvfs` is a namespaced key-value store over one keyspace, and the first
+kind that claims a descriptor: object-store, so a name is a prefix and nothing is a
+directory. The roadmap is the work.
 
 ## Running the stack
 

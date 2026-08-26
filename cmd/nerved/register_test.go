@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -87,5 +89,51 @@ func TestLocalfsDeclaresItsRootPublic(t *testing.T) {
 
 	if public := registry.Public("localfs"); !slices.Equal(public, []string{"root"}) {
 		t.Errorf("Public(localfs) = %v, want [root]", public)
+	}
+}
+
+// A kvfs mount is a namespaced part of the one keyspace the composition root
+// owns, so two mounts the config names do not answer each other's keys.
+func TestRegisterKindsMakesKvfsMountable(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	table, err := registry.Table([]vfs.MountSpec{
+		{Prefix: "/sessions", Kind: "kvfs", Settings: map[string]string{"namespace": "sessions"}},
+		{Prefix: "/agents", Kind: "kvfs", Settings: map[string]string{"namespace": "agents"}},
+	})
+	if err != nil {
+		t.Fatalf("Table(/sessions, /agents) = %v", err)
+	}
+
+	ctx := context.Background()
+	if err := table.Write(ctx, "/sessions/abc/state", []byte("running")); err != nil {
+		t.Fatalf("Write(/sessions/abc/state) = %v", err)
+	}
+	content, err := table.Read(ctx, "/sessions/abc/state")
+	if err != nil {
+		t.Fatalf("Read(/sessions/abc/state) = %v", err)
+	}
+	if string(content) != "running" {
+		t.Errorf("Read(/sessions/abc/state) = %q, want %q", content, "running")
+	}
+
+	if _, err := table.Read(ctx, "/agents/abc/state"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Read(/agents/abc/state) = %v, want fs.ErrNotExist", err)
+	}
+}
+
+// The namespace is what an operator reads back to know which keys a mount is
+// over, so it is declared public where a credential would not be.
+func TestKvfsDeclaresItsNamespacePublic(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	if public := registry.Public("kvfs"); !slices.Equal(public, []string{"namespace"}) {
+		t.Errorf("Public(kvfs) = %v, want [namespace]", public)
 	}
 }
