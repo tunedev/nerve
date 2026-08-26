@@ -3,8 +3,11 @@ version: "2"
 linters:
   default: standard
   enable:
+    # Tenet 4: never store a Context in a struct. containedctx takes no options.
+    - containedctx
     - depguard
     - errcheck
+    - revive
     - staticcheck
 
   settings:
@@ -30,6 +33,15 @@ linters:
       # forbids: capability is reached through an accessor, never through
       # fs.(Symlinker).
       check-type-assertions: true
+
+    revive:
+      # Only the rules named here run. Formatting opinions stay with gofmt.
+      rules:
+        # Tenet 4: ctx is the first parameter of every blocking or remote
+        # function. *testing.T may precede it so helpers keep the stdlib shape.
+        - name: context-as-argument
+          arguments:
+            - allowTypesBefore: "*testing.T,*testing.B,*testing.F"
 
     staticcheck:
       # The default set minus its own -ST1000: every package here carries a
