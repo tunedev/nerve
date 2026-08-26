@@ -58,6 +58,9 @@ make check   # formatting, lint, tests under the race detector
 make down    # stop, keeping the data
 ```
 
+`make lint` needs no linter installed: `golangci-lint` is a `go.mod` tool dependency, so
+the repo pins its version and builds it with the repo's toolchain. CI runs the same target.
+
 `make help` lists the rest; `make logs` follows the stack; `make clean` also deletes the
 stack's data. That data lives in Docker volumes, not in the working tree, so removing it is
 `down -v` rather than a `rm` that trips over files the containers own.

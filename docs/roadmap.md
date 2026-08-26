@@ -183,7 +183,7 @@ In scope. Sandboxing user-authored code is a correctness requirement, not harden
 | E12.9 | **Refuse** the Kubernetes writer/reader split | Recorded. One process until it demonstrably hurts |
 | E12.10 | Health and liveness endpoints | Probe answers without touching a dependency |
 | E12.11 | Key-space partitioning for contended structures | Contention measurably reduced, or the partitioning is removed |
-| E12.12 | Pinned toolchain (Go 1.24.6) and a reproducible build | Same source produces the same binary on a clean checkout |
+| E12.12 | Pinned toolchain (Go 1.27.0) and a reproducible build | Same source produces the same binary on a clean checkout. The linter is pinned too, as a `go.mod` tool dependency, so `make lint` and CI run one version |
 | E12.13 | `gofmt` gate | Unformatted code fails the build; no formatting opinions anywhere else |
 | E12.14 | `golangci-lint` v2 config: `errcheck`, `staticcheck`, `depguard` | Config loads under v2 nesting (`linters: settings:`); E1.6 rules live here |
 | E12.15 | Context-discipline linters: no `Context` in a struct, `ctx` first parameter | Tenet 4 violation fails lint. Confirm exact linter names with `golangci-lint help linters` |

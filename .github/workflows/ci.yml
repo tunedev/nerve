@@ -27,6 +27,7 @@ jobs:
       - name: Test (race detector)
         run: go test -race ./...
 
-      - uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.13.1
+      # The linter is a go.mod tool dependency, so CI and `make lint` run the same
+      # pinned version. One pin, in one place.
+      - name: Lint
+        run: make lint

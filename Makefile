@@ -2,6 +2,10 @@
 
 GO ?= go
 BIN := bin/nerved
+# The linter is a go.mod tool dependency, so its version is pinned by the repo and
+# built with the repo's toolchain. Never `golangci-lint` off PATH: a binary too old
+# for the config exits 0 having linted nothing, and local silently disagrees with CI.
+LINT := $(GO) tool golangci-lint
 # The Go trees. Named rather than walking `.`, which would descend into .data.
 SRC := cmd internal
 
@@ -62,8 +66,8 @@ fmt-check: ## Fail if anything is unformatted
 
 .PHONY: lint
 lint: ## Verify the lint config, then run golangci-lint
-	golangci-lint config verify
-	golangci-lint run
+	$(LINT) config verify
+	$(LINT) run
 
 .PHONY: check
 check: fmt-check lint race ## Everything CI runs
