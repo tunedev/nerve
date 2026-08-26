@@ -13,3 +13,16 @@ func (c Config) CallTimeoutDuration() time.Duration {
 	d, _ := time.ParseDuration(c.CallTimeout)
 	return d
 }
+
+// DrainDelayDuration is the drain-delay setting in the vocabulary of the code
+// that uses it: how long the process answers readiness with 503 before it
+// stops accepting connections at all.
+//
+// The delay is what makes readiness worth asking. Close the listener the
+// instant the signal arrives and nothing ever observes the refusal; whatever
+// routes traffic here learns the process is gone by having a connection
+// refused, which is the outage readiness exists to avoid.
+func (c Config) DrainDelayDuration() time.Duration {
+	d, _ := time.ParseDuration(c.DrainDelay)
+	return d
+}

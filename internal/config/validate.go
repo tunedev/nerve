@@ -21,6 +21,7 @@ func (c Config) Validate() error {
 	return errors.Join(
 		oneOf("log-level", c.LogLevel, logLevels),
 		positiveDuration("call-timeout", c.CallTimeout),
+		nonNegativeDuration("drain-delay", c.DrainDelay),
 		reachable("postgres-dsn", c.PostgresDSN, "postgres", "postgresql"),
 		reachable("rabbitmq-url", c.RabbitMQURL, "amqp", "amqps"),
 		reachable("ollama-url", c.OllamaURL, "http", "https"),
@@ -46,6 +47,20 @@ func positiveDuration(name, value string) error {
 	}
 	if d <= 0 {
 		return fmt.Errorf("%s is %s, want a positive duration", name, d)
+	}
+	return nil
+}
+
+// nonNegativeDuration accepts a Go duration that does not run backwards. Zero
+// is a real answer here — close the listener at once, because nothing is
+// routing to this process — so it is accepted rather than read as a mistake.
+func nonNegativeDuration(name, value string) error {
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return fmt.Errorf("%s is not a duration: %w", name, err)
+	}
+	if d < 0 {
+		return fmt.Errorf("%s is %s, want zero or a positive duration", name, d)
 	}
 	return nil
 }

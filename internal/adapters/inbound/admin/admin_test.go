@@ -30,7 +30,7 @@ func withPassword() config.Config {
 func get(t *testing.T, cfg config.Config, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	admin.Handler(cfg.Effective(nil)).ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+	admin.Handler(cfg.Effective(nil), &admin.Health{}).ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 	return rec
 }
 

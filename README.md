@@ -42,8 +42,8 @@ things deliberately refused.
 ## Status
 
 Scaffolding only. The binary boots on a validated config, prints the mount table it
-resolved, and serves a read-only operator surface until it is signalled. No storage kind
-is implemented yet. The roadmap is the work.
+resolved, and serves a read-only operator surface until it is signalled, then drains. No
+storage kind is implemented yet. The roadmap is the work.
 
 ## Running the stack
 
@@ -82,6 +82,16 @@ What the process actually resolved is readable rather than guessable: `admin-add
 that same single name, and with the mount table. Any password inside a connection string is
 replaced first, in the view rather than at the surface, so a second surface cannot forget.
 Nothing there is writable — config changes go through the layers and a restart.
+
+The same surface answers two probes, both from memory and neither touching a dependency:
+`GET /livez` says the process is running, and `GET /readyz` says it is taking traffic. They
+are separate because the questions are. A probe that dialled Postgres would report
+Postgres's health as this process's, and one bad minute on the database would then restart
+a process that was working. On a signal, readiness starts refusing while liveness keeps
+passing, so whatever routes traffic here stops sending before the server stops answering
+and whatever restarts crashed processes leaves this one alone. `drain-delay` (`1s`) is how
+long the listener stays open refusing readiness before it closes; set it to a probe period
+or two where something is actually routing, and to `0s` where nothing is.
 
 The mount table lives in that file too: `mounts` is a list of `{prefix, kind, settings}`,
 and a mount appears by adding a line rather than by editing code. A kind the build does not

@@ -46,3 +46,45 @@ func TestAnUnusableCallTimeoutFailsAtBoot(t *testing.T) {
 		})
 	}
 }
+
+// The delay arrives as text and leaves as a duration, so the shutdown path
+// never parses anything.
+func TestTheDrainDelayResolvesToADuration(t *testing.T) {
+	cfg, err := config.Load(config.Sources{Args: []string{"-drain-delay", "250ms"}})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.DrainDelayDuration(); got != 250*time.Millisecond {
+		t.Errorf("DrainDelayDuration() = %s, want %s", got, 250*time.Millisecond)
+	}
+}
+
+// Zero is a real answer: nothing is routing to a local process, so there is
+// nothing to give time to notice.
+func TestADrainDelayOfZeroIsAllowed(t *testing.T) {
+	cfg, err := config.Load(config.Sources{Args: []string{"-drain-delay", "0s"}})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.DrainDelayDuration(); got != 0 {
+		t.Errorf("DrainDelayDuration() = %s, want 0", got)
+	}
+}
+
+// A delay that is not a duration, or runs backwards, stops the boot.
+func TestAnUnusableDrainDelayFailsAtBoot(t *testing.T) {
+	for name, value := range map[string]string{
+		"not a duration": "soon",
+		"no unit":        "10",
+		"empty":          "",
+		"negative":       "-1s",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if cfg, err := config.Load(config.Sources{Args: []string{"-drain-delay", value}}); err == nil {
+				t.Errorf("Load with drain-delay %q = %+v, want an error", value, cfg)
+			}
+		})
+	}
+}
