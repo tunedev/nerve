@@ -41,9 +41,11 @@ things deliberately refused.
 
 ## Status
 
-Scaffolding only. The binary boots on a validated config, prints the mount table it
-resolved, and serves a read-only operator surface until it is signalled, then drains. No
-storage kind is implemented yet. The roadmap is the work.
+Scaffolding, plus the first storage kind. The binary boots on a validated config, mounts
+whatever `memfs` trees the config names, prints the mount table it resolved, and serves a
+read-only operator surface until it is signalled, then drains. `memfs` keeps a tree in
+memory: a plain read-write tree that claims no descriptor, which is what makes it the
+reference every later plugin is read against. The roadmap is the work.
 
 ## Running the stack
 
