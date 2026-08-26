@@ -31,6 +31,9 @@ interface force the dispatcher to forward.
 `internal/core` owns its ports, `internal/adapters` implements them, `cmd/nerved/main.go`
 is the sole composition root. Specs in `docs/specs/`, increment notes in `docs/notes/`.
 
+`internal/vfstest` is the conformance suite: a storage plugin runs it rather than
+writing its own port tests, and keeps only what that kind alone promises.
+
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker

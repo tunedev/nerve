@@ -33,3 +33,16 @@ func TestMemfsHasNoLinkVerbs(t *testing.T) {
 		t.Errorf("AsSymlinker() = %v, want nil", link)
 	}
 }
+
+// A caller's `if s := fsys.AsStreamer(); s != nil` guard has to find the verb
+// sets memfs answers, or nothing reaches them.
+func TestMemfsAnswersTheStreamAndTruncateVerbs(t *testing.T) {
+	fsys := memfs.New()
+
+	if stream := fsys.AsStreamer(); stream == nil {
+		t.Error("AsStreamer() = nil, want the plugin")
+	}
+	if cut := fsys.AsTruncater(); cut == nil {
+		t.Error("AsTruncater() = nil, want the plugin")
+	}
+}

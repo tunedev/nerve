@@ -7,22 +7,19 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
 )
 
-func TestNewHasAnEmptyRootDirectory(t *testing.T) {
-	fsys := memfs.New()
+// The port contract is asserted once, in the conformance suite. What is left in
+// this package is what only memfs promises, and these two helpers are what
+// those tests build a tree with.
+func mustWrite(t *testing.T, fsys *memfs.FS, name, content string) {
+	t.Helper()
+	if err := fsys.Write(context.Background(), name, []byte(content)); err != nil {
+		t.Fatalf("Write(%q) = %v", name, err)
+	}
+}
 
-	info, err := fsys.Stat(context.Background(), "/")
-	if err != nil {
-		t.Fatalf("Stat(/) = %v, want a directory", err)
-	}
-	if !info.IsDir() {
-		t.Errorf("Stat(/).IsDir() = false, want true")
-	}
-
-	entries, err := fsys.ReadDir(context.Background(), "/")
-	if err != nil {
-		t.Fatalf("ReadDir(/) = %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("ReadDir(/) = %v, want no entries", entries)
+func mustMkdir(t *testing.T, fsys *memfs.FS, name string) {
+	t.Helper()
+	if err := fsys.Mkdir(context.Background(), name); err != nil {
+		t.Fatalf("Mkdir(%q) = %v", name, err)
 	}
 }
