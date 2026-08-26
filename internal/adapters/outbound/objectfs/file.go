@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-
-	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
 // Create stores an empty object at name, replacing whatever was there.
@@ -22,7 +20,7 @@ func (f *FS) Mkdir(_ context.Context, _ string) error { return nil }
 
 // Read returns the whole content of name.
 func (f *FS) Read(ctx context.Context, name string) ([]byte, error) {
-	stream, _, err := f.open(ctx, name)
+	stream, err := f.open(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -57,18 +55,17 @@ func (f *FS) Write(ctx context.Context, name string, data []byte) error {
 	return nil
 }
 
-// open is what Read and OpenRead share: the content of name as a stream, and
-// what the bucket said about it.
-func (f *FS) open(ctx context.Context, name string) (io.ReadCloser, vfs.FileInfo, error) {
+// open is what Read and OpenRead share: the content of name as a stream.
+func (f *FS) open(ctx context.Context, name string) (io.ReadCloser, error) {
 	if isRoot(name) {
-		return nil, vfs.FileInfo{}, fmt.Errorf("read %q: the bucket itself: %w", name, fs.ErrInvalid)
+		return nil, fmt.Errorf("read %q: the bucket itself: %w", name, fs.ErrInvalid)
 	}
 
-	stream, object, err := f.bucket.Get(ctx, key(name))
+	stream, _, err := f.bucket.Get(ctx, key(name))
 	if err != nil {
-		return nil, vfs.FileInfo{}, fmt.Errorf("read %q: %w", name, err)
+		return nil, fmt.Errorf("read %q: %w", name, err)
 	}
-	return stream, object.info(), nil
+	return stream, nil
 }
 
 // modeOf is the mode a write to name stores it under: the one it already

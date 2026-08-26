@@ -36,6 +36,35 @@ services:
       timeout: 5s
       retries: 10
 
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: nerve
+      MINIO_ROOT_PASSWORD: nervenerve
+    ports:
+      - "${NERVE_MINIO_PORT:-9000}:9000"
+      - "${NERVE_MINIO_UI_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # The bucket a mount points at has to exist before the mount does, and an
+  # object store has no "create it if it is missing" the way a directory does.
+  # This runs to completion and stops; `up --wait` waits for that.
+  minio-bucket:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    depends_on:
+      minio: {condition: service_healthy}
+    entrypoint: >
+      sh -c "mc alias set nerve http://minio:9000 nerve nervenerve &&
+             mc mb --ignore-existing nerve/nerve"
+    restart: "no"
+
   ollama:
     image: ollama/ollama:latest
     ports: ["${NERVE_OLLAMA_PORT:-11434}:11434"]
@@ -50,4 +79,5 @@ services:
 
 volumes:
   postgres-data:
+  minio-data:
   ollama-data:

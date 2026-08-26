@@ -23,11 +23,7 @@ func (f *FS) AsStreamer() vfs.Streamer { return f }
 // when it opened. A write partway through cannot hand the reader two versions,
 // because a stored object is replaced whole rather than edited.
 func (f *FS) OpenRead(ctx context.Context, name string) (io.ReadCloser, error) {
-	stream, _, err := f.open(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	return stream, nil
+	return f.open(ctx, name)
 }
 
 // OpenWrite replaces the content of name from a stream. Nothing is stored until

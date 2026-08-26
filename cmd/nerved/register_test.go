@@ -137,3 +137,37 @@ func TestKvfsDeclaresItsNamespacePublic(t *testing.T) {
 		t.Errorf("Public(kvfs) = %v, want [namespace]", public)
 	}
 }
+
+// objectfs reaches a store an operator names, and the two settings that reach
+// it are credentials. Declaring only the other three is what makes them
+// redacted everywhere the effective config is read back.
+func TestObjectfsDeclaresOnlyWhatIsNotACredential(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	want := []string{"endpoint", "bucket", "region"}
+	if public := registry.Public("objectfs"); !slices.Equal(public, want) {
+		t.Errorf("Public(objectfs) = %v, want %v", public, want)
+	}
+	for _, credential := range []string{"access_key_id", "secret_access_key"} {
+		if slices.Contains(registry.Public("objectfs"), credential) {
+			t.Errorf("Public(objectfs) names %q, want it redacted", credential)
+		}
+	}
+}
+
+// A mount of a kind the build has is built at boot, so a misspelled setting or
+// a missing credential is a boot failure an operator can still act on.
+func TestObjectfsMountRefusesSettingsItCannotHonour(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	spec := vfs.MountSpec{Prefix: "/objects", Kind: "objectfs", Settings: map[string]string{"bucket": "nerve"}}
+	if _, err := registry.Table([]vfs.MountSpec{spec}); !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("Table with an unreachable objectfs mount = %v, want fs.ErrInvalid", err)
+	}
+}

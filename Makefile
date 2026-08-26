@@ -25,7 +25,7 @@ help: ## List targets
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sort | awk -F':.*##' '{printf "  %-12s %s\n", $$1, $$2}'
 
 .PHONY: up
-up: ## Start Postgres, RabbitMQ and Ollama, and wait until they answer
+up: ## Start Postgres, RabbitMQ, MinIO and Ollama, and wait until they answer
 	docker compose up -d --wait
 
 .PHONY: down
@@ -67,6 +67,11 @@ run: ## Run the binary against the stack
 test: ## Run tests fast, no race detector (go vet runs as part of this)
 	$(GO) test ./...
 
+.PHONY: test-store
+test-store: ## Run the object-store tests against the running MinIO
+	@$(RUN_ENV) NERVE_OBJECTFS_ENDPOINT=$${NERVE_OBJECTFS_ENDPOINT:-http://127.0.0.1:$${NERVE_MINIO_PORT:-9000}} \
+		$(GO) test ./internal/adapters/outbound/objectfs/
+
 .PHONY: race
 race: ## Run tests under the race detector
 	$(GO) test -race ./...
@@ -84,5 +89,8 @@ lint: ## Verify the lint config, then run golangci-lint
 	$(LINT) config verify
 	$(LINT) run
 
+# `test-store` is deliberately not here. Everything check runs has to run with
+# nothing started and no network, which is what keeps the plane test true; the
+# store-backed run is the same suite against MinIO and needs `make up` first.
 .PHONY: check
 check: fmt-check lint race repro ## Everything CI runs
