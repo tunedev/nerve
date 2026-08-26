@@ -1,0 +1,168 @@
+// Package config resolves one Config from four layers — defaults, a file, the
+// environment, then flags — and refuses to return an invalid one.
+//
+// Later wins. Each layer overwrites only the settings it names, so a value
+// survives from the lowest layer that names it up to the highest, and what no
+// layer names keeps its default.
+package config
+
+import (
+	"bytes"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+)
+
+// Config is everything nerved needs to reach the world outside itself.
+//
+// Every setting is a string because that is what the file, the environment and
+// the command line all carry. Parsing into richer types is the business of the
+// adapter that uses one, not of the layer that resolves it.
+type Config struct {
+	LogLevel    string `json:"log-level"`
+	PostgresDSN string `json:"postgres-dsn"`
+	RabbitMQURL string `json:"rabbitmq-url"`
+	OllamaURL   string `json:"ollama-url"`
+}
+
+// Defaults are the bottom layer: what a local checkout needs to run with no
+// file, no environment and no flags. They match docker-compose.yml.
+func Defaults() Config {
+	return Config{
+		LogLevel:    "info",
+		PostgresDSN: "postgres://nerve:nerve@localhost:5432/nerve?sslmode=disable",
+		RabbitMQURL: "amqp://nerve:nerve@localhost:5672/",
+		OllamaURL:   "http://localhost:11434",
+	}
+}
+
+// Sources are the three layers above the defaults, in the form the caller has
+// them. A zero Sources resolves to the defaults alone.
+//
+// File is a path rather than a flag because the file layer sits below the flag
+// layer: a flag naming the file would have to be read before the layer it
+// overrides. The environment is the one place a path can be named without that
+// circularity.
+type Sources struct {
+	// File is the path to a JSON document. Empty means there is no file layer.
+	File string
+	// Lookup reads one environment variable, reporting whether it is set.
+	// os.LookupEnv is the caller. Nil means there is no environment layer.
+	Lookup func(string) (string, bool)
+	// Args are the command-line arguments without the program name.
+	Args []string
+}
+
+// A layer takes the config resolved so far and returns it with its own
+// settings applied.
+type layer func(Config) (Config, error)
+
+// Load applies every layer in precedence order and validates the result. It
+// returns the zero Config with an error if any layer cannot be read or the
+// resolved config is invalid, so a caller that ignores the error boots on
+// nothing rather than on something plausible.
+func Load(src Sources) (Config, error) {
+	cfg := Defaults()
+
+	for _, apply := range []layer{fromFile(src.File), fromEnv(src.Lookup), fromFlags(src.Args)} {
+		next, err := apply(cfg)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg = next
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// fromFile applies a JSON document. A key the document does not name keeps the
+// value below it; a key it names but does not recognise is an error, because a
+// misspelled setting that is silently ignored is the failure this ticket
+// exists to prevent.
+func fromFile(path string) layer {
+	return func(cfg Config) (Config, error) {
+		if path == "" {
+			return cfg, nil
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return Config{}, fmt.Errorf("config file: %w", err)
+		}
+
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&cfg); err != nil {
+			return Config{}, fmt.Errorf("config file %s: %w", path, err)
+		}
+		return cfg, nil
+	}
+}
+
+// fromEnv applies every NERVE_-prefixed variable that is set. A variable set to
+// the empty string sets the empty string: the layer reports what the operator
+// wrote, and Validate decides whether it is usable.
+func fromEnv(lookup func(string) (string, bool)) layer {
+	return func(cfg Config) (Config, error) {
+		if lookup == nil {
+			return cfg, nil
+		}
+
+		for _, f := range fields {
+			if value, ok := lookup(envName(f.name)); ok {
+				*f.of(&cfg) = value
+			}
+		}
+		return cfg, nil
+	}
+}
+
+// fromFlags applies the command line. Each flag defaults to the value the
+// layers below resolved, so a flag that is not passed changes nothing and the
+// usage text shows what would actually be used.
+func fromFlags(args []string) layer {
+	return func(cfg Config) (Config, error) {
+		set := flag.NewFlagSet("nerved", flag.ContinueOnError)
+
+		passed := make([]*string, len(fields))
+		for i, f := range fields {
+			passed[i] = set.String(f.name, *f.of(&cfg), f.usage)
+		}
+
+		if err := set.Parse(args); err != nil {
+			return Config{}, err
+		}
+
+		for i, f := range fields {
+			*f.of(&cfg) = *passed[i]
+		}
+		return cfg, nil
+	}
+}
+
+// A field is one setting under its single canonical name. The flag is that
+// name, the JSON key is that name, and the environment variable is derived
+// from it, so a setting is spelled once and reached three ways.
+type field struct {
+	name  string
+	usage string
+	of    func(*Config) *string
+}
+
+var fields = []field{
+	{"log-level", "debug, info, warn or error", func(c *Config) *string { return &c.LogLevel }},
+	{"postgres-dsn", "Postgres connection string", func(c *Config) *string { return &c.PostgresDSN }},
+	{"rabbitmq-url", "RabbitMQ connection URL", func(c *Config) *string { return &c.RabbitMQURL }},
+	{"ollama-url", "Ollama base URL", func(c *Config) *string { return &c.OllamaURL }},
+}
+
+// envName is the environment spelling of a setting: NERVE_ before it, upper
+// case, underscores for dashes.
+func envName(name string) string {
+	return "NERVE_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+}

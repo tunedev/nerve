@@ -59,10 +59,21 @@ make down
 `make help` lists the rest. Copy `.env.example` to `.env` if you want to change anything;
 the defaults match the compose file and need no edits.
 
+## Configuration
+
+Four layers, later winning: defaults, then the JSON file `NERVE_CONFIG` names, then the
+environment, then flags. A setting is spelled once — `log-level` is the flag, the JSON key,
+and `NERVE_LOG_LEVEL`. `nerved -h` lists them with the values it would actually use.
+
+An invalid setting stops the boot and every problem is reported at once, so a bad config
+costs one restart rather than one per mistake. The file path is an environment variable
+rather than a flag because the file layer sits below the flag layer.
+
 ## Layout
 
 ```
 cmd/nerved/          composition root; the only file that knows every concrete type
+internal/config/     the layered config the composition root boots on
 internal/core/       entities, rules, and the ports the core owns
 internal/adapters/   inbound transports and outbound implementations
 docs/roadmap.md      the work, as tickets
