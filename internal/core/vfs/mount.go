@@ -8,6 +8,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
 // MountTable maps prefixes onto plugins and is itself a FileSystem, so a caller
@@ -26,8 +28,17 @@ import (
 // Being the dispatcher is why the port carries Capabilities and the As*
 // accessors instead of leaving callers to type-assert: an assertion would
 // interrogate this type, which does no storage work of its own.
+//
+// Mounts may arrive while the table is being read. The mount list is replaced
+// wholesale rather than edited in place, so a reader loads one pointer and
+// takes no lock: readers never wait, never contend with each other, and see
+// either the tree before a mount or the tree after it. Mount pays for that by
+// copying the list, which is what makes mounting the rare operation it already
+// is.
 type MountTable struct {
-	mounts []mount
+	// adding serialises Mount against other Mounts. Readers never take it.
+	adding sync.Mutex
+	mounts atomic.Pointer[[]mount]
 }
 
 // mount is one prefix and the plugin behind it.
@@ -49,25 +60,55 @@ func (t *MountTable) Mount(prefix string, fsys FileSystem) error {
 	if !strings.HasPrefix(prefix, "/") || path.Clean(prefix) != prefix {
 		return fmt.Errorf("mount %q: prefix is not a rooted clean path: %w", prefix, fs.ErrInvalid)
 	}
-	if slices.ContainsFunc(t.mounts, func(m mount) bool { return m.prefix == prefix }) {
+
+	t.adding.Lock()
+	defer t.adding.Unlock()
+
+	current := t.snapshot()
+	if slices.ContainsFunc(current, func(m mount) bool { return m.prefix == prefix }) {
 		return fmt.Errorf("mount %q: %w", prefix, fs.ErrExist)
 	}
 
-	t.mounts = append(t.mounts, mount{prefix: prefix, fsys: fsys})
-	slices.SortFunc(t.mounts, func(a, b mount) int { return len(b.prefix) - len(a.prefix) })
+	next := append(slices.Clone(current), mount{prefix: prefix, fsys: fsys})
+	slices.SortFunc(next, func(a, b mount) int { return len(b.prefix) - len(a.prefix) })
+	t.mounts.Store(&next)
+	return nil
+}
+
+// snapshot is the mount list as it stands, safe to read without a lock because
+// nothing ever writes into a list that has been stored.
+func (t *MountTable) snapshot() []mount {
+	if current := t.mounts.Load(); current != nil {
+		return *current
+	}
 	return nil
 }
 
 // resolve finds the deepest mount holding path and translates path into that
 // mount's vocabulary.
 func (t *MountTable) resolve(name string) (mount, string, error) {
-	name = path.Clean("/" + name)
-	for _, m := range t.mounts {
+	name = rooted(name)
+	for _, m := range t.snapshot() {
 		if rest, ok := m.holds(name); ok {
 			return m, rest, nil
 		}
 	}
 	return mount{}, "", fmt.Errorf("resolve %q: no mount holds it: %w", name, fs.ErrNotExist)
+}
+
+// rooted is path.Clean over a path that may arrive without its leading slash.
+//
+// The already-rooted case is spelled out rather than folded into one
+// path.Clean("/" + name), because nearly every path arrives rooted and adding
+// a second slash to it makes "//queue/jobs", which path.Clean then has to
+// rebuild a string to repair: three allocations on every verb, to undo work
+// nothing asked for. Testing the first byte costs a compare, and a rooted clean
+// path comes back out of path.Clean as itself.
+func rooted(name string) string {
+	if strings.HasPrefix(name, "/") {
+		return path.Clean(name)
+	}
+	return path.Clean("/" + name)
 }
 
 // holds reports whether the mount owns name, and returns name in the mount's
@@ -243,7 +284,7 @@ func (t *MountTable) AsTruncater() Truncater {
 // path; a mount that refuses the verbs inside a table where others answer says
 // so per path, as fs.ErrInvalid.
 func (t *MountTable) anyMountAnswers(has func(FileSystem) bool) bool {
-	return slices.ContainsFunc(t.mounts, func(m mount) bool { return has(m.fsys) })
+	return slices.ContainsFunc(t.snapshot(), func(m mount) bool { return has(m.fsys) })
 }
 
 type tableSymlinker struct {

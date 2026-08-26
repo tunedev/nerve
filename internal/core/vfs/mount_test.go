@@ -3,9 +3,11 @@ package vfs_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/tunedev/nerve/internal/core/vfs"
@@ -405,4 +407,57 @@ func TestPathsResolveLexicallyBeforeMatching(t *testing.T) {
 	if got := plugins["/store"].path; got != "/thing" {
 		t.Errorf("/store mount saw %q, want %q", got, "/thing")
 	}
+}
+
+// silent answers Stat without recording it, so eight readers can share one
+// plugin without racing on the recorder's memory of the last call.
+type silent struct{ *recorder }
+
+func (silent) Stat(context.Context, string) (vfs.FileInfo, error) { return vfs.FileInfo{}, nil }
+
+// TestMountsAddedWhileTheTableIsBeingReadAreSafe holds the table to its promise
+// of runtime-addable mounts: a mount arriving does not tear the tree out from
+// under a reader. Run under -race, which is where the failure shows.
+func TestMountsAddedWhileTheTableIsBeingReadAreSafe(t *testing.T) {
+	table := vfs.NewMountTable()
+	if err := table.Mount("/", silent{&recorder{name: "root"}}); err != nil {
+		t.Fatalf("mount root: %v", err)
+	}
+
+	const arrivals = 64
+	var readers, writers sync.WaitGroup
+	stop := make(chan struct{})
+
+	for range 8 {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					if _, err := table.Stat(context.Background(), "/seg7/deep/leaf"); err != nil {
+						t.Errorf("stat while mounting: %v", err)
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	for i := range arrivals {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			prefix := fmt.Sprintf("/seg%d", i)
+			if err := table.Mount(prefix, silent{&recorder{name: prefix}}); err != nil {
+				t.Errorf("mount %q: %v", prefix, err)
+			}
+		}()
+	}
+
+	writers.Wait()
+	close(stop)
+	readers.Wait()
 }
