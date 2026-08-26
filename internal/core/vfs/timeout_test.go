@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,9 @@ import (
 // ticket exists to prevent.
 type noting struct {
 	seen []time.Time
+	// transferErr reports on the context the last stream was opened on, which
+	// is the context that transfer runs on after its open has returned.
+	transferErr func() error
 }
 
 var _ vfs.FileSystem = &noting{}
@@ -68,16 +72,25 @@ func (r *noting) Truncate(ctx context.Context, _ string, _ int64) error {
 }
 func (r *noting) OpenRead(ctx context.Context, _ string) (io.ReadCloser, error) {
 	r.at(ctx)
-	return io.NopCloser(nil), nil
+	r.transferErr = ctx.Err
+	return io.NopCloser(strings.NewReader("content")), nil
 }
 func (r *noting) OpenWrite(ctx context.Context, _ string) (io.WriteCloser, error) {
 	r.at(ctx)
-	return nil, nil
+	r.transferErr = ctx.Err
+	return discard{}, nil
 }
 
-// verbs is every call that has to come back before the caller can continue.
-// The streaming opens are absent on purpose: a stream outlives its open, so it
-// is not one of these.
+// discard is a stream that accepts whatever is written to it, so a test can
+// close one without a plugin behind it.
+type discard struct{}
+
+func (discard) Write(p []byte) (int, error) { return len(p), nil }
+func (discard) Close() error                { return nil }
+
+// verbs is every call whose deadline reaches the plugin in its context. The
+// streaming opens are absent on purpose: they are bounded too, but the bound is
+// lifted when they answer, so it is not a deadline the plugin can read.
 func verbs() map[string]func(context.Context, vfs.FileSystem) error {
 	return map[string]func(context.Context, vfs.FileSystem) error{
 		"Create":    func(ctx context.Context, f vfs.FileSystem) error { return f.Create(ctx, "/x") },
@@ -172,6 +185,25 @@ func (blocking) Read(ctx context.Context, _ string) ([]byte, error) {
 	return nil, ctx.Err()
 }
 
+// hanging is a plugin whose opens never return, which is what a remote mount
+// looks like when the far end accepts a connection and then says nothing.
+type hanging struct {
+	stub
+	vfs.NoAccessors
+}
+
+func (h hanging) AsStreamer() vfs.Streamer { return h }
+
+func (hanging) OpenRead(ctx context.Context, _ string) (io.ReadCloser, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (hanging) OpenWrite(ctx context.Context, _ string) (io.WriteCloser, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func TestACallThatNeverAnswersFailsAtTheDeadline(t *testing.T) {
 	fsys := vfs.WithTimeout(blocking{}, time.Millisecond)
 
@@ -182,23 +214,78 @@ func TestACallThatNeverAnswersFailsAtTheDeadline(t *testing.T) {
 	}
 }
 
-// A stream is not a call. Its context outlives the open, so bounding the open
-// would cut a healthy transfer at the bound; the streaming verbs are forwarded
-// with the caller's context as it arrived.
-func TestAStreamIsNotBoundedByTheCallTimeout(t *testing.T) {
+// An open is a call and gets a deadline; the stream it returns is not, and
+// keeps running on the caller's context. Bounding the transfer with the open's
+// deadline would cut a healthy download at the bound.
+func TestAStreamOutlivesTheBoundOnItsOpen(t *testing.T) {
+	note := &noting{}
+	fsys := vfs.WithTimeout(note, 10*time.Millisecond)
+
+	stream, err := fsys.AsStreamer().OpenRead(context.Background(), "/big")
+	if err != nil {
+		t.Fatalf("OpenRead: %v", err)
+	}
+	defer stream.Close()
+
+	time.Sleep(50 * time.Millisecond)
+
+	if err := note.transferErr(); err != nil {
+		t.Errorf("the transfer ended %s after its open, want it still running: %v", 50*time.Millisecond, err)
+	}
+	if _, err := io.ReadAll(stream); err != nil {
+		t.Errorf("reading past the bound: %v", err)
+	}
+}
+
+// An open that never answers is an unbounded call, which the bound exists to
+// prevent. The stream lifetime being separate is not a reason to let one hang.
+func TestAnOpenThatNeverAnswersFailsAtTheBound(t *testing.T) {
+	fsys := vfs.WithTimeout(hanging{}, time.Millisecond)
+
+	if _, err := fsys.AsStreamer().OpenRead(context.Background(), "/big"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("OpenRead of a plugin that never opens = %v, want %v", err, context.DeadlineExceeded)
+	}
+	if _, err := fsys.AsStreamer().OpenWrite(context.Background(), "/big"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("OpenWrite of a plugin that never opens = %v, want %v", err, context.DeadlineExceeded)
+	}
+}
+
+// Closing the stream ends the transfer, so a finished download stops holding
+// the context its caller gave it.
+func TestClosingAStreamEndsItsTransfer(t *testing.T) {
 	note := &noting{}
 	fsys := vfs.WithTimeout(note, time.Minute)
 
-	stream := fsys.AsStreamer()
-	if stream == nil {
-		t.Fatal("AsStreamer() = nil, want the plugin's streaming verbs")
+	stream, err := fsys.AsStreamer().OpenWrite(context.Background(), "/big")
+	if err != nil {
+		t.Fatalf("OpenWrite: %v", err)
 	}
-	if _, err := stream.OpenRead(context.Background(), "/big"); err != nil {
-		t.Fatalf("OpenRead: %v", err)
+	if err := stream.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 
-	if at := note.seen[0]; !at.IsZero() {
-		t.Errorf("OpenRead reached the plugin with deadline %s, want the caller's context unchanged", at)
+	if err := note.transferErr(); !errors.Is(err, context.Canceled) {
+		t.Errorf("the transfer after Close = %v, want %v", err, context.Canceled)
+	}
+}
+
+// The transfer is untied from the open's deadline, not from its caller: a
+// cancelled request still stops a download in flight.
+func TestCancellingTheCallerStopsTheTransfer(t *testing.T) {
+	note := &noting{}
+	fsys := vfs.WithTimeout(note, time.Minute)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stream, err := fsys.AsStreamer().OpenRead(ctx, "/big")
+	if err != nil {
+		t.Fatalf("OpenRead: %v", err)
+	}
+	defer stream.Close()
+
+	cancel()
+
+	if err := note.transferErr(); !errors.Is(err, context.Canceled) {
+		t.Errorf("the transfer after the caller cancelled = %v, want %v", err, context.Canceled)
 	}
 }
 

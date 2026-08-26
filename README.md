@@ -91,7 +91,9 @@ neither an environment variable nor a flag carries a list.
 Every mount is bounded. `call-timeout` is the deadline each verb carries before it reaches
 a plugin, because a mount may be remote and no caller of the tree can tell. It is a ceiling
 rather than an extension — a caller with less time left keeps its own — and no spelling of
-the setting asks for an unbounded call: zero and negative stop the boot.
+the setting asks for an unbounded call: zero and negative stop the boot. Opening a stream
+is a call and is bounded like one; the transfer it returns is not, and runs until the
+caller closes it or cancels.
 
 ## Layout
 
