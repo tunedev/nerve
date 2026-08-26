@@ -21,3 +21,17 @@
 *.db
 .beads-credential-key
 .beads/proxieddb/
+.land-worktree/
+
+# Gas Town rig-container artifacts. These belong to the rig, not the repo.
+config.json
+settings/
+crew/
+polecats/
+witness/
+refinery/
+mayor/
+.repo.git/
+
+# Beads tracker state. Issues live in the town Dolt server, not in git.
+.beads/

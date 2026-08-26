@@ -1,8 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "server",
-  "dolt_server_port": 3307,
-  "dolt_database": "nerve",
-  "project_id": "e20970dd-5b5e-4508-8805-30f74599d64d"
-}
