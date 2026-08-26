@@ -69,6 +69,11 @@ An invalid setting stops the boot and every problem is reported at once, so a ba
 costs one restart rather than one per mistake. The file path is an environment variable
 rather than a flag because the file layer sits below the flag layer.
 
+The mount table lives in that file too: `mounts` is a list of `{prefix, kind, settings}`,
+and a mount appears by adding a line rather than by editing code. A kind the build does not
+have stops the boot naming the ones it does. Mounts come from the file alone, because
+neither an environment variable nor a flag carries a list.
+
 ## Layout
 
 ```

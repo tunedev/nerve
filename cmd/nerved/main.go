@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"github.com/tunedev/nerve/internal/config"
+	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -29,8 +30,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Storage kinds register on this registry, here at composition and nowhere
+	// else, because this is the only place that knows a concrete plugin. The
+	// table itself comes from config.
+	registry := vfs.NewRegistry()
+
+	mounts := cfg.MountSpecs()
+	table, err := registry.Table(mounts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "nerved: %v\n", err)
+		os.Exit(1)
+	}
+
 	fmt.Printf("nerved %s (%s)\n", version, runtime.Version())
 	fmt.Printf("log level %s\n", cfg.LogLevel)
+	for _, spec := range mounts {
+		fmt.Printf("mount %s kind %s %+v\n", spec.Prefix, spec.Kind, table.Capabilities(spec.Prefix))
+	}
 	fmt.Println("no surfaces wired yet; see docs/roadmap.md")
 	os.Exit(0)
 }

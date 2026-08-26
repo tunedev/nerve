@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -69,7 +70,7 @@ func TestDefaultsAloneAreValid(t *testing.T) {
 		t.Fatalf("Load with no sources: %v", err)
 	}
 
-	if cfg != config.Defaults() {
+	if !reflect.DeepEqual(cfg, config.Defaults()) {
 		t.Errorf("Load() = %+v, want %+v", cfg, config.Defaults())
 	}
 }
@@ -82,7 +83,7 @@ func TestUnpassedFlagsChangeNothing(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if cfg != config.Defaults() {
+	if !reflect.DeepEqual(cfg, config.Defaults()) {
 		t.Errorf("Load() = %+v, want the defaults untouched", cfg)
 	}
 }
@@ -103,7 +104,7 @@ func TestInvalidConfigFailsAtBoot(t *testing.T) {
 			if err == nil {
 				t.Fatalf("Load() = %+v, want an error", cfg)
 			}
-			if cfg != (config.Config{}) {
+			if !reflect.DeepEqual(cfg, config.Config{}) {
 				t.Errorf("Load() returned %+v alongside its error, want the zero Config", cfg)
 			}
 		})
