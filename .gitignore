@@ -32,6 +32,9 @@ witness/
 refinery/
 mayor/
 .repo.git/
+CLAUDE.local.md
+.claude/commands/
+.runtime/
 
 # Beads tracker state. Issues live in the town Dolt server, not in git.
 .beads/
