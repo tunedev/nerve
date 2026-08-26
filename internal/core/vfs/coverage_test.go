@@ -205,10 +205,16 @@ func TestNoOutboundCallOutlivesItsBound(t *testing.T) {
 // Retry is off, so what a verb takes to fail here is one bound rather than a
 // bound per attempt. This file asks whether a verb is bounded at all; what the
 // attempts cost on top of that is retry's question, and retry_test.go asks it.
+//
+// The breaker is on, and set to open on the second failure in a row so that it
+// never opens: each subtest builds its own tree and sends one verb through it.
+// A live breaker is the point — every verb here passes through it, so one that
+// the breaker forwarded to nothing would fail as an unbounded call rather than
+// pass against a surface with the breaker switched off.
 func deafTree(t *testing.T, d time.Duration) vfs.FileSystem {
 	t.Helper()
 
-	registry := vfs.NewRegistry(d, vfs.Retry{})
+	registry := vfs.NewRegistry(d, vfs.Retry{}, vfs.Breaker{Threshold: 2, Cooldown: time.Minute})
 	if err := registry.Register("deaf", func(map[string]string) (vfs.FileSystem, error) {
 		return deaf{}, nil
 	}); err != nil {

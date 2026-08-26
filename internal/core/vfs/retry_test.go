@@ -323,7 +323,7 @@ func TestRetryingReadsCapabilitiesFromThePlugin(t *testing.T) {
 // has already been wrapped.
 func TestTheRegistryRetriesWhatItBuilds(t *testing.T) {
 	plugin := &flaky{fail: 2, err: errTransient}
-	registry := vfs.NewRegistry(time.Minute, brisk)
+	registry := vfs.NewRegistry(time.Minute, brisk, vfs.Breaker{})
 	if err := registry.Register("flaky", func(map[string]string) (vfs.FileSystem, error) {
 		return plugin, nil
 	}); err != nil {
@@ -350,7 +350,7 @@ func TestEachAttemptIsBoundedOnItsOwn(t *testing.T) {
 	const bound = 20 * time.Millisecond
 
 	plugin := &stalled{}
-	registry := vfs.NewRegistry(bound, vfs.Retry{Attempts: 3, Backoff: time.Millisecond})
+	registry := vfs.NewRegistry(bound, vfs.Retry{Attempts: 3, Backoff: time.Millisecond}, vfs.Breaker{})
 	if err := registry.Register("stalled", func(map[string]string) (vfs.FileSystem, error) {
 		return plugin, nil
 	}); err != nil {

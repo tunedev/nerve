@@ -31,6 +31,12 @@ type Config struct {
 	RetryAttempts string `json:"retry-attempts"`
 	RetryBackoff  string `json:"retry-backoff"`
 
+	// BreakerThreshold and BreakerCooldown are the breaker policy: how many
+	// transient failures in a row stop a mount being called, and how long it is
+	// left alone before one call finds out whether it is back.
+	BreakerThreshold string `json:"breaker-threshold"`
+	BreakerCooldown  string `json:"breaker-cooldown"`
+
 	PostgresDSN string `json:"postgres-dsn"`
 	RabbitMQURL string `json:"rabbitmq-url"`
 	OllamaURL   string `json:"ollama-url"`
@@ -49,15 +55,17 @@ type Config struct {
 // file, no environment and no flags. They match docker-compose.yml.
 func Defaults() Config {
 	return Config{
-		LogLevel:      "info",
-		CallTimeout:   "10s",
-		DrainDelay:    "1s",
-		RetryAttempts: "3",
-		RetryBackoff:  "100ms",
-		PostgresDSN:   "postgres://nerve:nerve@localhost:5432/nerve?sslmode=disable",
-		RabbitMQURL:   "amqp://nerve:nerve@localhost:5672/",
-		OllamaURL:     "http://localhost:11434",
-		AdminAddr:     "127.0.0.1:7777",
+		LogLevel:         "info",
+		CallTimeout:      "10s",
+		DrainDelay:       "1s",
+		RetryAttempts:    "3",
+		RetryBackoff:     "100ms",
+		BreakerThreshold: "5",
+		BreakerCooldown:  "30s",
+		PostgresDSN:      "postgres://nerve:nerve@localhost:5432/nerve?sslmode=disable",
+		RabbitMQURL:      "amqp://nerve:nerve@localhost:5672/",
+		OllamaURL:        "http://localhost:11434",
+		AdminAddr:        "127.0.0.1:7777",
 	}
 }
 
@@ -183,6 +191,8 @@ var fields = []field{
 	{"drain-delay", "how long readiness fails before the listener closes", func(c *Config) *string { return &c.DrainDelay }},
 	{"retry-attempts", "times a repeatable call may be made after a transient failure, counting the first", func(c *Config) *string { return &c.RetryAttempts }},
 	{"retry-backoff", "ceiling on the wait before the second attempt, doubling after that", func(c *Config) *string { return &c.RetryBackoff }},
+	{"breaker-threshold", "transient failures in a row that stop a mount being called", func(c *Config) *string { return &c.BreakerThreshold }},
+	{"breaker-cooldown", "how long a mount is left alone before one call probes it", func(c *Config) *string { return &c.BreakerCooldown }},
 	{"postgres-dsn", "Postgres connection string", func(c *Config) *string { return &c.PostgresDSN }},
 	{"rabbitmq-url", "RabbitMQ connection URL", func(c *Config) *string { return &c.RabbitMQURL }},
 	{"ollama-url", "Ollama base URL", func(c *Config) *string { return &c.OllamaURL }},

@@ -43,7 +43,7 @@ func TestAMountAppearsFromAConfigFile(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 
-	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), cfg.RetryPolicy())
+	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), cfg.RetryPolicy(), cfg.BreakerPolicy())
 	if err := registry.Register("named", func(settings map[string]string) (vfs.FileSystem, error) {
 		return named{name: settings["name"]}, nil
 	}); err != nil {

@@ -115,6 +115,16 @@ can be made twice, which `Remove`, `Rename` and `Symlink` cannot, nor a read of 
 read-destructive path or a write to an append-only one. The bound sits inside the retry, so
 each attempt is a call with its own deadline.
 
+A mount that keeps failing stops being called. `breaker-threshold` (`5`) is how many
+transient failures in a row open its circuit, and `breaker-cooldown` (`30s`) is how long it
+is then left alone before one call goes through to find out whether it is back — an answer
+resumes traffic, a failure starts the wait again. Only a transient failure counts: a
+missing entry is a healthy no, and a mount answering those is a mount that is working. Each
+mount has its own circuit, so a broken one refuses its own subtree at once while the rest
+of the tree answers as before, and it keeps describing itself throughout — `Capabilities`
+reaches no far end. The breaker sits between the bound and the retry, so it counts attempts
+rather than sequences and the retry stops the moment it opens.
+
 ## Layout
 
 ```

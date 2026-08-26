@@ -24,6 +24,8 @@ func (c Config) Validate() error {
 		nonNegativeDuration("drain-delay", c.DrainDelay),
 		atLeastOne("retry-attempts", c.RetryAttempts),
 		positiveDuration("retry-backoff", c.RetryBackoff),
+		atLeastOne("breaker-threshold", c.BreakerThreshold),
+		positiveDuration("breaker-cooldown", c.BreakerCooldown),
 		reachable("postgres-dsn", c.PostgresDSN, "postgres", "postgresql"),
 		reachable("rabbitmq-url", c.RabbitMQURL, "amqp", "amqps"),
 		reachable("ollama-url", c.OllamaURL, "http", "https"),
