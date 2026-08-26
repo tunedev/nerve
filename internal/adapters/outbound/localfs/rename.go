@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"os"
 	"path"
 )
 
@@ -25,8 +24,8 @@ func (f *FS) Rename(_ context.Context, oldPath, newPath string) error {
 		return err
 	}
 
-	if err := os.Rename(f.host(oldPath), f.host(newPath)); err != nil {
-		return fmt.Errorf("rename %q to %q: %w", oldPath, newPath, invalid(err))
+	if err := f.root.Rename(rel(oldPath), rel(newPath)); err != nil {
+		return fmt.Errorf("rename %q to %q: %w", oldPath, newPath, sentinel(err))
 	}
 	return nil
 }
@@ -36,27 +35,27 @@ func (f *FS) Rename(_ context.Context, oldPath, newPath string) error {
 // The host refuses that pairing, and the port promises a rename replaces what
 // it lands on whatever the two are.
 func (f *FS) clearLanding(oldPath, newPath string) error {
-	landing, err := os.Lstat(f.host(newPath))
+	landing, err := f.root.Lstat(rel(newPath))
 	if err != nil {
 		return nil
 	}
 
 	if landing.IsDir() {
-		children, err := os.ReadDir(f.host(newPath))
+		children, err := f.children(newPath)
 		if err != nil {
-			return fmt.Errorf("rename %q to %q: %w", oldPath, newPath, invalid(err))
+			return fmt.Errorf("rename %q to %q: %w", oldPath, newPath, err)
 		}
 		if len(children) > 0 {
 			return fmt.Errorf("rename %q to %q: %d entries are still in it: %w", oldPath, newPath, len(children), fs.ErrExist)
 		}
 	}
 
-	moving, err := os.Lstat(f.host(oldPath))
+	moving, err := f.root.Lstat(rel(oldPath))
 	if err != nil || moving.IsDir() == landing.IsDir() {
 		return nil
 	}
-	if err := os.Remove(f.host(newPath)); err != nil {
-		return fmt.Errorf("rename %q to %q: %w", oldPath, newPath, invalid(err))
+	if err := f.root.Remove(rel(newPath)); err != nil {
+		return fmt.Errorf("rename %q to %q: %w", oldPath, newPath, sentinel(err))
 	}
 	return nil
 }
@@ -74,8 +73,8 @@ func descends(name, ancestor string) bool {
 // Chmod sets the permission bits of name. The host keeps the kind bits, which
 // is what leaves the directory bit alone.
 func (f *FS) Chmod(_ context.Context, name string, mode fs.FileMode) error {
-	if err := os.Chmod(f.host(name), mode.Perm()); err != nil {
-		return fmt.Errorf("chmod %q: %w", name, invalid(err))
+	if err := f.root.Chmod(rel(name), mode.Perm()); err != nil {
+		return fmt.Errorf("chmod %q: %w", name, sentinel(err))
 	}
 	return nil
 }

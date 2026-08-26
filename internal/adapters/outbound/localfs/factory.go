@@ -50,5 +50,10 @@ func Factory(settings map[string]string) (vfs.FileSystem, error) {
 	if !found.IsDir() {
 		return nil, fmt.Errorf("kind %q root %q is not a directory: %w", Kind, absolute, fs.ErrInvalid)
 	}
-	return New(absolute), nil
+
+	fsys, err := New(absolute)
+	if err != nil {
+		return nil, fmt.Errorf("kind %q root: %w", Kind, err)
+	}
+	return fsys, nil
 }

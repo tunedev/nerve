@@ -7,15 +7,18 @@
 // and truncation are native to a disk, so this is where the optional verb sets
 // memfs invented nothing for are actually answered.
 //
-// A path is resolved lexically before it is joined to the host directory, so no
-// spelling of it reaches outside the mount: "/.." is the root, the same way it
-// is in a tree that has no host under it.
+// Containment is the operating system's, not a string comparison's. The
+// directory is held open as an os.Root and every verb names a path relative to
+// it, so no spelling of a path reaches outside the mount and neither does a
+// symlink: the kernel resolves one at the syscall, long after any name could
+// have been cleaned, and refuses it there.
 package localfs
 
 import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -32,39 +35,77 @@ const (
 	filePerm = 0o644
 )
 
-// FS is one host directory answering the port. It holds no state beyond where
-// that directory is: the host filesystem is the tree, and it does its own
-// locking, so there is nothing here for a mutex to guard.
+// FS is one host directory answering the port. It holds an open handle on that
+// directory rather than its name, because the handle is what the operating
+// system enforces containment against. There is nothing else to hold: the host
+// filesystem is the tree, and it does its own locking, so there is no mutex
+// here either.
 type FS struct {
-	root string
+	root *os.Root
 }
 
 // New returns a filesystem over an existing host directory, named by an
-// absolute path.
-func New(root string) *FS {
-	return &FS{root: root}
+// absolute path. Opening the directory is what containment rests on, so a
+// directory that will not open is an error here rather than at the first verb.
+func New(root string) (*FS, error) {
+	opened, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, fmt.Errorf("open root %q: %w", root, sentinel(err))
+	}
+	return &FS{root: opened}, nil
 }
 
 // Capabilities reports a plain read-write tree, which is what a host directory
 // is at every path.
 func (f *FS) Capabilities(string) vfs.Caps { return vfs.Caps{} }
 
-// host maps a mount path onto the host path it stands for. The path is cleaned
-// first, so a caller is not made to clean paths a mount table would have
-// cleaned, and so nothing under the root can name anything above it.
-func (f *FS) host(name string) string {
-	return filepath.Join(f.root, filepath.FromSlash(path.Join("/", name)))
+// rel maps a mount path onto the name an os.Root takes, which is a path below
+// the root directory. The path is cleaned first, so a caller is not made to
+// clean paths a mount table would have cleaned, and the root itself is the one
+// name os.Root spells ".".
+func rel(name string) string {
+	clean := path.Join("/", name)
+	if clean == "/" {
+		return "."
+	}
+	return filepath.FromSlash(clean[1:])
 }
 
-// mount maps a host path back into the mount's vocabulary, which is what a link
-// target has to be read back in. A target outside the root is handed back as
+// linkTarget maps a link target back into the mount's vocabulary, which is what
+// Readlink has to answer in. A target is written relative to the directory
+// holding the link, so it is resolved against that directory here. One that
+// climbs out of the root, or names a host path absolutely, is handed back as
 // the host wrote it: the mount has no name for it.
-func (f *FS) mount(host string) string {
-	rel, err := filepath.Rel(f.root, host)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return host
+func linkTarget(dir, target string) string {
+	if path.IsAbs(target) {
+		return target
 	}
-	return path.Join("/", filepath.ToSlash(rel))
+	resolved := path.Join(strings.Join(elements(dir), "/"), target)
+	if resolved == ".." || strings.HasPrefix(resolved, "../") {
+		return target
+	}
+	return path.Join("/", resolved)
+}
+
+// relative spells to as a path from the directory from, which is how a link
+// target is written. It is relative because os.Root follows a relative link and
+// refuses an absolute one, and a link a mount made is a link that mount follows.
+func relative(from, to string) string {
+	base, target := elements(from), elements(to)
+	shared := 0
+	for shared < len(base) && shared < len(target) && base[shared] == target[shared] {
+		shared++
+	}
+
+	steps := make([]string, 0, len(base)+len(target)-2*shared)
+	for range base[shared:] {
+		steps = append(steps, "..")
+	}
+	steps = append(steps, target[shared:]...)
+	if len(steps) == 0 {
+		return "."
+	}
+	return path.Join(steps...)
 }
 
 // elements splits a mount path into the names below the root. The root itself
@@ -102,13 +143,25 @@ func info(name string, host fs.FileInfo) vfs.FileInfo {
 	return vfs.FileInfo{Name: entryName(name), Size: size, Mode: host.Mode(), ModTime: host.ModTime()}
 }
 
-// invalid translates the host errors that mean "not a thing you can do to this
-// path" into the sentinel the port names. os already maps ENOENT, EEXIST,
-// ENOTEMPTY and EACCES onto sentinels; these have no mapping of their own and
-// would otherwise reach a caller as a bare errno.
-func invalid(err error) error {
+// sentinel translates the host errors the port has a name for into the name it
+// uses. os already maps ENOENT, EEXIST, ENOTEMPTY and EACCES onto sentinels;
+// the rest here have no mapping and would otherwise reach a caller as a bare
+// errno or as an error only os can spell.
+func sentinel(err error) error {
+	if escaped(err) {
+		return fmt.Errorf("%w: %w", fs.ErrPermission, err)
+	}
 	if errors.Is(err, syscall.EISDIR) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.EINVAL) {
 		return fmt.Errorf("%w: %w", fs.ErrInvalid, err)
 	}
 	return err
+}
+
+// escaped reports whether the host refused an operation because the path led
+// out of the root. That refusal is containment doing its job, and the port
+// spells it as a permission: the mount will not leave itself. os exports no
+// sentinel for the condition, so its wording is the only handle; the
+// containment tests assert what this becomes, so a rewording fails loudly.
+func escaped(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "path escapes from parent")
 }

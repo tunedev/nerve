@@ -3,7 +3,6 @@ package localfs_test
 import (
 	"testing"
 
-	"github.com/tunedev/nerve/internal/adapters/outbound/localfs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 	"github.com/tunedev/nerve/internal/vfstest"
 )
@@ -14,6 +13,6 @@ import (
 // skips run here.
 func TestConformance(t *testing.T) {
 	vfstest.Run(t, vfstest.Plugin{
-		New: func(t *testing.T) vfs.FileSystem { return localfs.New(t.TempDir()) },
+		New: func(t *testing.T) vfs.FileSystem { return mustNew(t, t.TempDir()) },
 	})
 }

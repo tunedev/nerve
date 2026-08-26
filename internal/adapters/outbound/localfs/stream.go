@@ -2,11 +2,14 @@ package localfs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"math/rand/v2"
 	"os"
-	"path/filepath"
+	"path"
+	"strconv"
 
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -20,13 +23,22 @@ func (f *FS) AsStreamer() vfs.Streamer { return f }
 func (f *FS) AsTruncater() vfs.Truncater { return f }
 
 // Truncate sets the length of name's content, padding with zero bytes when size
-// is past the end.
+// is past the end. It cuts the entry through an open handle, because a length
+// is set on a path only by naming it a second time, and every name here is
+// resolved once by the root.
 func (f *FS) Truncate(_ context.Context, name string, size int64) error {
 	if size < 0 {
 		return fmt.Errorf("truncate %q to %d: a length is not negative: %w", name, size, fs.ErrInvalid)
 	}
-	if err := os.Truncate(f.host(name), size); err != nil {
-		return fmt.Errorf("truncate %q: %w", name, invalid(err))
+
+	file, err := f.root.OpenFile(rel(name), os.O_WRONLY, 0)
+	if err != nil {
+		return fmt.Errorf("truncate %q: %w", name, sentinel(err))
+	}
+	defer func() { _ = file.Close() }()
+
+	if err := file.Truncate(size); err != nil {
+		return fmt.Errorf("truncate %q: %w", name, sentinel(err))
 	}
 	return nil
 }
@@ -35,15 +47,15 @@ func (f *FS) Truncate(_ context.Context, name string, size int64) error {
 // disk and only fails at the first read, so it is refused here instead: a
 // caller finds out from the verb it called.
 func (f *FS) OpenRead(_ context.Context, name string) (io.ReadCloser, error) {
-	file, err := os.Open(f.host(name))
+	file, err := f.root.Open(rel(name))
 	if err != nil {
-		return nil, fmt.Errorf("open_read %q: %w", name, invalid(err))
+		return nil, fmt.Errorf("open_read %q: %w", name, sentinel(err))
 	}
 
 	found, err := file.Stat()
 	if err != nil {
 		_ = file.Close()
-		return nil, fmt.Errorf("open_read %q: %w", name, invalid(err))
+		return nil, fmt.Errorf("open_read %q: %w", name, sentinel(err))
 	}
 	if found.IsDir() {
 		_ = file.Close()
@@ -60,22 +72,44 @@ func (f *FS) OpenRead(_ context.Context, name string) (io.ReadCloser, error) {
 // Close, so a caller learns about a missing parent before it streams a payload
 // nothing will accept.
 func (f *FS) OpenWrite(_ context.Context, name string) (io.WriteCloser, error) {
-	host := f.host(name)
-	if found, err := os.Lstat(host); err == nil && found.IsDir() {
+	target := rel(name)
+	if found, err := f.root.Lstat(target); err == nil && found.IsDir() {
 		return nil, fmt.Errorf("open_write %q: a directory: %w", name, fs.ErrInvalid)
 	}
 
-	temp, err := os.CreateTemp(filepath.Dir(host), ".nerve-write-*")
+	file, temp, err := f.createTemp(path.Dir(path.Join("/", name)))
 	if err != nil {
-		return nil, fmt.Errorf("open_write %q: %w", name, invalid(err))
+		return nil, fmt.Errorf("open_write %q: %w", name, sentinel(err))
 	}
-	return &pending{file: temp, name: name, target: host}, nil
+	return &pending{fsys: f, file: file, temp: temp, name: name, target: target}, nil
+}
+
+// createTemp makes an entry under dir that nothing else holds, which is where a
+// streamed write is collected until Close moves it. os.Root has no CreateTemp
+// of its own, and reaching around the root for one would be a hole in the
+// containment every other verb goes through, so the name is drawn here and the
+// host settles the race by refusing to create one twice.
+func (f *FS) createTemp(dir string) (*os.File, string, error) {
+	for range 1000 {
+		temp := rel(path.Join(dir, ".nerve-write-"+strconv.FormatUint(rand.Uint64(), 36)))
+		file, err := f.root.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_RDWR, filePerm)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		return file, temp, nil
+	}
+	return nil, "", fmt.Errorf("no unused name under %q: %w", dir, fs.ErrExist)
 }
 
 // pending is a streamed write in progress: a file the caller is filling, and
 // the path it takes the place of when the caller closes it.
 type pending struct {
+	fsys   *FS
 	file   *os.File
+	temp   string
 	name   string
 	target string
 	closed bool
@@ -104,7 +138,7 @@ func (p *pending) Close() error {
 	if err := p.file.Close(); err != nil {
 		return p.abandon(err)
 	}
-	if err := os.Rename(p.file.Name(), p.target); err != nil {
+	if err := p.fsys.root.Rename(p.temp, p.target); err != nil {
 		return p.abandon(err)
 	}
 	return nil
@@ -113,7 +147,7 @@ func (p *pending) Close() error {
 // mode is what the entry ends up with: the mode it already had, since Chmod is
 // the only verb that sets one, and what a new entry is made with otherwise.
 func (p *pending) mode() fs.FileMode {
-	found, err := os.Stat(p.target)
+	found, err := p.fsys.root.Stat(p.target)
 	if err != nil {
 		return filePerm
 	}
@@ -121,6 +155,6 @@ func (p *pending) mode() fs.FileMode {
 }
 
 func (p *pending) abandon(cause error) error {
-	_ = os.Remove(p.file.Name())
-	return fmt.Errorf("close %q: %w", p.name, invalid(cause))
+	_ = p.fsys.root.Remove(p.temp)
+	return fmt.Errorf("close %q: %w", p.name, sentinel(cause))
 }

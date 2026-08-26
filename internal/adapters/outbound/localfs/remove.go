@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
+	"path"
 )
 
 // Remove deletes name. It fails on a directory that is not empty, because
@@ -15,8 +14,8 @@ func (f *FS) Remove(_ context.Context, name string) error {
 	if isRoot(name) {
 		return fmt.Errorf("remove %q: the root: %w", name, fs.ErrInvalid)
 	}
-	if err := os.Remove(f.host(name)); err != nil {
-		return fmt.Errorf("remove %q: %w", name, invalid(err))
+	if err := f.root.Remove(rel(name)); err != nil {
+		return fmt.Errorf("remove %q: %w", name, sentinel(err))
 	}
 	return nil
 }
@@ -25,21 +24,20 @@ func (f *FS) Remove(_ context.Context, name string) error {
 // not an error. The root is the one path that cannot be deleted, so it is
 // emptied instead: everything beneath it is what the verb promises either way.
 func (f *FS) RemoveAll(_ context.Context, name string) error {
-	host := f.host(name)
 	if !isRoot(name) {
-		if err := os.RemoveAll(host); err != nil {
-			return fmt.Errorf("remove_all %q: %w", name, invalid(err))
+		if err := f.root.RemoveAll(rel(name)); err != nil {
+			return fmt.Errorf("remove_all %q: %w", name, sentinel(err))
 		}
 		return nil
 	}
 
-	children, err := os.ReadDir(host)
+	children, err := f.children(name)
 	if err != nil {
-		return fmt.Errorf("remove_all %q: %w", name, invalid(err))
+		return fmt.Errorf("remove_all %q: %w", name, err)
 	}
 	for _, child := range children {
-		if err := os.RemoveAll(filepath.Join(host, child.Name())); err != nil {
-			return fmt.Errorf("remove_all %q: %w", name, invalid(err))
+		if err := f.root.RemoveAll(rel(path.Join(name, child.Name()))); err != nil {
+			return fmt.Errorf("remove_all %q: %w", name, sentinel(err))
 		}
 	}
 	return nil

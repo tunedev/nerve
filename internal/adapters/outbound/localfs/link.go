@@ -3,7 +3,7 @@ package localfs
 import (
 	"context"
 	"fmt"
-	"os"
+	"path"
 
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -13,12 +13,14 @@ import (
 // link means, and here the host has already decided.
 func (f *FS) AsSymlinker() vfs.Symlinker { return f }
 
-// Symlink makes newPath stand for oldPath, which need not exist. The link is
-// written with the host path of its target, so the host resolves it the same
-// way this mount does.
+// Symlink makes newPath stand for oldPath, which need not exist. The target is
+// written relative to the directory holding the link, so it resolves inside the
+// root: an absolute host path would name a location the root refuses to follow,
+// and a link this mount made is one this mount reads through.
 func (f *FS) Symlink(_ context.Context, oldPath, newPath string) error {
-	if err := os.Symlink(f.host(oldPath), f.host(newPath)); err != nil {
-		return fmt.Errorf("symlink %q to %q: %w", oldPath, newPath, invalid(err))
+	target := relative(path.Dir(path.Join("/", newPath)), oldPath)
+	if err := f.root.Symlink(target, rel(newPath)); err != nil {
+		return fmt.Errorf("symlink %q to %q: %w", oldPath, newPath, sentinel(err))
 	}
 	return nil
 }
@@ -26,9 +28,9 @@ func (f *FS) Symlink(_ context.Context, oldPath, newPath string) error {
 // Readlink returns what path stands for, in the mount's vocabulary rather than
 // the host's.
 func (f *FS) Readlink(_ context.Context, name string) (string, error) {
-	target, err := os.Readlink(f.host(name))
+	target, err := f.root.Readlink(rel(name))
 	if err != nil {
-		return "", fmt.Errorf("readlink %q: %w", name, invalid(err))
+		return "", fmt.Errorf("readlink %q: %w", name, sentinel(err))
 	}
-	return f.mount(target), nil
+	return linkTarget(path.Dir(path.Join("/", name)), target), nil
 }
