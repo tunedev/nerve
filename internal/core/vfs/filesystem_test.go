@@ -10,8 +10,9 @@ import (
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
-// stub is the whole cost of satisfying the port: ten verbs, a descriptor set,
-// and nothing else.
+// stub writes the ten verbs and the descriptor set, and nothing else. It is not
+// a FileSystem on its own; embedding NoAccessors alongside it is what completes
+// the port.
 type stub struct{}
 
 func (stub) Create(context.Context, string) error                    { return nil }
@@ -26,8 +27,6 @@ func (stub) Rename(context.Context, string, string) error            { return ni
 func (stub) Chmod(context.Context, string, fs.FileMode) error        { return nil }
 func (stub) Capabilities(string) vfs.Caps                            { return vfs.Caps{} }
 
-var _ vfs.FileSystem = stub{}
-
 // The verb set is fixed at ten. A new capability arrives as a descriptor or an
 // accessor, never as an eleventh verb, because every added verb is one more
 // thing every plugin has to answer. The interface is therefore the ten verbs
@@ -37,7 +36,7 @@ func TestInterfaceIsTenVerbsPlusDiscovery(t *testing.T) {
 		"Chmod", "Create", "Mkdir", "Read", "ReadDir",
 		"Remove", "RemoveAll", "Rename", "Stat", "Write",
 	}
-	discovery := []string{"Capabilities"}
+	discovery := []string{"Capabilities", "AsSymlinker", "AsStreamer", "AsTruncater"}
 
 	want := slices.Sorted(slices.Values(slices.Concat(verbs, discovery)))
 

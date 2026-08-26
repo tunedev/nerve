@@ -10,7 +10,10 @@ import (
 // queueMount is the case descriptors exist for: one mount whose capability
 // differs by path. Jobs are consumed by reading; the config beside them is an
 // ordinary file that stays where it is.
-type queueMount struct{ stub }
+type queueMount struct {
+	stub
+	vfs.NoAccessors
+}
 
 func (queueMount) Capabilities(path string) vfs.Caps {
 	if path == "/jobs" || strings.HasPrefix(path, "/jobs/") {
