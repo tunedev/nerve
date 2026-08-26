@@ -3,8 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -20,6 +22,7 @@ func (c Config) Validate() error {
 		reachable("postgres-dsn", c.PostgresDSN, "postgres", "postgresql"),
 		reachable("rabbitmq-url", c.RabbitMQURL, "amqp", "amqps"),
 		reachable("ollama-url", c.OllamaURL, "http", "https"),
+		listenable("admin-addr", c.AdminAddr),
 	)
 }
 
@@ -44,6 +47,23 @@ func reachable(name, value string, schemes ...string) error {
 	}
 	if parsed.Host == "" {
 		return fmt.Errorf("%s names no host", name)
+	}
+	return nil
+}
+
+// listenable accepts a host:port a server can bind. An empty host means every
+// interface, which is a deployment choice rather than a config error; an
+// unusable port is not, and finding that out at boot beats finding it out when
+// someone needs the answer.
+func listenable(name, value string) error {
+	_, port, err := net.SplitHostPort(value)
+	if err != nil {
+		return fmt.Errorf("%s is not host:port: %w", name, err)
+	}
+
+	number, err := strconv.Atoi(port)
+	if err != nil || number < 1 || number > 65535 {
+		return fmt.Errorf("%s has port %q, want a number from 1 to 65535", name, port)
 	}
 	return nil
 }

@@ -26,6 +26,11 @@ type Config struct {
 	RabbitMQURL string `json:"rabbitmq-url"`
 	OllamaURL   string `json:"ollama-url"`
 
+	// AdminAddr is where the operator surface listens. It defaults to the
+	// loopback interface because what it answers with — endpoints, hosts, the
+	// shape of the mount table — is for whoever is on the box.
+	AdminAddr string `json:"admin-addr"`
+
 	// Mounts is the mount table: which plugin answers for which subtree. It is
 	// a list, so unlike the settings above it comes from the file layer alone.
 	Mounts []Mount `json:"mounts"`
@@ -39,6 +44,7 @@ func Defaults() Config {
 		PostgresDSN: "postgres://nerve:nerve@localhost:5432/nerve?sslmode=disable",
 		RabbitMQURL: "amqp://nerve:nerve@localhost:5672/",
 		OllamaURL:   "http://localhost:11434",
+		AdminAddr:   "127.0.0.1:7777",
 	}
 }
 
@@ -163,6 +169,7 @@ var fields = []field{
 	{"postgres-dsn", "Postgres connection string", func(c *Config) *string { return &c.PostgresDSN }},
 	{"rabbitmq-url", "RabbitMQ connection URL", func(c *Config) *string { return &c.RabbitMQURL }},
 	{"ollama-url", "Ollama base URL", func(c *Config) *string { return &c.OllamaURL }},
+	{"admin-addr", "host:port for the operator surface", func(c *Config) *string { return &c.AdminAddr }},
 }
 
 // envName is the environment spelling of a setting: NERVE_ before it, upper

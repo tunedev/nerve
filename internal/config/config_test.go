@@ -90,12 +90,14 @@ func TestUnpassedFlagsChangeNothing(t *testing.T) {
 
 func TestInvalidConfigFailsAtBoot(t *testing.T) {
 	cases := map[string]config.Sources{
-		"unknown log level": {Lookup: env(map[string]string{"NERVE_LOG_LEVEL": "trace"})},
-		"empty setting":     {Lookup: env(map[string]string{"NERVE_OLLAMA_URL": ""})},
-		"wrong scheme":      {Args: []string{"-rabbitmq-url", "http://broker:5672/"}},
-		"no host":           {Args: []string{"-postgres-dsn", "postgres:///nerve"}},
-		"misspelled key":    {File: writeFile(t, `{"log_level": "debug"}`)},
-		"unreadable file":   {File: filepath.Join(t.TempDir(), "absent.json")},
+		"unknown log level":    {Lookup: env(map[string]string{"NERVE_LOG_LEVEL": "trace"})},
+		"empty setting":        {Lookup: env(map[string]string{"NERVE_OLLAMA_URL": ""})},
+		"wrong scheme":         {Args: []string{"-rabbitmq-url", "http://broker:5672/"}},
+		"no host":              {Args: []string{"-postgres-dsn", "postgres:///nerve"}},
+		"misspelled key":       {File: writeFile(t, `{"log_level": "debug"}`)},
+		"unreadable file":      {File: filepath.Join(t.TempDir(), "absent.json")},
+		"admin addr host only": {Args: []string{"-admin-addr", "127.0.0.1"}},
+		"admin addr no port":   {Args: []string{"-admin-addr", "127.0.0.1:"}},
 	}
 
 	for name, src := range cases {
@@ -114,14 +116,14 @@ func TestInvalidConfigFailsAtBoot(t *testing.T) {
 // One boot reports every problem, so fixing a bad config does not take one
 // restart per setting.
 func TestValidateReportsEveryProblem(t *testing.T) {
-	broken := config.Config{LogLevel: "trace", PostgresDSN: "", RabbitMQURL: "", OllamaURL: ""}
+	broken := config.Config{LogLevel: "trace", PostgresDSN: "", RabbitMQURL: "", OllamaURL: "", AdminAddr: ""}
 
 	err := broken.Validate()
 	if err == nil {
 		t.Fatal("Validate() = nil, want an error")
 	}
 
-	for _, name := range []string{"log-level", "postgres-dsn", "rabbitmq-url", "ollama-url"} {
+	for _, name := range []string{"log-level", "postgres-dsn", "rabbitmq-url", "ollama-url", "admin-addr"} {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("Validate() error does not name %s:\n%v", name, err)
 		}

@@ -20,7 +20,7 @@ func TestEffectiveRedactsThePassword(t *testing.T) {
 	if strings.Contains(value, "hunter2") {
 		t.Errorf("postgres-dsn = %q, still carries the password", value)
 	}
-	for _, want := range []string{"nerve@db:5432", "sslmode=disable"} {
+	for _, want := range []string{"nerve:xxxxx@db:5432", "sslmode=disable"} {
 		if !strings.Contains(value, want) {
 			t.Errorf("postgres-dsn = %q, want it to still name %q", value, want)
 		}

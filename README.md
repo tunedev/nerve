@@ -41,8 +41,9 @@ things deliberately refused.
 
 ## Status
 
-Scaffolding only. Nothing is implemented — the binary compiles, prints its version and
-exits. The roadmap is the work.
+Scaffolding only. The binary boots on a validated config, prints the mount table it
+resolved, and serves a read-only operator surface until it is signalled. No storage kind
+is implemented yet. The roadmap is the work.
 
 ## Running the stack
 
@@ -68,6 +69,12 @@ and `NERVE_LOG_LEVEL`. `nerved -h` lists them with the values it would actually 
 An invalid setting stops the boot and every problem is reported at once, so a bad config
 costs one restart rather than one per mistake. The file path is an environment variable
 rather than a flag because the file layer sits below the flag layer.
+
+What the process actually resolved is readable rather than guessable: `admin-addr`
+(`127.0.0.1:7777` by default) serves `GET /config`, which answers with every setting under
+that same single name, and with the mount table. Any password inside a connection string is
+replaced first, in the view rather than at the surface, so a second surface cannot forget.
+Nothing there is writable — config changes go through the layers and a restart.
 
 The mount table lives in that file too: `mounts` is a list of `{prefix, kind, settings}`,
 and a mount appears by adding a line rather than by editing code. A kind the build does not
