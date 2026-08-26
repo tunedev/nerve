@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"testing"
+	"time"
 )
 
 // fileCases are what Create, Read and Write promise about one entry.
@@ -109,6 +110,11 @@ func writeOverADirectory(t *testing.T, w world) {
 
 // Stat reports when the content last changed, so a caller holding a cached
 // entry can tell that it has to read again.
+//
+// A host stamps an entry from a clock that advances in ticks rather than
+// continuously, and two writes inside one tick carry the same time. The case
+// writes until the clock has moved rather than weakening what it asserts: a
+// plugin that does not stamp its writes never gets there.
 func writeMovesModTimeForward(t *testing.T, w world) {
 	mustWrite(t, w, "notes", "first")
 	before, err := w.fsys.Stat(t.Context(), w.at("notes"))
@@ -116,14 +122,20 @@ func writeMovesModTimeForward(t *testing.T, w world) {
 		t.Fatalf("Stat(%q) = %v", w.at("notes"), err)
 	}
 
-	mustWrite(t, w, "notes", "second")
-	after, err := w.fsys.Stat(t.Context(), w.at("notes"))
-	if err != nil {
-		t.Fatalf("Stat(%q) = %v", w.at("notes"), err)
-	}
-
-	if !after.ModTime.After(before.ModTime) {
-		t.Errorf("ModTime after a write = %v, want later than %v", after.ModTime, before.ModTime)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mustWrite(t, w, "notes", "second")
+		after, err := w.fsys.Stat(t.Context(), w.at("notes"))
+		if err != nil {
+			t.Fatalf("Stat(%q) = %v", w.at("notes"), err)
+		}
+		if after.ModTime.After(before.ModTime) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("ModTime after a write = %v, want later than %v", after.ModTime, before.ModTime)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
