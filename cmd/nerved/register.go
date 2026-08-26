@@ -6,6 +6,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/kvfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/localfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -17,7 +18,7 @@ import (
 // A kind names the settings it is willing to read back to an operator. memfs
 // takes none, so it names none; localfs names its root, because which disk a
 // mount is on is what an operator has to be able to read back; kvfs names its
-// namespace, for the same reason.
+// namespace and sqlfs its database file, for the same reason.
 //
 // kvfs is given the one keyspace this build has, built here, because every kvfs
 // mount is a namespaced part of a store rather than a store of its own. That is
@@ -28,5 +29,6 @@ func registerKinds(registry *vfs.Registry) error {
 		registry.Register(memfs.Kind, memfs.Factory),
 		registry.Register(localfs.Kind, localfs.Factory, localfs.RootSetting),
 		registry.Register(kvfs.Kind, kvfs.Factory(kvfs.NewMemStore()), kvfs.NamespaceSetting),
+		registry.Register(sqlfs.Kind, sqlfs.Factory, sqlfs.PathSetting),
 	)
 }
