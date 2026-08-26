@@ -54,7 +54,7 @@ a bug.
 make up      # Postgres with pgvector, RabbitMQ, Ollama — waits until each one answers
 make status  # what is running, and whether it is healthy
 make run     # the binary, against that stack
-make check   # formatting, lint, tests
+make check   # formatting, lint, tests under the race detector
 make down    # stop, keeping the data
 ```
 

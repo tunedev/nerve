@@ -45,8 +45,12 @@ run: ## Run the binary against the stack
 	@$(RUN_ENV) $(GO) run ./cmd/nerved
 
 .PHONY: test
-test: ## Run tests (go vet runs as part of this)
+test: ## Run tests fast, no race detector (go vet runs as part of this)
 	$(GO) test ./...
+
+.PHONY: race
+race: ## Run tests under the race detector
+	$(GO) test -race ./...
 
 .PHONY: fmt
 fmt: ## Format
@@ -62,4 +66,4 @@ lint: ## Verify the lint config, then run golangci-lint
 	golangci-lint run
 
 .PHONY: check
-check: fmt-check lint test ## Everything CI runs
+check: fmt-check lint race ## Everything CI runs
