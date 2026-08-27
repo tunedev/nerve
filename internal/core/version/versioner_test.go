@@ -10,17 +10,19 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/localfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/localrefs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/treecopy"
 	"github.com/tunedev/nerve/internal/core/cas"
 	"github.com/tunedev/nerve/internal/core/version"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
-// tree is where a versioner keeps everything: the working copy under /work, the
-// objects under /versions/objects, the refs under /versions/refs. One mount
-// holds all three, which is what makes a versioner over memfs and a versioner
-// over a host directory the same code.
+// tree is where a versioner keeps everything: the working copy under /work and
+// where it stands in /versions/base, the objects under /versions/objects, the
+// refs under /versions/refs. One mount holds all four, which is what makes a
+// versioner over memfs and a versioner over a host directory the same code.
 const (
 	workRoot    = "/work"
+	stateFile   = "/versions/base"
 	objectsRoot = "/versions/objects"
 	refsRoot    = "/versions/refs"
 )
@@ -39,19 +41,12 @@ func mounts(t *testing.T) map[string]vfs.FileSystem {
 
 func newVersioner(t *testing.T, fsys vfs.FileSystem) *version.Versioner {
 	t.Helper()
-	return version.NewVersioner(fsys, workRoot, cas.New(fsys, objectsRoot), localrefs.New(fsys, refsRoot))
+	return version.NewVersioner(treecopy.New(fsys, workRoot, stateFile), cas.New(fsys, objectsRoot), localrefs.New(fsys, refsRoot))
 }
 
 func write(t *testing.T, fsys vfs.FileSystem, name, content string) {
 	t.Helper()
-
-	full := path.Join(workRoot, name)
-	if err := fsys.Mkdir(context.Background(), path.Dir(full)); err != nil {
-		t.Fatalf("mkdir for %q: %v", name, err)
-	}
-	if err := fsys.Write(context.Background(), full, []byte(content)); err != nil {
-		t.Fatalf("write %q: %v", name, err)
-	}
+	writeAt(t, fsys, workRoot, name, content)
 }
 
 func remove(t *testing.T, fsys vfs.FileSystem, name string) {
@@ -64,12 +59,7 @@ func remove(t *testing.T, fsys vfs.FileSystem, name string) {
 
 func read(t *testing.T, fsys vfs.FileSystem, name string) string {
 	t.Helper()
-
-	data, err := fsys.Read(context.Background(), path.Join(workRoot, name))
-	if err != nil {
-		t.Fatalf("read %q: %v", name, err)
-	}
-	return string(data)
+	return readAt(t, fsys, workRoot, name)
 }
 
 func commit(t *testing.T, v *version.Versioner, ref, message string) version.ID {
@@ -186,7 +176,7 @@ func TestStatusIsEmptyRightAfterACommit(t *testing.T) {
 func TestStatusStoresNothing(t *testing.T) {
 	fsys := memfs.New()
 	objects := cas.New(fsys, objectsRoot)
-	versioner := version.NewVersioner(fsys, workRoot, objects, localrefs.New(fsys, refsRoot))
+	versioner := version.NewVersioner(treecopy.New(fsys, workRoot, stateFile), objects, localrefs.New(fsys, refsRoot))
 	write(t, fsys, "a.md", "never committed")
 
 	if _, err := versioner.Status(context.Background(), "main"); err != nil {
@@ -394,7 +384,7 @@ func TestPurgeRemovesWhatNoVersionNames(t *testing.T) {
 	fsys := memfs.New()
 	objects := cas.New(fsys, objectsRoot)
 	refs := localrefs.New(fsys, refsRoot)
-	versioner := version.NewVersioner(fsys, workRoot, objects, refs)
+	versioner := version.NewVersioner(treecopy.New(fsys, workRoot, stateFile), objects, refs)
 
 	write(t, fsys, "a.md", "the first content")
 	first := commit(t, versioner, "main", "first")
@@ -433,7 +423,7 @@ func TestPurgeRemovesAVersionNoRefLeadsTo(t *testing.T) {
 	fsys := memfs.New()
 	objects := cas.New(fsys, objectsRoot)
 	refs := localrefs.New(fsys, refsRoot)
-	versioner := version.NewVersioner(fsys, workRoot, objects, refs)
+	versioner := version.NewVersioner(treecopy.New(fsys, workRoot, stateFile), objects, refs)
 
 	write(t, fsys, "a.md", "kept")
 	commit(t, versioner, "main", "kept")
@@ -442,6 +432,12 @@ func TestPurgeRemovesAVersionNoRefLeadsTo(t *testing.T) {
 
 	if err := refs.Delete(ctx, "scratch", abandoned); err != nil {
 		t.Fatalf("delete ref: %v", err)
+	}
+	// The copy is left standing on the abandoned version by the commit that made
+	// it, and a sweep keeps what the copy stands on. Reconciling is what takes it
+	// off, which is what makes the version unreachable.
+	if _, err := versioner.Reconcile(ctx, "main"); err != nil {
+		t.Fatalf("reconcile: %v", err)
 	}
 	if _, err := versioner.Purge(ctx); err != nil {
 		t.Fatalf("purge: %v", err)
@@ -467,31 +463,24 @@ func TestPurgeOfAStoreWithNothingInIt(t *testing.T) {
 	}
 }
 
-// stale is a ref store that reports a ref standing for nothing while it really
-// stands for a version. It is what a commit looks like from the losing side of
-// a race: what was read is no longer what is there, and the compare-and-set is
-// the only thing that can say so.
-type stale struct {
-	version.RefStore
-}
-
-func (stale) Resolve(context.Context, string) (version.ID, error) {
-	return "", fs.ErrNotExist
-}
-
-func TestCommitOntoARefThatMovedIsAConflict(t *testing.T) {
+// A copy that has never been committed from stands for nothing, so committing
+// from it onto a ref that already stands somewhere is the losing side of a
+// race: the compare-and-set refuses rather than dropping the version the copy
+// never saw.
+func TestCommitFromACopyThatNeverSawTheRefIsAConflict(t *testing.T) {
 	ctx := context.Background()
 	fsys := memfs.New()
+	objects := cas.New(fsys, objectsRoot)
 	refs := localrefs.New(fsys, refsRoot)
-	versioner := version.NewVersioner(fsys, workRoot, cas.New(fsys, objectsRoot), refs)
+	versioner := version.NewVersioner(treecopy.New(fsys, workRoot, stateFile), objects, refs)
 
 	write(t, fsys, "a.md", "one")
 	if _, err := versioner.Commit(ctx, "main", "one file"); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 
-	blind := version.NewVersioner(fsys, workRoot, cas.New(fsys, objectsRoot), stale{refs})
-	write(t, fsys, "a.md", "two")
+	blind := version.NewVersioner(treecopy.New(fsys, "/blind", "/versions/blind"), objects, refs)
+	writeAt(t, fsys, "/blind", "a.md", "two")
 	if _, err := blind.Commit(ctx, "main", "racing"); !errors.Is(err, version.ErrConflict) {
 		t.Fatalf("committing onto a ref that moved returned %v, want version.ErrConflict", err)
 	}

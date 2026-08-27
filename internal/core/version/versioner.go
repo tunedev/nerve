@@ -12,11 +12,10 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/core/cas"
-	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
-// Versioner turns a working tree into versions and back. It is the one thing
-// holding all three parts: the tree being versioned, the object store that
+// Versioner turns a working copy into versions and back. It is the one thing
+// holding all three parts: the copy being versioned, the object store that
 // holds what a version says, and the refs that say where a tree stands.
 //
 // A version is content at a set of paths. Directories are walked and not
@@ -35,28 +34,28 @@ type Versioner struct {
 	// store's compare-and-set, that holds for this process and for no other.
 	commits sync.RWMutex
 
-	tree    vfs.FileSystem
-	root    string
+	work    WorkingCopy
 	objects *cas.Store
 	refs    RefStore
 	now     func() time.Time
 }
 
-// NewVersioner returns a versioner over the tree beneath root of fsys, keeping
-// what it stores in objects and where trees stand in refs.
-func NewVersioner(fsys vfs.FileSystem, root string, objects *cas.Store, refs RefStore) *Versioner {
+// NewVersioner returns a versioner over the working copy work, keeping what it
+// stores in objects and where trees stand in refs.
+func NewVersioner(work WorkingCopy, objects *cas.Store, refs RefStore) *Versioner {
 	return &Versioner{
-		tree:    fsys,
-		root:    path.Join("/", root),
+		work:    work,
 		objects: objects,
 		refs:    refs,
 		now:     func() time.Time { return time.Now().UTC() },
 	}
 }
 
-// Status reports how the working tree differs from what ref stands for. Nothing
-// is stored to answer it: a question about a tree should not leave objects
-// behind for a sweep to collect.
+// Status reports how the working copy differs from what ref stands for, which
+// is the content and not the position: a copy the ref has moved off says so
+// when it is committed from, not when it is asked what changed. Nothing is
+// stored to answer it: a question about a tree should not leave objects behind
+// for a sweep to collect.
 func (v *Versioner) Status(ctx context.Context, ref string) ([]Change, error) {
 	id, err := v.resolve(ctx, ref)
 	if err != nil {
@@ -73,24 +72,25 @@ func (v *Versioner) Status(ctx context.Context, ref string) ([]Change, error) {
 	return changes(committed, working), nil
 }
 
-// Commit stores the working tree as a version and moves ref onto it.
+// Commit stores the working copy as a version and moves ref onto it.
 //
-// A tree that has not changed since ref is not committed again: what ref
-// already stands for is returned and no ref is written, so running a commit
-// twice leaves one version rather than two saying the same thing.
+// A copy that has not changed since the version it stands on makes no second
+// version saying the same thing: that version is what the ref is moved onto and
+// what comes back, so running a commit twice leaves one version.
 //
-// The move is a compare-and-set against what ref stood for when the walk began,
-// so a commit that raced another one fails with ErrConflict rather than
-// dropping it.
+// The move is a compare-and-set against where the copy stands, not against a
+// fresh reading of the ref. A copy taken from a version the ref has since moved
+// off fails with ErrConflict, because committing it would replace a version
+// this copy never saw with a tree that was never told about it.
 func (v *Versioner) Commit(ctx context.Context, ref, message string) (ID, error) {
 	v.commits.RLock()
 	defer v.commits.RUnlock()
 
-	parent, err := v.resolve(ctx, ref)
+	stood, err := v.work.Base(ctx)
 	if err != nil {
 		return "", err
 	}
-	committed, err := v.entries(ctx, parent)
+	committed, err := v.entries(ctx, stood)
 	if err != nil {
 		return "", err
 	}
@@ -98,24 +98,45 @@ func (v *Versioner) Commit(ctx context.Context, ref, message string) (ID, error)
 	if err != nil {
 		return "", err
 	}
-	if len(changes(committed, working)) == 0 {
-		return parent, nil
+
+	id := stood
+	if len(changes(committed, working)) > 0 {
+		data, err := manifest{Parent: stood, Message: message, Time: v.now(), Entries: working}.encode()
+		if err != nil {
+			return "", err
+		}
+		digest, err := v.objects.Put(ctx, data)
+		if err != nil {
+			return "", fmt.Errorf("commit to %q: %w", ref, err)
+		}
+		id = ID(digest.String())
 	}
 
-	data, err := manifest{Parent: parent, Message: message, Time: v.now(), Entries: working}.encode()
-	if err != nil {
+	if err := v.point(ctx, ref, stood, id); err != nil {
 		return "", err
 	}
-	digest, err := v.objects.Put(ctx, data)
-	if err != nil {
-		return "", fmt.Errorf("commit to %q: %w", ref, err)
-	}
-
-	id := ID(digest.String())
-	if err := v.refs.Set(ctx, ref, parent, id); err != nil {
+	if err := v.work.SetBase(ctx, id); err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+// point moves ref off where the copy stood and onto id, and writes nothing when
+// it already stands there. A ref standing for nothing is created rather than
+// compared: the copy is not taking it off a version, so there is no version for
+// the compare-and-set to protect and a copy may be committed onto a new ref.
+func (v *Versioner) point(ctx context.Context, ref string, stood, id ID) error {
+	current, err := v.resolve(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if current == id {
+		return nil
+	}
+	if current == "" {
+		stood = ""
+	}
+	return v.refs.Set(ctx, ref, stood, id)
 }
 
 // ListVersions returns the history behind ref, newest first. A ref standing for
@@ -139,7 +160,7 @@ func (v *Versioner) ListVersions(ctx context.Context, ref string) ([]Version, er
 }
 
 // ReadVersion returns the content name held at id, without touching the working
-// tree. A path the version does not have is fs.ErrNotExist.
+// copy. A path the version does not have is fs.ErrNotExist.
 func (v *Versioner) ReadVersion(ctx context.Context, id ID, name string) ([]byte, error) {
 	entries, err := v.entries(ctx, id)
 	if err != nil {
@@ -175,9 +196,14 @@ func (v *Versioner) Diff(ctx context.Context, from, to ID) ([]Change, error) {
 	return changes(before, after), nil
 }
 
-// Restore makes the working tree hold what id says, and returns what it had to
+// Restore makes the working copy hold what id says, and returns what it had to
 // change to do it. The zero ID is refused: it names no version, and emptying a
 // tree is not what a caller asking to restore one meant.
+//
+// It changes content and not position. The copy still stands where it stood, so
+// committing older content afterwards records a revert onto the version the
+// copy was already on rather than colliding with it. Moving the copy is
+// Reconcile's, which is the verb about where it stands.
 //
 // Directories emptied by a restore stay. A version records content at paths and
 // nothing about the directories on the way, so removing them would be the
@@ -205,19 +231,32 @@ func (v *Versioner) Restore(ctx context.Context, id ID) ([]Change, error) {
 	return applied, nil
 }
 
-// Reconcile brings the working tree back to what ref stands for, and returns
+// Reconcile brings the working copy back to what ref stands for, and returns
 // what it changed. Divergence is resolved one way: the ref wins, and what comes
-// back is what the working tree gave up.
+// back is what the copy gave up.
+//
+// It resolves both kinds at once. Content the copy holds that the ref does not
+// is put back, and the copy is left standing on the ref, so a commit that was
+// refused for having been taken from a version the ref moved off now lands on
+// top of it. Reconciling to a ref standing for nothing is fs.ErrNotExist rather
+// than an emptied tree, which is Restore's refusal of the zero version.
 func (v *Versioner) Reconcile(ctx context.Context, ref string) ([]Change, error) {
 	id, err := v.refs.Resolve(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	return v.Restore(ctx, id)
+	applied, err := v.Restore(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := v.work.SetBase(ctx, id); err != nil {
+		return nil, err
+	}
+	return applied, nil
 }
 
-// Purge removes every object no version reachable from a ref refers to, and
-// returns how many went.
+// Purge removes every object no version reachable from a ref or from where the
+// working copy stands refers to, and returns how many went.
 //
 // It excludes commits for as long as it runs. A commit stores its content
 // before the ref that will name it exists, so a sweep running between those two
@@ -248,21 +287,17 @@ func (v *Versioner) Purge(ctx context.Context) (int, error) {
 	return removed, nil
 }
 
-// reachable is every object some version behind some ref refers to: the
+// reachable is every object some version behind some root refers to: the
 // manifests themselves and the content they name. A history already walked is
-// not walked again, so refs sharing one costs the sweep nothing.
+// not walked again, so roots sharing one costs the sweep nothing.
 func (v *Versioner) reachable(ctx context.Context) (map[cas.Digest]struct{}, error) {
-	names, err := v.refs.List(ctx)
+	roots, err := v.roots(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	reachable := make(map[cas.Digest]struct{})
-	for _, name := range names {
-		id, err := v.resolve(ctx, name)
-		if err != nil {
-			return nil, err
-		}
+	for _, id := range roots {
 		for id != "" {
 			digest, err := cas.ParseDigest(string(id))
 			if err != nil {
@@ -290,15 +325,36 @@ func (v *Versioner) reachable(ctx context.Context) (map[cas.Digest]struct{}, err
 	return reachable, nil
 }
 
-// apply makes one change true in the working tree, reading what the change
+// roots is every version a sweep must keep: what each ref stands for, and where
+// the working copy stands. The copy is a root because it is named from outside
+// the refs — a version its ref has moved off is still the one every verb
+// comparing against the copy has to read.
+func (v *Versioner) roots(ctx context.Context) ([]ID, error) {
+	names, err := v.refs.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	roots := make([]ID, 0, len(names)+1)
+	for _, name := range names {
+		id, err := v.resolve(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, id)
+	}
+	base, err := v.work.Base(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return append(roots, base), nil
+}
+
+// apply makes one change true in the working copy, reading what the change
 // needs from target.
 func (v *Versioner) apply(ctx context.Context, change Change, target []entry) error {
-	name := path.Join(v.root, change.Path)
 	if change.Kind == Removed {
-		if err := v.tree.Remove(ctx, name); err != nil {
-			return fmt.Errorf("remove %q: %w", change.Path, err)
-		}
-		return nil
+		return v.work.Remove(ctx, change.Path)
 	}
 
 	at, found := slices.BinarySearchFunc(target, change.Path, func(e entry, want string) int {
@@ -315,14 +371,7 @@ func (v *Versioner) apply(ctx context.Context, change Change, target []entry) er
 	if err != nil {
 		return fmt.Errorf("write %q: %w", change.Path, err)
 	}
-
-	if err := v.tree.Mkdir(ctx, path.Dir(name)); err != nil {
-		return fmt.Errorf("write %q: %w", change.Path, err)
-	}
-	if err := v.tree.Write(ctx, name, data); err != nil {
-		return fmt.Errorf("write %q: %w", change.Path, err)
-	}
-	return nil
+	return v.work.Write(ctx, change.Path, data)
 }
 
 // resolve returns what ref stands for, and the zero ID when it stands for
@@ -365,11 +414,11 @@ func (v *Versioner) entries(ctx context.Context, id ID) ([]entry, error) {
 	return m.Entries, nil
 }
 
-// hashed names the content of the working tree without storing any of it, which
+// hashed names the content of the working copy without storing any of it, which
 // is all a comparison needs.
 func (v *Versioner) hashed(ctx context.Context) ([]entry, error) {
 	var entries []entry
-	err := v.walk(ctx, "", func(name string, data []byte) error {
+	err := v.work.Walk(ctx, func(name string, data []byte) error {
 		entries = append(entries, entry{Path: name, Digest: cas.Compute(data).String()})
 		return nil
 	})
@@ -379,13 +428,13 @@ func (v *Versioner) hashed(ctx context.Context) ([]entry, error) {
 	return sortedByPath(entries), nil
 }
 
-// stored puts the content of the working tree in the object store, which is
+// stored puts the content of the working copy in the object store, which is
 // what has to be true before a manifest can point at it. Content already stored
 // is not stored again, so committing a tree that barely changed writes what
 // changed and nothing else.
 func (v *Versioner) stored(ctx context.Context) ([]entry, error) {
 	var entries []entry
-	err := v.walk(ctx, "", func(name string, data []byte) error {
+	err := v.work.Walk(ctx, func(name string, data []byte) error {
 		digest, err := v.objects.Put(ctx, data)
 		if err != nil {
 			return err
@@ -397,37 +446,6 @@ func (v *Versioner) stored(ctx context.Context) ([]entry, error) {
 		return nil, err
 	}
 	return sortedByPath(entries), nil
-}
-
-// walk visits every file beneath the versioned root, with its path relative to
-// that root. A root that is not there yet holds no files rather than failing:
-// the tree of a version that has never been committed is empty.
-func (v *Versioner) walk(ctx context.Context, prefix string, visit func(name string, data []byte) error) error {
-	entries, err := v.tree.ReadDir(ctx, path.Join(v.root, prefix))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("walk %q: %w", prefix, err)
-	}
-
-	for _, found := range entries {
-		name := path.Join(prefix, found.Name)
-		if found.IsDir() {
-			if err := v.walk(ctx, name, visit); err != nil {
-				return err
-			}
-			continue
-		}
-		data, err := v.tree.Read(ctx, path.Join(v.root, name))
-		if err != nil {
-			return fmt.Errorf("read %q: %w", name, err)
-		}
-		if err := visit(name, data); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // sortedByPath puts entries in the order a manifest records them and a diff
