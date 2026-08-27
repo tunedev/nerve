@@ -134,24 +134,6 @@ func TestAPrefixCarriesTheLatestTimeBeneathIt(t *testing.T) {
 	}
 }
 
-// A key and a prefix can share a name, and a listing has to answer the same way
-// whichever order the store hands its keys back in.
-func TestAKeyBesideAPrefixOfTheSameName(t *testing.T) {
-	fsys := kvfs.New(kvfs.NewMemStore(), "sessions")
-	mustWrite(t, fsys, "/abc", "the session")
-	mustWrite(t, fsys, "/abc/state", "running")
-
-	for round := range 20 {
-		entries, err := fsys.ReadDir(context.Background(), "/")
-		if err != nil {
-			t.Fatalf("ReadDir(/) = %v", err)
-		}
-		if len(entries) != 1 || entries[0].IsDir() || entries[0].Size != 11 {
-			t.Fatalf("ReadDir(/) on round %d = %+v, want the key alone", round, entries)
-		}
-	}
-}
-
 // A prefix exists only because keys are under it, so there is nothing at one to
 // describe — the root included, which is the prefix every key is under.
 func TestStatAnswersForKeysAndNotPrefixes(t *testing.T) {

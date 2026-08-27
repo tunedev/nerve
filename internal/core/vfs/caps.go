@@ -26,6 +26,7 @@ type Caps struct {
 	Broadcast bool
 
 	// ObjectStore means names are prefixes, not a tree: no directory exists
-	// apart from the entries under it, and Mkdir has nothing to make.
+	// apart from the entries under it, and Mkdir has nothing to make. A key and
+	// a prefix can share a name, and a listing answers with the key.
 	ObjectStore bool
 }

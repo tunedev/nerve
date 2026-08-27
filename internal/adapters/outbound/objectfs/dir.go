@@ -44,6 +44,11 @@ func (f *FS) Stat(ctx context.Context, name string) (vfs.FileInfo, error) {
 // ReadDir lists what sits directly under name, sorted by name. A prefix with
 // nothing under it lists nothing rather than failing: there was no directory to
 // be missing.
+//
+// An object and a prefix can share a name, which no tree allows, and the object
+// is the one listed: it describes itself, where a prefix is only ever described
+// by what sits beneath it. Both stay reachable by name; only the listing has to
+// choose.
 func (f *FS) ReadDir(ctx context.Context, name string) ([]vfs.FileInfo, error) {
 	listing, err := f.bucket.List(ctx, prefixOf(name), separator)
 	if err != nil {
@@ -51,10 +56,16 @@ func (f *FS) ReadDir(ctx context.Context, name string) ([]vfs.FileInfo, error) {
 	}
 
 	entries := make([]vfs.FileInfo, 0, len(listing.Objects)+len(listing.Prefixes))
+	named := make(map[string]struct{}, len(listing.Objects))
 	for _, object := range listing.Objects {
-		entries = append(entries, object.info())
+		entry := object.info()
+		named[entry.Name] = struct{}{}
+		entries = append(entries, entry)
 	}
 	for _, prefix := range listing.Prefixes {
+		if _, taken := named[base(prefix)]; taken {
+			continue
+		}
 		entries = append(entries, dirInfo(prefix))
 	}
 

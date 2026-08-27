@@ -5,18 +5,20 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"path"
 	"testing"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/kvfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 	"github.com/tunedev/nerve/internal/vfstest"
 )
 
 // The suite is only worth running if a claimed descriptor changes what it
-// asserts. Each mount below claims one and honours it, over a tree in memory
-// that claims nothing, so the branch the descriptor selects is exercised rather
-// than described.
+// asserts. Each mount below claims one and honours it, so the branch the
+// descriptor selects is exercised rather than described. Three wrap the tree in
+// memory that claims nothing; the object store is a flat keyspace, because a
+// tree cannot hold a key beside a prefix of the same name and being asked what
+// that name is the one thing an object store faces and a tree never does.
 
 // readOnlyTree refuses every mutating verb, including the ones an accessor
 // reaches: a refusal one call away from being bypassed is not a refusal.
@@ -75,22 +77,6 @@ func (q consumingQueue) Read(ctx context.Context, name string) ([]byte, error) {
 	return content, q.Remove(ctx, name)
 }
 
-// objectBucket has no directories: a name is a prefix, Mkdir has nothing to
-// make, and what a write is under comes into being with it.
-type objectBucket struct{ *memfs.FS }
-
-func (objectBucket) Capabilities(string) vfs.Caps        { return vfs.Caps{ObjectStore: true} }
-func (objectBucket) Mkdir(context.Context, string) error { return nil }
-func (objectBucket) AsStreamer() vfs.Streamer            { return nil }
-func (objectBucket) AsTruncater() vfs.Truncater          { return nil }
-
-func (b objectBucket) Write(ctx context.Context, name string, data []byte) error {
-	if err := b.FS.Mkdir(ctx, path.Dir(name)); err != nil {
-		return err
-	}
-	return b.FS.Write(ctx, name, data)
-}
-
 func TestReadOnlyMountRunsTheSuite(t *testing.T) {
 	vfstest.Run(t, vfstest.Plugin{
 		New: func(*testing.T) vfs.FileSystem { return readOnlyTree{memfs.New()} },
@@ -111,6 +97,6 @@ func TestReadDestructiveMountRunsTheSuite(t *testing.T) {
 
 func TestObjectStoreMountRunsTheSuite(t *testing.T) {
 	vfstest.Run(t, vfstest.Plugin{
-		New: func(*testing.T) vfs.FileSystem { return objectBucket{memfs.New()} },
+		New: func(*testing.T) vfs.FileSystem { return kvfs.New(kvfs.NewMemStore(), "objects") },
 	})
 }

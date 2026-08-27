@@ -8,6 +8,11 @@ import (
 	"testing"
 )
 
+// collisionRounds is how many times the key-versus-prefix listing is asked. A
+// listing folded through a map is right by luck about nine times in ten, so one
+// round proves nothing and enough of them leave the wrong rule nowhere to hide.
+const collisionRounds = 20
+
 // descriptorCases hold a plugin to what it claims. Every case here exists
 // because a descriptor is set, and asserts the meaning of that descriptor
 // rather than the plain read-write tree the cases elsewhere assume.
@@ -20,6 +25,7 @@ func descriptorCases() []testCase {
 		{name: "Object store has nothing for Mkdir to make", when: needs(objectStore, writable), run: objectStoreMakesNoDirectory},
 		{name: "Object store names are prefixes", when: needs(objectStore, writable), run: objectStoreNamesArePrefixes},
 		{name: "Object store lists what is under a prefix", when: needs(objectStore, writable), run: objectStoreListsAPrefix},
+		{name: "Object store lists a key over a prefix of the same name", when: needs(objectStore, writable), run: objectStoreResolvesACollision},
 	}
 }
 
@@ -124,5 +130,38 @@ func objectStoreListsAPrefix(t *testing.T, w world) {
 	want := []string{"audit", "config"}
 	if listed := names(entries); !slices.Equal(listed, want) {
 		t.Errorf("ReadDir(%q) = %v, want %v", w.at("jobs"), listed, want)
+	}
+}
+
+// A key and a prefix can share a name, which no tree allows: both are stored,
+// both are read back, and a listing has to say which of the two the shared name
+// is. The key wins, because a key describes itself where a prefix is only ever
+// described by what sits beneath it.
+//
+// The rounds are the assertion. A listing folded through a map answers from
+// whichever key it saw last, so a wrong rule still agrees with the right one
+// most runs, and one listing is not enough to tell them apart.
+func objectStoreResolvesACollision(t *testing.T, w world) {
+	mustWrite(t, w, "sessions/abc", "the session")
+	mustWrite(t, w, "sessions/abc/state", "running")
+
+	if content := mustRead(t, w, "sessions/abc"); content != "the session" {
+		t.Errorf("Read of the key beside a prefix of its name = %q, want %q", content, "the session")
+	}
+	if content := mustRead(t, w, "sessions/abc/state"); content != "running" {
+		t.Errorf("Read under the prefix beside a key of its name = %q, want %q", content, "running")
+	}
+
+	for round := range collisionRounds {
+		entries, err := w.fsys.ReadDir(t.Context(), w.at("sessions"))
+		if err != nil {
+			t.Fatalf("ReadDir(%q) = %v", w.at("sessions"), err)
+		}
+		if listed := names(entries); !slices.Equal(listed, []string{"abc"}) {
+			t.Fatalf("ReadDir(%q) on round %d = %v, want %v", w.at("sessions"), round, listed, []string{"abc"})
+		}
+		if entries[0].IsDir() || entries[0].Size != int64(len("the session")) {
+			t.Fatalf("ReadDir(%q) on round %d = %+v, want the key rather than the prefix", w.at("sessions"), round, entries[0])
+		}
 	}
 }
