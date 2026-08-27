@@ -11,7 +11,7 @@ import (
 // entries in it.
 func dirCases() []testCase {
 	return []testCase{
-		{name: "A new filesystem holds nothing", when: tree, run: newFilesystemHoldsNothing},
+		{name: "A new filesystem holds nothing", when: needs(writable, tree), run: newFilesystemHoldsNothing},
 		{name: "The root is a directory", when: tree, run: rootIsADirectory},
 		{name: "Mkdir makes missing parents", when: needs(writable, tree), run: mkdirMakesMissingParents},
 		{name: "Mkdir of a directory already there is not an error", when: needs(writable, tree), run: mkdirTwiceIsNotAnError},
@@ -25,6 +25,9 @@ func dirCases() []testCase {
 	}
 }
 
+// Only a mount the suite can write to started empty for the suite's benefit. A
+// read-only one holds what its plugin computes, and holding nothing would make
+// it a mount with nothing to say.
 func newFilesystemHoldsNothing(t *testing.T, w world) {
 	entries, err := w.fsys.ReadDir(t.Context(), w.root)
 	if err != nil {

@@ -54,7 +54,7 @@ func main() {
 	retry := cfg.RetryPolicy()
 	breaker := cfg.BreakerPolicy()
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), retry, breaker)
-	if err := registerKinds(registry); err != nil {
+	if err := registerKinds(registry, version); err != nil {
 		fail(err)
 	}
 

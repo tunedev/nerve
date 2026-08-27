@@ -3,10 +3,16 @@ package main
 import (
 	"errors"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/devfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/heartbeatfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/hellofs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/httpfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/kvfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/localfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/objectfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/proxyfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/serverinfofs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -27,12 +33,26 @@ import (
 // mount is a namespaced part of a store rather than a store of its own. That is
 // what makes the namespace mean anything, and the composition root is where a
 // thing two mounts share is owned.
-func registerKinds(registry *vfs.Registry) error {
+//
+// serverinfofs is given the version this binary was built at, for the reason
+// kvfs is given the store: a mount that let a config name its own version could
+// lie about which build an agent is talking to.
+//
+// proxyfs is given the registry's bare build, so the kind behind a proxy comes
+// out of the same table of kinds as any other mount and is wrapped exactly
+// once — by the Build that puts the proxy itself into the table.
+func registerKinds(registry *vfs.Registry, version string) error {
 	return errors.Join(
 		registry.Register(memfs.Kind, memfs.Factory),
 		registry.Register(localfs.Kind, localfs.Factory, localfs.RootSetting),
 		registry.Register(kvfs.Kind, kvfs.Factory(kvfs.NewMemStore()), kvfs.NamespaceSetting),
 		registry.Register(objectfs.Kind, objectfs.Factory, objectfs.Public...),
 		registry.Register(sqlfs.Kind, sqlfs.Factory, sqlfs.PathSetting),
+		registry.Register(hellofs.Kind, hellofs.Factory, hellofs.MessageSetting),
+		registry.Register(heartbeatfs.Kind, heartbeatfs.Factory, heartbeatfs.IntervalSetting),
+		registry.Register(serverinfofs.Kind, serverinfofs.Factory(version)),
+		registry.Register(devfs.Kind, devfs.Factory, devfs.SizeSetting),
+		registry.Register(httpfs.Kind, httpfs.Factory, httpfs.Public...),
+		registry.Register(proxyfs.Kind, proxyfs.Factory(registry.Plugin), proxyfs.Public...),
 	)
 }

@@ -163,3 +163,47 @@ func TestRegistryReportsTheSettingsAKindDeclares(t *testing.T) {
 		t.Errorf("Public(unregistered) = %v, want none", got)
 	}
 }
+
+// A kind that composes another builds its target with Plugin, and the whole
+// reason that method exists is that Build would wrap it a second time: one call
+// would then be retried by two layers, attempts times attempts against a
+// dependency already failing.
+func TestPluginBuildsWithoutTheWrappers(t *testing.T) {
+	target := &flaky{fail: 9, err: vfs.ErrTransient}
+	registry := vfs.NewRegistry(time.Minute, vfs.Retry{Attempts: 3, Backoff: time.Millisecond}, vfs.Breaker{Threshold: 9, Cooldown: time.Minute})
+	if err := registry.Register("flaky", func(map[string]string) (vfs.FileSystem, error) { return target, nil }); err != nil {
+		t.Fatalf("register flaky: %v", err)
+	}
+
+	bare, err := registry.Plugin(vfs.MountSpec{Prefix: "/flaky", Kind: "flaky"})
+	if err != nil {
+		t.Fatalf("Plugin(/flaky) = %v", err)
+	}
+	if _, err := bare.Read(context.Background(), "/notes"); !errors.Is(err, vfs.ErrTransient) {
+		t.Fatalf("Read through a bare plugin = %v, want the plugin's own failure", err)
+	}
+	if target.calls != 1 {
+		t.Errorf("a bare plugin turned one call into %d attempts, want 1", target.calls)
+	}
+
+	target.calls = 0
+	wrapped, err := registry.Build(vfs.MountSpec{Prefix: "/flaky", Kind: "flaky"})
+	if err != nil {
+		t.Fatalf("Build(/flaky) = %v", err)
+	}
+	if _, err := wrapped.Read(context.Background(), "/notes"); !errors.Is(err, vfs.ErrTransient) {
+		t.Fatalf("Read through a built mount = %v, want the plugin's failure", err)
+	}
+	if target.calls != 3 {
+		t.Errorf("a built mount turned one call into %d attempts, want the 3 the policy allows", target.calls)
+	}
+}
+
+// A kind nobody registered is a boot failure whichever way it is built.
+func TestPluginRefusesAnUnknownKind(t *testing.T) {
+	registry := registered(t, "recording", recording)
+
+	if _, err := registry.Plugin(vfs.MountSpec{Prefix: "/x", Kind: "absent"}); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Plugin(absent) = %v, want fs.ErrNotExist", err)
+	}
+}

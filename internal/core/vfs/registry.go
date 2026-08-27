@@ -112,6 +112,22 @@ func (r *Registry) Public(kind string) []string {
 // Every mount gets its own breaker, built here, because a breaker shared
 // between mounts would take a working one down with a broken one.
 func (r *Registry) Build(spec MountSpec) (FileSystem, error) {
+	fsys, err := r.Plugin(spec)
+	if err != nil {
+		return nil, err
+	}
+	return WithRetry(WithBreaker(WithTimeout(fsys, r.timeout), r.breaker), r.retry), nil
+}
+
+// Plugin builds what one spec names, bare: no bound, no breaker, no retry. It
+// is what a kind that composes another kind builds its target with, and the
+// only reason it is separate from Build.
+//
+// Wrapped twice, one call is retried by two layers and a dependency already
+// failing is hit attempts times attempts. The outer mount is wrapped by Build
+// on the way into the table, so the composed target must not be wrapped again
+// here: exactly one layer retries a given call.
+func (r *Registry) Plugin(spec MountSpec) (FileSystem, error) {
 	factory, known := r.factories[spec.Kind]
 	if !known {
 		return nil, fmt.Errorf("mount %q: kind %q is not registered; this build has %s: %w", spec.Prefix, spec.Kind, r.known(), fs.ErrNotExist)
@@ -121,7 +137,7 @@ func (r *Registry) Build(spec MountSpec) (FileSystem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("mount %q of kind %q: %w", spec.Prefix, spec.Kind, err)
 	}
-	return WithRetry(WithBreaker(WithTimeout(fsys, r.timeout), r.breaker), r.retry), nil
+	return fsys, nil
 }
 
 // Table builds every spec and mounts it, which is how a config document becomes
