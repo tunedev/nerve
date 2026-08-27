@@ -2,6 +2,7 @@ package queuefs_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -242,4 +243,180 @@ func (c consumer) Get(ctx context.Context) (amqp.Delivery, bool, error) {
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+// The work bus over the shipped pair. A write to the tree becomes a
+// notification on RabbitMQ, and the worker it reaches comes back to Postgres
+// for the body — which is why losing the broker costs a notification rather
+// than the work.
+func TestAWrittenMessageReachesAWorkerOverTheBroker(t *testing.T) {
+	journal := stackJournal(t, "bus")
+	exchange, queue := "nerve.test.bus", "nerve.test.bus.worker"
+
+	listener := workerQueue(t, exchange, queue, "index/"+everything)
+	deleteQueue(t, queue)
+	defer closeListener(t, listener)
+
+	tree := busTree(t, "bus", journal, exchange)
+	mustWrite(t, tree, busMount+"/jobs/index/document/42", "work")
+
+	handled := make(chan string, 1)
+	worker := queuefs.NewWorker(tree, busMount, listener, reporter(handled))
+
+	if did := runUntil(t, worker, handled); did != "index/document/42=work" {
+		t.Errorf("the worker did %q, want %q", did, "index/document/42=work")
+	}
+	if left := queued(t, journal); len(left) != 0 {
+		t.Errorf("the queue still holds %v, want nothing", left)
+	}
+}
+
+// The crash simulation over the shipped broker. A worker is told there is work
+// and its process ends before it claims anything, so the delivery is never
+// acknowledged: RabbitMQ hands it to the worker that comes next on the same
+// queue, and that one claims the body from Postgres and does the work.
+//
+// This is the half the offline suite can only model. The journal keeps the
+// message whatever becomes of the broker; this is the broker keeping the
+// notification, which is what makes the gap between hearing and claiming
+// survivable rather than merely small.
+func TestACrashBeforeClaimingLeavesTheWorkOnTheBroker(t *testing.T) {
+	journal := stackJournal(t, "crash")
+	exchange, queue := "nerve.test.crash", "nerve.test.crash.worker"
+
+	dying := workerQueue(t, exchange, queue, everything)
+	deleteQueue(t, queue)
+
+	tree := busTree(t, "crash", journal, exchange)
+	mustWrite(t, tree, busMount+"/jobs/index/42", "work")
+
+	var never record
+	crashed := queuefs.NewWorker(tree, busMount, crashAfter(dying, 0), never.handle)
+
+	listening, stop := context.WithTimeout(t.Context(), deliveryWait)
+	defer stop()
+
+	if err := crashed.Run(listening); !errors.Is(err, errCrashed) {
+		t.Fatalf("Run of the worker that dies = %v, want %v", err, errCrashed)
+	}
+	if did := never.handled(); len(did) != 0 {
+		t.Fatalf("the worker that died did %v, want nothing", did)
+	}
+	if err := dying.Close(); err != nil {
+		t.Fatalf("Close = %v", err)
+	}
+
+	next := workerQueue(t, exchange, queue, everything)
+	defer closeListener(t, next)
+
+	handled := make(chan string, 1)
+	worker := queuefs.NewWorker(tree, busMount, next, reporter(handled))
+
+	if did := runUntil(t, worker, handled); did != "index/42=work" {
+		t.Errorf("the worker that came next did %q, want %q", did, "index/42=work")
+	}
+	if left := queued(t, journal); len(left) != 0 {
+		t.Errorf("the queue still holds %v, want nothing", left)
+	}
+}
+
+// busTree is a queue over the real journal and the real broker, mounted where a
+// worker will look for it.
+func busTree(t *testing.T, name string, journal *queuefs.Postgres, exchange string) *vfs.MountTable {
+	t.Helper()
+
+	broker, err := queuefs.DialAMQP(brokerURL(t), exchange)
+	if err != nil {
+		t.Fatalf("DialAMQP = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := broker.Close(); err != nil {
+			t.Errorf("Close = %v", err)
+		}
+	})
+
+	tree := vfs.NewMountTable()
+	if err := tree.Mount(busMount, queuefs.New(name, journal, queuefs.NewRelay(journal, broker, 0))); err != nil {
+		t.Fatalf("Mount = %v", err)
+	}
+	return tree
+}
+
+// workerQueue is a listener on a durable queue bound to pattern. The case
+// closes it, because a case where closing is the crash has to say when.
+func workerQueue(t *testing.T, exchange, queue, pattern string) *queuefs.Consumer {
+	t.Helper()
+
+	listener, err := queuefs.DialConsumer(brokerURL(t), exchange, queue, pattern)
+	if err != nil {
+		t.Fatalf("DialConsumer = %v", err)
+	}
+	return listener
+}
+
+func closeListener(t *testing.T, listener *queuefs.Consumer) {
+	t.Helper()
+
+	if err := listener.Close(); err != nil {
+		t.Errorf("Close = %v", err)
+	}
+}
+
+// deleteQueue takes a worker's queue back off the server when the case ends. A
+// durable queue outlives the connection that made it, which is what a worker
+// wants and what would otherwise leave one behind for every case here.
+func deleteQueue(t *testing.T, queue string) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		connection, err := amqp.Dial(brokerURL(t))
+		if err != nil {
+			t.Errorf("delete %q: %v", queue, err)
+			return
+		}
+		defer connection.Close()
+
+		channel, err := connection.Channel()
+		if err != nil {
+			t.Errorf("delete %q: %v", queue, err)
+			return
+		}
+		if _, err := channel.QueueDelete(queue, false, false, false); err != nil {
+			t.Errorf("delete %q: %v", queue, err)
+		}
+	})
+}
+
+// reporter is a handler that hands what it was given to the case.
+func reporter(handled chan<- string) queuefs.Handler {
+	return func(_ context.Context, key string, body []byte) error {
+		handled <- key + "=" + string(body)
+		return nil
+	}
+}
+
+// runUntil runs the worker until it does something or the case's wait runs out.
+// A running worker is a goroutine, and cancelling its context is the defined
+// way to stop one — so nothing here outlives the case.
+func runUntil(t *testing.T, worker *queuefs.Worker, handled <-chan string) string {
+	t.Helper()
+
+	listening, stop := context.WithTimeout(t.Context(), deliveryWait)
+	defer stop()
+
+	ran := make(chan error, 1)
+	go func() { ran <- worker.Run(listening) }()
+
+	var did string
+	select {
+	case did = <-handled:
+	case <-listening.Done():
+		t.Errorf("the worker was told nothing in %s", deliveryWait)
+	}
+
+	stop()
+	if err := <-ran; err != nil {
+		t.Errorf("Run = %v", err)
+	}
+	return did
 }

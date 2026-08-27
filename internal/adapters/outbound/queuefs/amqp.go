@@ -15,7 +15,10 @@ import (
 // Messages go to a durable topic exchange named for the mount, with the
 // message's key as the routing key and its separators as dots — so a consumer
 // binds to "index.#" and hears about everything queued under /jobs/index,
-// without the queue having to know a consumer exists.
+// without the queue having to know a consumer exists. The key itself travels as
+// the message id, because a topic is a route and not a name: a listener that
+// read the key back out of the routing key would be guessing at any element
+// with a dot in it.
 //
 // Publishing is persistent, which is as much as a broker can promise. What it
 // cannot promise is why the journal comes first: this is transport, and a
@@ -97,6 +100,7 @@ func (b *AMQP) publish(ctx context.Context, key string, body []byte) error {
 	message := amqp.Publishing{
 		ContentType:  "application/octet-stream",
 		DeliveryMode: amqp.Persistent,
+		MessageId:    key,
 		Body:         body,
 	}
 	if err := b.channel.PublishWithContext(ctx, b.exchange, routingKey(key), false, false, message); err != nil {

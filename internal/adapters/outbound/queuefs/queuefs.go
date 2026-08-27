@@ -20,6 +20,12 @@
 // Both sit behind ports. Postgres and RabbitMQ are the shipped sides; the suite
 // runs against neither, which is what keeps the semantics assertable with
 // nothing started.
+//
+// The work bus is this mount seen from both ends rather than a second thing
+// beside it. A producer publishes by writing a path; a Worker is told a key by
+// a Listener — the same broker the relay carries to — and takes the work by
+// reading that path. Nothing distributes a body: the notification says a
+// message is there, and the tree hands it over.
 package queuefs
 
 import (

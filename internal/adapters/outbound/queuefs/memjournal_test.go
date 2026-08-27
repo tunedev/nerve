@@ -246,3 +246,43 @@ func (b *memBroker) keys() []string {
 	}
 	return named
 }
+
+// memListener is the broker the cases publish through, seen from the waiting
+// end: one broker, two ends, which is the point of the port.
+type memListener struct {
+	broker  *memBroker
+	pattern string
+}
+
+var _ queuefs.Listener = newMemBroker().listen("#")
+
+// listen is a standing subscription to what the broker is told under pattern.
+func (b *memBroker) listen(pattern string) *memListener {
+	return &memListener{broker: b, pattern: pattern}
+}
+
+// Listen hands over what the broker was told, in the order it was told. It ends
+// when it runs out rather than waiting for more, so a case that has published
+// everything it is going to publish gets a worker that finishes instead of one
+// that hangs.
+func (l *memListener) Listen(ctx context.Context, notify queuefs.Notify) error {
+	for _, key := range l.broker.keys() {
+		if !heard(l.pattern, key) {
+			continue
+		}
+		if err := notify(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// heard is as much of a topic pattern as the cases need: "#" hears everything
+// and "prefix/#" hears everything under it.
+func heard(pattern, key string) bool {
+	under, wildcard := strings.CutSuffix(pattern, "#")
+	if !wildcard {
+		return pattern == key
+	}
+	return strings.HasPrefix(key, under)
+}
