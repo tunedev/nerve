@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/devfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/exportfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/heartbeatfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/hellofs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/httpfs"
@@ -52,7 +53,9 @@ import (
 //
 // proxyfs is given the registry's bare build, so the kind behind a proxy comes
 // out of the same table of kinds as any other mount and is wrapped exactly
-// once — by the Build that puts the proxy itself into the table.
+// once — by the Build that puts the proxy itself into the table. exportfs is
+// given it for the same reason: the kind holding an export's inputs is a kind
+// like any other, and the export mount over it is what goes into the table.
 func registerKinds(registry *vfs.Registry, version string) error {
 	return errors.Join(
 		registry.Register(memfs.Kind, memfs.Factory),
@@ -69,5 +72,6 @@ func registerKinds(registry *vfs.Registry, version string) error {
 		registry.Register(devfs.Kind, devfs.Factory, devfs.SizeSetting),
 		registry.Register(httpfs.Kind, httpfs.Factory, httpfs.Public...),
 		registry.Register(proxyfs.Kind, proxyfs.Factory(registry.Plugin), proxyfs.Public...),
+		registry.Register(exportfs.Kind, exportfs.Factory(registry.Plugin), exportfs.Public...),
 	)
 }

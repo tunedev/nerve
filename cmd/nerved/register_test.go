@@ -478,3 +478,65 @@ func TestQueuefsMountRefusesSettingsItCannotHonour(t *testing.T) {
 		t.Errorf("a queuefs mount with no journal = %v, want fs.ErrInvalid", err)
 	}
 }
+
+// An export mount over a kind the config names is the whole path this ticket
+// is about: a derived name is served through the table, and a change to what
+// it was derived from is not something a caller has to know to ask about.
+func TestExportfsRefreshesAfterAnInputOnDiskChanges(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(root, "notes")
+	if err := os.WriteFile(input, []byte("first"), 0o644); err != nil {
+		t.Fatalf("writing the host file = %v", err)
+	}
+
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test"); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	spec := vfs.MountSpec{Prefix: "/exports", Kind: "exportfs", Settings: map[string]string{
+		"source_kind": "localfs",
+		"exports":     "report=/notes",
+		"root":        root,
+	}}
+	table, err := registry.Table([]vfs.MountSpec{spec})
+	if err != nil {
+		t.Fatalf("Table(/exports) = %v", err)
+	}
+
+	ctx := context.Background()
+	content, err := table.Read(ctx, "/exports/report")
+	if err != nil {
+		t.Fatalf("Read(/exports/report) = %v", err)
+	}
+	if string(content) != "first" {
+		t.Fatalf("Read(/exports/report) = %q, want %q", content, "first")
+	}
+
+	if err := os.WriteFile(input, []byte("second time"), 0o644); err != nil {
+		t.Fatalf("rewriting the host file = %v", err)
+	}
+
+	content, err = table.Read(ctx, "/exports/report")
+	if err != nil {
+		t.Fatalf("Read(/exports/report) = %v", err)
+	}
+	if string(content) != "second time" {
+		t.Errorf("Read(/exports/report) after the input changed = %q, want %q", content, "second time")
+	}
+}
+
+// Which paths an export is stale against is the first thing anyone asks when it
+// looks wrong, so both settings the export mount reads for itself are declared.
+// The source kind's settings are its own and read back redacted.
+func TestExportfsDeclaresOnlyItsOwnSettings(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test"); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	want := []string{"source_kind", "exports"}
+	if public := registry.Public("exportfs"); !slices.Equal(public, want) {
+		t.Errorf("Public(exportfs) = %v, want %v", public, want)
+	}
+}
