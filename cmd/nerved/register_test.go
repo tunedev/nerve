@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -323,5 +325,62 @@ func TestProxyfsDeclaresOnlyItsOwnSettings(t *testing.T) {
 	want := []string{"target_kind", "target_prefix"}
 	if public := registry.Public("proxyfs"); !slices.Equal(public, want) {
 		t.Errorf("Public(proxyfs) = %v, want %v", public, want)
+	}
+}
+
+// streamfs is the kind a log or a transcript is mounted as, and what makes it
+// worth mounting is reached through the dispatcher: a caller holding the table
+// follows a stream through AsStreamer, and a write it made through the table is
+// what the follower receives.
+func TestRegisterKindsMakesStreamfsMountable(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test"); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	table, err := registry.Table([]vfs.MountSpec{
+		{Prefix: "/streams", Kind: streamfs.Kind, Settings: map[string]string{"follow": "0s"}},
+	})
+	if err != nil {
+		t.Fatalf("Table(/streams) = %v", err)
+	}
+
+	ctx := context.Background()
+	if err := table.Write(ctx, "/streams/log", []byte("first ")); err != nil {
+		t.Fatalf("Write(/streams/log) = %v", err)
+	}
+	if err := table.Write(ctx, "/streams/log", []byte("second")); err != nil {
+		t.Fatalf("Write(/streams/log) = %v", err)
+	}
+
+	stream := table.AsStreamer()
+	if stream == nil {
+		t.Fatal("AsStreamer() through the table = nil, want the dispatcher")
+	}
+	reader, err := stream.OpenRead(ctx, "/streams/log")
+	if err != nil {
+		t.Fatalf("OpenRead(/streams/log) = %v", err)
+	}
+	defer reader.Close()
+
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("ReadAll(/streams/log) = %v", err)
+	}
+	if string(content) != "first second" {
+		t.Errorf("ReadAll(/streams/log) = %q, want %q", content, "first second")
+	}
+}
+
+// How much of a stream is kept and how long a reader waits are what an operator
+// reads back, and neither is a credential.
+func TestStreamfsDeclaresItsCapacityAndFollowPublic(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test"); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	if public := registry.Public(streamfs.Kind); !slices.Equal(public, streamfs.Public) {
+		t.Errorf("Public(streamfs) = %v, want %v", public, streamfs.Public)
 	}
 }

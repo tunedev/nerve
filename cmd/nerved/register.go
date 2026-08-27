@@ -14,6 +14,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/proxyfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/serverinfofs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -48,6 +49,7 @@ func registerKinds(registry *vfs.Registry, version string) error {
 		registry.Register(kvfs.Kind, kvfs.Factory(kvfs.NewMemStore()), kvfs.NamespaceSetting),
 		registry.Register(objectfs.Kind, objectfs.Factory, objectfs.Public...),
 		registry.Register(sqlfs.Kind, sqlfs.Factory, sqlfs.PathSetting),
+		registry.Register(streamfs.Kind, streamfs.Factory, streamfs.Public...),
 		registry.Register(hellofs.Kind, hellofs.Factory, hellofs.MessageSetting),
 		registry.Register(heartbeatfs.Kind, heartbeatfs.Factory, heartbeatfs.IntervalSetting),
 		registry.Register(serverinfofs.Kind, serverinfofs.Factory(version)),
