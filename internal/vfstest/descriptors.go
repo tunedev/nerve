@@ -25,7 +25,7 @@ func descriptorCases() []testCase {
 		{name: "Object store has nothing for Mkdir to make", when: needs(objectStore, writable), run: objectStoreMakesNoDirectory},
 		{name: "Object store names are prefixes", when: needs(objectStore, writable), run: objectStoreNamesArePrefixes},
 		{name: "Object store lists what is under a prefix", when: needs(objectStore, writable), run: objectStoreListsAPrefix},
-		{name: "Object store lists a key over a prefix of the same name", when: needs(objectStore, writable), run: objectStoreResolvesACollision},
+		{name: "Object store lists a key over a prefix of the same name", when: needs(objectStore, writable, repeatable), run: objectStoreResolvesACollision},
 	}
 }
 
@@ -141,6 +141,11 @@ func objectStoreListsAPrefix(t *testing.T, w world) {
 // The rounds are the assertion. A listing folded through a map answers from
 // whichever key it saw last, so a wrong rule still agrees with the right one
 // most runs, and one listing is not enough to tell them apart.
+//
+// Both are read back and then listed again, so the case needs a mount that
+// answers the same read twice. A read-destructive one has nothing left to list
+// by the time the rounds start, and the rule it would be asked about is one it
+// never claimed.
 func objectStoreResolvesACollision(t *testing.T, w world) {
 	mustWrite(t, w, "sessions/abc", "the session")
 	mustWrite(t, w, "sessions/abc/state", "running")

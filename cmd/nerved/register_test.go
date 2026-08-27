@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/queuefs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
 	"github.com/tunedev/nerve/internal/core/vfs"
@@ -382,5 +383,39 @@ func TestStreamfsDeclaresItsCapacityAndFollowPublic(t *testing.T) {
 
 	if public := registry.Public(streamfs.Kind); !slices.Equal(public, streamfs.Public) {
 		t.Errorf("Public(streamfs) = %v, want %v", public, streamfs.Public)
+	}
+}
+
+// queuefs reaches two things an operator names, and both URLs carry a password.
+// Declaring only the queue, its exchange and its batch is what makes them
+// redacted everywhere the effective config is read back.
+func TestQueuefsDeclaresOnlyWhatIsNotACredential(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test"); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	want := []string{"name", "exchange", "batch"}
+	if public := registry.Public(queuefs.Kind); !slices.Equal(public, want) {
+		t.Errorf("Public(queuefs) = %v, want %v", public, want)
+	}
+	for _, credential := range []string{"journal_url", "broker_url"} {
+		if slices.Contains(registry.Public(queuefs.Kind), credential) {
+			t.Errorf("Public(queuefs) names %q, want it redacted", credential)
+		}
+	}
+}
+
+// A queue with no journal named is a boot failure, and it is one before
+// anything is dialled.
+func TestQueuefsMountRefusesSettingsItCannotHonour(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test"); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	_, err := registry.Table([]vfs.MountSpec{{Prefix: "/queue", Kind: queuefs.Kind, Settings: map[string]string{"name": "orders"}}})
+	if !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("a queuefs mount with no journal = %v, want fs.ErrInvalid", err)
 	}
 }

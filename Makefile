@@ -72,6 +72,12 @@ test-store: ## Run the object-store tests against the running MinIO
 	@$(RUN_ENV) NERVE_OBJECTFS_ENDPOINT=$${NERVE_OBJECTFS_ENDPOINT:-http://127.0.0.1:$${NERVE_MINIO_PORT:-9000}} \
 		$(GO) test ./internal/adapters/outbound/objectfs/ ./internal/adapters/outbound/kvfs/
 
+.PHONY: test-queue
+test-queue: ## Run the queue tests against the running Postgres and RabbitMQ
+	@$(RUN_ENV) NERVE_QUEUEFS_JOURNAL=$${NERVE_QUEUEFS_JOURNAL:-$${NERVE_POSTGRES_DSN:-postgres://nerve:nerve@127.0.0.1:$${NERVE_POSTGRES_PORT:-5432}/nerve?sslmode=disable}} \
+		NERVE_QUEUEFS_BROKER=$${NERVE_QUEUEFS_BROKER:-$${NERVE_RABBITMQ_URL:-amqp://nerve:nerve@127.0.0.1:$${NERVE_RABBITMQ_PORT:-5672}/}} \
+		$(GO) test ./internal/adapters/outbound/queuefs/
+
 .PHONY: race
 race: ## Run tests under the race detector
 	$(GO) test -race ./...
@@ -89,8 +95,9 @@ lint: ## Verify the lint config, then run golangci-lint
 	$(LINT) config verify
 	$(LINT) run
 
-# `test-store` is deliberately not here. Everything check runs has to run with
-# nothing started and no network, which is what keeps the plane test true; the
-# store-backed run is the same suite against MinIO and needs `make up` first.
+# `test-store` and `test-queue` are deliberately not here. Everything check runs
+# has to run with nothing started and no network, which is what keeps the plane
+# test true; both of those are the same suite against the started stack and need
+# `make up` first.
 .PHONY: check
 check: fmt-check lint race repro ## Everything CI runs

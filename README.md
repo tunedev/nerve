@@ -48,7 +48,9 @@ memory: a plain read-write tree that claims no descriptor, which is what makes i
 reference every later plugin is read against. `localfs` passes the same verbs through to a
 host directory. `kvfs` is a namespaced key-value store over one keyspace, and the first
 kind that claims a descriptor: object-store, so a name is a prefix and nothing is a
-directory. The roadmap is the work.
+directory. `queuefs` is a job queue: read-destructive under its job path and read-only one
+path up, and the first kind whose durable state is a Postgres row and whose broker is only
+transport. The roadmap is the work.
 
 ## Running the stack
 

@@ -12,6 +12,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/objectfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/proxyfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/queuefs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/serverinfofs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
@@ -39,6 +40,10 @@ import (
 // kvfs is given the store: a mount that let a config name its own version could
 // lie about which build an agent is talking to.
 //
+// queuefs names its queue, its exchange and its batch, and by saying nothing
+// about the two URLs beside them makes the journal's and the broker's
+// credentials read back as redacted.
+//
 // proxyfs is given the registry's bare build, so the kind behind a proxy comes
 // out of the same table of kinds as any other mount and is wrapped exactly
 // once — by the Build that puts the proxy itself into the table.
@@ -48,6 +53,7 @@ func registerKinds(registry *vfs.Registry, version string) error {
 		registry.Register(localfs.Kind, localfs.Factory, localfs.RootSetting),
 		registry.Register(kvfs.Kind, kvfs.Factory(kvfs.NewMemStore()), kvfs.NamespaceSetting),
 		registry.Register(objectfs.Kind, objectfs.Factory, objectfs.Public...),
+		registry.Register(queuefs.Kind, queuefs.Factory, queuefs.Public...),
 		registry.Register(sqlfs.Kind, sqlfs.Factory, sqlfs.PathSetting),
 		registry.Register(streamfs.Kind, streamfs.Factory, streamfs.Public...),
 		registry.Register(hellofs.Kind, hellofs.Factory, hellofs.MessageSetting),
