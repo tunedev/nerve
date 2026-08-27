@@ -28,25 +28,40 @@ func (f *FS) Remove(ctx context.Context, name string) error {
 // not an error, and the bucket itself is emptied rather than deleted.
 //
 // The listing takes no delimiter, so it reaches every key under the prefix
-// however deep: an object store has no subtree to walk, only longer names.
+// however deep: an object store has no subtree to walk, only longer names. It
+// is asked again until it answers with nothing, because a store is allowed to
+// hide a key while a shorter key of the same name is still there, and a delete
+// of one listing's worth would leave that key in the bucket.
 func (f *FS) RemoveAll(ctx context.Context, name string) error {
-	listing, err := f.bucket.List(ctx, prefixOf(name), "")
-	if err != nil {
-		return fmt.Errorf("remove_all %q: %w", name, err)
-	}
-
-	keys := make([]string, 0, len(listing.Objects)+1)
-	for _, object := range listing.Objects {
-		keys = append(keys, object.Key)
-	}
 	if !isRoot(name) {
-		keys = append(keys, key(name))
+		if err := f.delete(ctx, key(name)); err != nil {
+			return fmt.Errorf("remove_all %q: %w", name, err)
+		}
 	}
 
-	for _, doomed := range keys {
-		if err := f.bucket.Delete(ctx, doomed); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("remove_all %q: %q: %w", name, doomed, err)
+	for {
+		listing, err := f.bucket.List(ctx, prefixOf(name), "")
+		if err != nil {
+			return fmt.Errorf("remove_all %q: %w", name, err)
 		}
+		if len(listing.Objects) == 0 {
+			return nil
+		}
+
+		for _, object := range listing.Objects {
+			if err := f.delete(ctx, object.Key); err != nil {
+				return fmt.Errorf("remove_all %q: %w", name, err)
+			}
+		}
+	}
+}
+
+// delete removes an object a listing said was there. An object deleted by
+// someone else between the listing and the delete is the outcome asked for, so
+// it is not an error.
+func (f *FS) delete(ctx context.Context, doomed string) error {
+	if err := f.bucket.Delete(ctx, doomed); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%q: %w", doomed, err)
 	}
 	return nil
 }

@@ -26,6 +26,7 @@ func descriptorCases() []testCase {
 		{name: "Object store names are prefixes", when: needs(objectStore, writable), run: objectStoreNamesArePrefixes},
 		{name: "Object store lists what is under a prefix", when: needs(objectStore, writable), run: objectStoreListsAPrefix},
 		{name: "Object store lists a key over a prefix of the same name", when: needs(objectStore, writable, repeatable), run: objectStoreResolvesACollision},
+		{name: "Object store removes a key with a prefix of the same name under it", when: needs(objectStore, writable), run: objectStoreRemovesACollision},
 	}
 }
 
@@ -146,6 +147,12 @@ func objectStoreListsAPrefix(t *testing.T, w world) {
 // answers the same read twice. A read-destructive one has nothing left to list
 // by the time the rounds start, and the rule it would be asked about is one it
 // never claimed.
+//
+// A store that hides the deeper key while the shorter one is there satisfies
+// this by a different route: it answers with the key because it never offers
+// the prefix, so the fold rule is never reached. The case is still right about
+// what a listing has to say; it is not evidence that a particular store's
+// listing was ever asked to choose.
 func objectStoreResolvesACollision(t *testing.T, w world) {
 	mustWrite(t, w, "sessions/abc", "the session")
 	mustWrite(t, w, "sessions/abc/state", "running")
@@ -167,6 +174,29 @@ func objectStoreResolvesACollision(t *testing.T, w world) {
 		}
 		if entries[0].IsDir() || entries[0].Size != int64(len("the session")) {
 			t.Fatalf("ReadDir(%q) on round %d = %+v, want the key rather than the prefix", w.at("sessions"), round, entries[0])
+		}
+	}
+}
+
+// RemoveAll of the shared name takes both the key and everything under the
+// prefix. A store is allowed to hide the deeper key from a listing while the
+// shorter one is there, so a RemoveAll that deletes one listing's worth leaves
+// data in the bucket; what the verb promises is that nothing under the path is
+// left, however many listings that takes.
+//
+// Stat is the question, not a listing: the listing is the thing that lies here,
+// and a key it declines to offer is still a key the store answers for.
+func objectStoreRemovesACollision(t *testing.T, w world) {
+	mustWrite(t, w, "sessions/abc", "the session")
+	mustWrite(t, w, "sessions/abc/state", "running")
+
+	if err := w.fsys.RemoveAll(t.Context(), w.at("sessions/abc")); err != nil {
+		t.Fatalf("RemoveAll(%q) = %v", w.at("sessions/abc"), err)
+	}
+
+	for _, name := range []string{"sessions/abc", "sessions/abc/state"} {
+		if _, err := w.fsys.Stat(t.Context(), w.at(name)); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("Stat(%q) after RemoveAll of the shared name = %v, want fs.ErrNotExist", w.at(name), err)
 		}
 	}
 }
