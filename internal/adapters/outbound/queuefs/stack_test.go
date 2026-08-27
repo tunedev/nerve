@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/queuefs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 	"github.com/tunedev/nerve/internal/vfstest"
@@ -494,4 +495,39 @@ func runUntil(t *testing.T, worker *queuefs.Worker, handled <-chan string) strin
 		t.Errorf("Run = %v", err)
 	}
 	return did
+}
+
+// The write observer over the shipped pair. A document is written to one mount
+// and the work of indexing it is a row in Postgres, a topic on RabbitMQ and a
+// key at a worker that asked for that subtree — with nobody having asked for
+// the job. The worker is told the path and nothing else, which is why the body
+// it receives is empty.
+func TestAWriteToTheTreeIsWorkOverTheBroker(t *testing.T) {
+	journal := stackJournal(t, "observed")
+	exchange, queue := "nerve.test.observed", "nerve.test.observed.worker"
+
+	listener := workerQueue(t, exchange, queue, "docs."+everything)
+	deleteQueue(t, queue)
+	defer closeListener(t, listener)
+
+	tree := busTree(t, "observed", journal, exchange)
+	if err := tree.Mount(docs, memfs.New()); err != nil {
+		t.Fatalf("Mount = %v", err)
+	}
+
+	observed := vfs.WithWriteObserver(tree, queuefs.NewEmitter(tree, busMount))
+	mustWrite(t, observed, docs+"/report.txt", "the content")
+
+	handled := make(chan string, 1)
+	worker := queuefs.NewWorker(tree, busMount, listener, reporter(handled))
+
+	if did := runUntil(t, worker, handled); did != "docs/report.txt=" {
+		t.Errorf("the worker was told %q, want %q", did, "docs/report.txt=")
+	}
+	if content := mustRead(t, tree, docs+"/report.txt"); content != "the content" {
+		t.Errorf("the document reads back as %q, want %q", content, "the content")
+	}
+	if left := queued(t, journal); len(left) != 0 {
+		t.Errorf("the queue still holds %v, want nothing", left)
+	}
 }

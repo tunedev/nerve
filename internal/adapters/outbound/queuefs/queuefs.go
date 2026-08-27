@@ -26,6 +26,11 @@
 // a Listener — the same broker the relay carries to — and takes the work by
 // reading that path. Nothing distributes a body: the notification says a
 // message is there, and the tree hands it over.
+//
+// A producer need not be a caller. An Emitter is what a tree reports its writes
+// to, and it publishes the way anything here does: the path that changed
+// becomes a job under the queue, so catching up with a write is work the write
+// queued rather than work somebody remembered to ask for.
 package queuefs
 
 import (
