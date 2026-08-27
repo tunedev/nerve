@@ -16,6 +16,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/serverinfofs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/streamrotatefs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -40,6 +41,11 @@ import (
 // kvfs is given the store: a mount that let a config name its own version could
 // lie about which build an agent is talking to.
 //
+// streamfs and streamrotatefs each name how much of a log they hold: the first
+// its ring capacity and how long a reader follows, the second its segment size
+// and how many segments it keeps. Neither holds a credential, so both name
+// everything they take.
+//
 // queuefs names its queue, its exchange and its batch, and by saying nothing
 // about the two URLs beside them makes the journal's and the broker's
 // credentials read back as redacted.
@@ -56,6 +62,7 @@ func registerKinds(registry *vfs.Registry, version string) error {
 		registry.Register(queuefs.Kind, queuefs.Factory, queuefs.Public...),
 		registry.Register(sqlfs.Kind, sqlfs.Factory, sqlfs.PathSetting),
 		registry.Register(streamfs.Kind, streamfs.Factory, streamfs.Public...),
+		registry.Register(streamrotatefs.Kind, streamrotatefs.Factory, streamrotatefs.Public...),
 		registry.Register(hellofs.Kind, hellofs.Factory, hellofs.MessageSetting),
 		registry.Register(heartbeatfs.Kind, heartbeatfs.Factory, heartbeatfs.IntervalSetting),
 		registry.Register(serverinfofs.Kind, serverinfofs.Factory(version)),

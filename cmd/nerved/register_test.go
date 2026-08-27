@@ -14,6 +14,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/queuefs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/streamrotatefs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -383,6 +384,64 @@ func TestStreamfsDeclaresItsCapacityAndFollowPublic(t *testing.T) {
 
 	if public := registry.Public(streamfs.Kind); !slices.Equal(public, streamfs.Public) {
 		t.Errorf("Public(streamfs) = %v, want %v", public, streamfs.Public)
+	}
+}
+
+// streamrotatefs is the kind a log that has to be kept but must not grow is
+// mounted as, and what makes it worth mounting is what a listing shows: a
+// caller holding the table sees the segments a log sealed rather than being
+// told what the mount discarded.
+func TestRegisterKindsMakesStreamrotatefsMountable(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test"); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	table, err := registry.Table([]vfs.MountSpec{
+		{Prefix: "/logs", Kind: streamrotatefs.Kind, Settings: map[string]string{"size": "4", "keep": "1"}},
+	})
+	if err != nil {
+		t.Fatalf("Table(/logs) = %v", err)
+	}
+
+	ctx := context.Background()
+	for _, written := range []string{"aaaa", "bbbb"} {
+		if err := table.Write(ctx, "/logs/app", []byte(written)); err != nil {
+			t.Fatalf("Write(/logs/app) = %v", err)
+		}
+	}
+
+	entries, err := table.ReadDir(ctx, "/logs")
+	if err != nil {
+		t.Fatalf("ReadDir(/logs) = %v", err)
+	}
+	listed := make([]string, len(entries))
+	for i, entry := range entries {
+		listed[i] = entry.Name
+	}
+	if want := []string{"app", "app.2"}; !slices.Equal(listed, want) {
+		t.Errorf("ReadDir(/logs) after two rotations keeping one = %v, want %v", listed, want)
+	}
+
+	content, err := table.Read(ctx, "/logs/app.2")
+	if err != nil {
+		t.Fatalf("Read(/logs/app.2) = %v", err)
+	}
+	if string(content) != "bbbb" {
+		t.Errorf("Read(/logs/app.2) = %q, want %q", content, "bbbb")
+	}
+}
+
+// How large a segment grows and how many are kept are what an operator reads
+// back, and neither is a credential.
+func TestStreamrotatefsDeclaresItsSizeAndKeepPublic(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test"); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	if public := registry.Public(streamrotatefs.Kind); !slices.Equal(public, streamrotatefs.Public) {
+		t.Errorf("Public(streamrotatefs) = %v, want %v", public, streamrotatefs.Public)
 	}
 }
 
