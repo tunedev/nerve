@@ -1,0 +1,73 @@
+package version
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"strings"
+)
+
+// ID identifies one version. It is opaque here: the object store decides what
+// it says, and a ref store only ever compares one for equality or writes it
+// down. The zero ID names no version, which is what an unset ref resolves to.
+type ID string
+
+// ErrConflict reports that a ref did not hold the value the writer expected, so
+// the write was refused. It is the reason every write names an expected value:
+// two writers racing on one ref must not both come away believing they won.
+var ErrConflict = errors.New("ref moved under the write")
+
+// RefStore keeps the named refs of a versioned tree — a name, and the version
+// it stands for — and moves one only from a value the caller names.
+//
+// A second implementation is nameable, which is why this is a port: refs on the
+// local tree for the laptop, refs in a Postgres table where more than one
+// process has to agree on who won a race.
+//
+// Names are flat: a non-empty string with no "/" in it, and neither "." nor
+// "..". Scoping a ref to a workspace or a user is the mount point's business,
+// not the name's, so a scoped store is the same store over a different root.
+//
+// Every write is a compare-and-set. There is no verb that sets a ref without
+// saying what it expected to find, because the caller that does not care what
+// it is overwriting is the caller that loses someone else's commit.
+//
+// Errors are the io/fs sentinels — fs.ErrNotExist for a ref that stands for
+// nothing, fs.ErrInvalid for a name that is not one — plus ErrConflict, and are
+// matched with errors.Is.
+type RefStore interface {
+	// Resolve returns the version name stands for, or fs.ErrNotExist if
+	// nothing does.
+	Resolve(ctx context.Context, name string) (ID, error)
+
+	// List returns every name that stands for a version, sorted.
+	List(ctx context.Context) ([]string, error)
+
+	// Set points name at next, and fails with ErrConflict unless name
+	// currently stands for expected. The zero expected ID means the ref must
+	// not exist yet, which is how one is created; the zero next ID is not a
+	// deletion and is refused.
+	Set(ctx context.Context, name string, expected, next ID) error
+
+	// Delete unsets name, and fails with ErrConflict unless name currently
+	// stands for expected. Expecting the zero ID is the one mismatch that is
+	// not a conflict: there is no ref to unset, so it is fs.ErrNotExist.
+	Delete(ctx context.Context, name string, expected ID) error
+}
+
+// ValidateRefName returns fs.ErrInvalid for a name no ref store will accept.
+// The rule lives here rather than in each implementation so that a name
+// refused by one store is refused by all of them, and so that a name can never
+// carry a path separator into a store that keeps refs as files.
+func ValidateRefName(name string) error {
+	switch {
+	case name == "":
+		return fmt.Errorf("ref name is empty: %w", fs.ErrInvalid)
+	case strings.Contains(name, "/"):
+		return fmt.Errorf("ref name %q contains a separator: %w", name, fs.ErrInvalid)
+	case name == "." || name == "..":
+		return fmt.Errorf("ref name %q names a directory, not a ref: %w", name, fs.ErrInvalid)
+	}
+	return nil
+}
