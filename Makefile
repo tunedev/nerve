@@ -70,7 +70,7 @@ test: ## Run tests fast, no race detector (go vet runs as part of this)
 .PHONY: test-store
 test-store: ## Run the object-store tests against the running MinIO
 	@$(RUN_ENV) NERVE_OBJECTFS_ENDPOINT=$${NERVE_OBJECTFS_ENDPOINT:-http://127.0.0.1:$${NERVE_MINIO_PORT:-9000}} \
-		$(GO) test ./internal/adapters/outbound/objectfs/
+		$(GO) test ./internal/adapters/outbound/objectfs/ ./internal/adapters/outbound/kvfs/
 
 .PHONY: race
 race: ## Run tests under the race detector

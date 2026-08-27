@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"time"
 )
 
 // Create makes name exist as an empty value, truncating it if it already does.
@@ -56,18 +55,20 @@ func (f *FS) replace(ctx context.Context, name string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%q: %w", name, err)
 	}
-	if err := f.store.Put(ctx, key, Value{Data: data, Mode: mode, ModTime: time.Now()}); err != nil {
+	if err := f.store.Put(ctx, key, data, mode); err != nil {
 		return fmt.Errorf("%q: %w", name, err)
 	}
 	return nil
 }
 
 // modeOf is the mode a value keeps through a write, which is the default when
-// nothing is stored under key yet. A store that fails for any other reason is
-// not a store with nothing in it, and says so here rather than writing a value
+// nothing is stored under key yet. It describes rather than fetches: a write
+// needs the mode and never the content, and over a remote store the difference
+// is a whole value on the wire. A store that fails for any other reason is not
+// a store with nothing in it, and says so here rather than writing a value
 // under a mode it invented.
 func (f *FS) modeOf(ctx context.Context, key string) (fs.FileMode, error) {
-	existing, err := f.store.Get(ctx, key)
+	existing, err := f.store.Head(ctx, key)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return fileMode, nil

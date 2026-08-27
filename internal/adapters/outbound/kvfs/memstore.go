@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"strings"
 	"sync"
+	"time"
 )
 
 // MemStore is a keyspace in memory, safe for concurrent use. It is the local
@@ -22,6 +23,19 @@ func NewMemStore() *MemStore {
 	return &MemStore{values: make(map[string]Value)}
 }
 
+// Head describes what is stored under key. Over a map it costs what Get costs;
+// the port has it for the store that charges a round trip for the content.
+func (s *MemStore) Head(_ context.Context, key string) (Entry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	value, stored := s.values[key]
+	if !stored {
+		return Entry{}, fmt.Errorf("head %q: %w", key, fs.ErrNotExist)
+	}
+	return entry(key, value), nil
+}
+
 // Get returns what is stored under key.
 func (s *MemStore) Get(_ context.Context, key string) (Value, error) {
 	s.mu.RLock()
@@ -35,14 +49,28 @@ func (s *MemStore) Get(_ context.Context, key string) (Value, error) {
 	return value, nil
 }
 
-// Put stores value under key. The content is copied, so the caller's slice is
-// not the one held.
-func (s *MemStore) Put(_ context.Context, key string, value Value) error {
+// Put stores data under key, stamped with the instant it was written. The
+// content is copied, so the caller's slice is not the one held.
+func (s *MemStore) Put(_ context.Context, key string, data []byte, mode fs.FileMode) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	value.Data = bytes.Clone(value.Data)
-	s.values[key] = value
+	s.values[key] = Value{Data: bytes.Clone(data), Mode: mode, ModTime: time.Now()}
+	return nil
+}
+
+// Move stores what is under from under to instead. One lock covers both halves,
+// so no reader sees the value at neither name or at both.
+func (s *MemStore) Move(_ context.Context, from, to string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	value, stored := s.values[from]
+	if !stored {
+		return fmt.Errorf("move %q: %w", from, fs.ErrNotExist)
+	}
+	s.values[to] = value
+	delete(s.values, from)
 	return nil
 }
 

@@ -11,9 +11,14 @@ import (
 // it can be mounted at all.
 var _ vfs.FileSystem = kvfs.New(kvfs.NewMemStore(), "sessions")
 
-// The Store the plugin is written against is a port, and the keyspace in memory
-// is one implementation of it. An object-backed store is the second.
-var _ kvfs.Store = kvfs.NewMemStore()
+// The Store the plugin is written against is a port, and it has two
+// implementations: the keyspace in memory, and the one over an object store.
+// Both run the same cases in store_test.go, which is what makes it a port
+// rather than an interface in front of one struct.
+var (
+	_ kvfs.Store = kvfs.NewMemStore()
+	_ kvfs.Store = kvfs.NewObjectStore(nil)
+)
 
 // A keyspace is a keyspace at every path, including paths nothing is stored
 // under: the descriptor is what the mount is, not what happens to be in it.

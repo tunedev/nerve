@@ -92,12 +92,12 @@ func (f *FS) prefix(name string) string {
 	return f.under + rest + "/"
 }
 
-// info is what the port says about the value stored under name.
-func info(name string, value Value) vfs.FileInfo {
+// info is what the port says about the key stored under name.
+func info(name string, one Entry) vfs.FileInfo {
 	return vfs.FileInfo{
 		Name:    path.Base(relative(name)),
-		Size:    int64(len(value.Data)),
-		Mode:    value.Mode,
-		ModTime: value.ModTime,
+		Size:    one.Size,
+		Mode:    one.Mode,
+		ModTime: one.ModTime,
 	}
 }

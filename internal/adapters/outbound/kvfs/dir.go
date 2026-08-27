@@ -19,11 +19,11 @@ func (f *FS) Stat(ctx context.Context, name string) (vfs.FileInfo, error) {
 		return vfs.FileInfo{}, fmt.Errorf("stat %w", err)
 	}
 
-	value, err := f.store.Get(ctx, key)
+	one, err := f.store.Head(ctx, key)
 	if err != nil {
 		return vfs.FileInfo{}, fmt.Errorf("stat %q: %w", name, err)
 	}
-	return info(name, value), nil
+	return info(name, one), nil
 }
 
 // ReadDir lists what is directly under the prefix name, sorted by name. It does
