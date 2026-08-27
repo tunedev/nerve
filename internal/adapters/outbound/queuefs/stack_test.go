@@ -320,9 +320,89 @@ func TestACrashBeforeClaimingLeavesTheWorkOnTheBroker(t *testing.T) {
 	}
 }
 
+// The awaiting end over the shipped broker. Two callers on queues of their own
+// wait on the same job; a worker does it and reports; RabbitMQ hands the
+// completion to both and neither polls anything.
+//
+// This is the half the offline suite can only model. Waiting is broadcast
+// because the broker fans a completion out to every queue bound to it — and
+// two callers sharing one queue name here would compete, so one of them would
+// wait out its deadline for an answer the other was handed.
+func TestTwoCallersAwaitOneJobOverTheBroker(t *testing.T) {
+	journal := stackJournal(t, "await")
+	exchange, queue := "nerve.test.await", "nerve.test.await.worker"
+
+	listener := workerQueue(t, exchange, queue, "index/"+everything)
+	deleteQueue(t, queue)
+	defer closeListener(t, listener)
+
+	first := waiterQueue(t, exchange, "nerve.test.await.first")
+	defer closeListener(t, first)
+	second := waiterQueue(t, exchange, "nerve.test.await.second")
+	defer closeListener(t, second)
+
+	mine, yours := queuefs.NewWaiter(first), queuefs.NewWaiter(second)
+	ours := []*queuefs.Future{mine.Expect("index/42"), yours.Expect("index/42")}
+
+	tree := busTree(t, "await", journal, exchange)
+	mustWrite(t, tree, busMount+"/jobs/index/42", "work")
+
+	waiting, stop := context.WithTimeout(t.Context(), deliveryWait)
+	defer stop()
+
+	heard := make(chan error, len(ours))
+	for _, waiter := range []*queuefs.Waiter{mine, yours} {
+		go func() { heard <- waiter.Run(waiting) }()
+	}
+
+	handled := make(chan string, 1)
+	worker := queuefs.NewWorker(tree, busMount, listener,
+		queuefs.Reporting(reporter(handled), stackBroker(t, exchange)))
+	if did := runUntil(t, worker, handled); did != "index/42=work" {
+		t.Errorf("the worker did %q, want %q", did, "index/42=work")
+	}
+
+	for i, future := range ours {
+		if err := future.Wait(waiting); err != nil {
+			t.Errorf("Wait by caller %d = %v, want nil", i+1, err)
+		}
+	}
+
+	stop()
+	for range ours {
+		if err := <-heard; err != nil {
+			t.Errorf("Run of a waiter = %v, want nil", err)
+		}
+	}
+}
+
+// waiterQueue is a listener on a durable queue of its own, bound to every
+// completion the bus carries.
+func waiterQueue(t *testing.T, exchange, queue string) *queuefs.Consumer {
+	t.Helper()
+
+	listener := workerQueue(t, exchange, queue, queuefs.Completions)
+	deleteQueue(t, queue)
+	return listener
+}
+
 // busTree is a queue over the real journal and the real broker, mounted where a
 // worker will look for it.
 func busTree(t *testing.T, name string, journal *queuefs.Postgres, exchange string) *vfs.MountTable {
+	t.Helper()
+
+	broker := stackBroker(t, exchange)
+	tree := vfs.NewMountTable()
+	if err := tree.Mount(busMount, queuefs.New(name, journal, queuefs.NewRelay(journal, broker, 0))); err != nil {
+		t.Fatalf("Mount = %v", err)
+	}
+	return tree
+}
+
+// stackBroker is a connection to the real exchange, given up when the case
+// ends. A process holds one; a case that needs two holds two, which is what a
+// worker reporting to the same exchange its work came from looks like.
+func stackBroker(t *testing.T, exchange string) *queuefs.AMQP {
 	t.Helper()
 
 	broker, err := queuefs.DialAMQP(brokerURL(t), exchange)
@@ -334,12 +414,7 @@ func busTree(t *testing.T, name string, journal *queuefs.Postgres, exchange stri
 			t.Errorf("Close = %v", err)
 		}
 	})
-
-	tree := vfs.NewMountTable()
-	if err := tree.Mount(busMount, queuefs.New(name, journal, queuefs.NewRelay(journal, broker, 0))); err != nil {
-		t.Fatalf("Mount = %v", err)
-	}
-	return tree
+	return broker
 }
 
 // workerQueue is a listener on a durable queue bound to pattern. The case
