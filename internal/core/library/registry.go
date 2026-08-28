@@ -47,9 +47,6 @@ func NewRegistry(fsys vfs.FileSystem, kind Kind, root string, match Matcher) (*R
 	return &Registry{fsys: fsys, kind: kind, root: root, match: match}, nil
 }
 
-// Kind is what this registry holds.
-func (r *Registry) Kind() Kind { return r.kind }
-
 // Create writes doc into s, replacing the file of a document already there.
 //
 // Replacing, because the verb set has no update and the port's own Write is

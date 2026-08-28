@@ -49,9 +49,9 @@ func mustCreate(t *testing.T, r *library.Registry, s workspace.Scope, name, desc
 	}
 }
 
-// mustResource puts a file beside a skill's document, which is what makes a
-// skill a directory rather than a file.
-func mustResource(t *testing.T, fsys vfs.FileSystem, s workspace.Scope, name, rel, content string) {
+// mustResource puts a file beside a document, which is what makes a document a
+// directory rather than a file.
+func mustResource(t *testing.T, fsys vfs.FileSystem, root string, s workspace.Scope, name, rel, content string) {
 	t.Helper()
 
 	full, err := s.Path(root, path.Join(name, rel))
@@ -88,7 +88,7 @@ func TestCreateAndGetRoundTrip(t *testing.T) {
 func TestCreateReplacesTheDocumentAndKeepsTheFiles(t *testing.T) {
 	registry, fsys := newRegistry(t)
 	mustCreate(t, registry, here, "rewrite-cv", "First.", "old")
-	mustResource(t, fsys, here, "rewrite-cv", "refs/tone.md", "plain")
+	mustResource(t, fsys, root, here, "rewrite-cv", "refs/tone.md", "plain")
 	mustCreate(t, registry, here, "rewrite-cv", "Second.", "new")
 
 	got, err := registry.Get(t.Context(), here, "rewrite-cv")
@@ -149,7 +149,7 @@ func TestListIsEmptyBeforeAnySkillExists(t *testing.T) {
 func TestListPassesOverANonSkillAndFailsOnABrokenOne(t *testing.T) {
 	registry, fsys := newRegistry(t)
 	mustCreate(t, registry, here, "apply", "Apply to an advert.", "body")
-	mustResource(t, fsys, here, "scratch", "note.txt", "not a skill")
+	mustResource(t, fsys, root, here, "scratch", "note.txt", "not a skill")
 
 	cards, err := registry.List(t.Context(), here)
 	if err != nil {
@@ -159,7 +159,7 @@ func TestListPassesOverANonSkillAndFailsOnABrokenOne(t *testing.T) {
 		t.Fatalf("List = %+v, want only the skill", cards)
 	}
 
-	mustResource(t, fsys, here, "broken", document, "no frontmatter here")
+	mustResource(t, fsys, root, here, "broken", document, "no frontmatter here")
 	if _, err := registry.List(t.Context(), here); !errors.Is(err, fs.ErrInvalid) {
 		t.Fatalf("List = %v, want fs.ErrInvalid", err)
 	}
@@ -168,7 +168,7 @@ func TestListPassesOverANonSkillAndFailsOnABrokenOne(t *testing.T) {
 func TestDeleteRemovesTheWholeSkillAndIsIdempotent(t *testing.T) {
 	registry, fsys := newRegistry(t)
 	mustCreate(t, registry, here, "apply", "Apply to an advert.", "body")
-	mustResource(t, fsys, here, "apply", "refs/tone.md", "plain")
+	mustResource(t, fsys, root, here, "apply", "refs/tone.md", "plain")
 
 	for range 2 {
 		if err := registry.Delete(t.Context(), here, "apply"); err != nil {
@@ -191,8 +191,8 @@ func TestDeleteRemovesTheWholeSkillAndIsIdempotent(t *testing.T) {
 func TestTreeIsEveryFileTheSkillIsMadeOf(t *testing.T) {
 	registry, fsys := newRegistry(t)
 	mustCreate(t, registry, here, "apply", "Apply to an advert.", "body")
-	mustResource(t, fsys, here, "apply", "refs/tone.md", "plain")
-	mustResource(t, fsys, here, "apply", "refs/deep/example.txt", "example")
+	mustResource(t, fsys, root, here, "apply", "refs/tone.md", "plain")
+	mustResource(t, fsys, root, here, "apply", "refs/deep/example.txt", "example")
 
 	names, err := registry.Tree(t.Context(), here, "apply")
 	if err != nil {
@@ -214,7 +214,7 @@ func TestTreeOfAMissingSkillDoesNotExist(t *testing.T) {
 func TestBundleCarriesTheSkillAndTheFilesBesideIt(t *testing.T) {
 	registry, fsys := newRegistry(t)
 	mustCreate(t, registry, here, "apply", "Apply to an advert.", "body")
-	mustResource(t, fsys, here, "apply", "refs/tone.md", "plain")
+	mustResource(t, fsys, root, here, "apply", "refs/tone.md", "plain")
 
 	bundle, err := registry.Bundle(t.Context(), here, "apply")
 	if err != nil {
@@ -231,7 +231,7 @@ func TestBundleCarriesTheSkillAndTheFilesBesideIt(t *testing.T) {
 func TestCopyTakesTheWholeSkillToAnotherWorkspace(t *testing.T) {
 	registry, fsys := newRegistry(t)
 	mustCreate(t, registry, here, "apply", "Apply to an advert.", "body")
-	mustResource(t, fsys, here, "apply", "refs/tone.md", "plain")
+	mustResource(t, fsys, root, here, "apply", "refs/tone.md", "plain")
 
 	if err := registry.Copy(t.Context(), here, "apply", there, "applying"); err != nil {
 		t.Fatalf("Copy: %v", err)
