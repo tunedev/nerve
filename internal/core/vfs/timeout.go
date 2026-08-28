@@ -18,11 +18,12 @@ import (
 // which is a mistake at composition rather than a condition at runtime, and is
 // caught where the value is read rather than defended against here.
 //
-// The streaming verbs are bounded at the open and not beyond it. An open is a
-// discrete call and a transfer is not, so they get separate lifetimes: the open
-// gives up after d, and the stream it returned runs on the caller's context
-// until the caller closes it. This is the split every network client makes
-// between dialling and reading.
+// The streaming verbs are bounded twice, because an open is a discrete call and
+// a transfer is not. The open gives up after d. The stream it returned runs on
+// the caller's context until the caller closes it, bounded not by how long it
+// takes — a healthy download is as long as the entry — but by how long it can
+// move nothing: d with no byte crossing ends it. This is the split every
+// network client makes between dialling and reading.
 func WithTimeout(fsys FileSystem, d time.Duration) FileSystem {
 	return bounded{fsys: fsys, within: bound(d)}
 }
@@ -155,8 +156,9 @@ func (b bounded) AsSymlinker() Symlinker {
 	return boundedSymlinker{link: link, within: b.within}
 }
 
-// AsStreamer returns the plugin's streaming verbs with the opens bounded, or
-// nil if it has none. What the opens return is not bounded; see WithTimeout.
+// AsStreamer returns the plugin's streaming verbs bounded, or nil if it has
+// none. The opens are bounded by a deadline and the transfers by idleness; see
+// WithTimeout.
 func (b bounded) AsStreamer() Streamer {
 	stream := b.fsys.AsStreamer()
 	if stream == nil {
@@ -203,7 +205,8 @@ func (c boundedTruncater) Truncate(ctx context.Context, path string, size int64)
 	return c.cut.Truncate(ctx, path, size)
 }
 
-// boundedStreamer bounds the two opens and leaves the transfers alone.
+// boundedStreamer bounds the two opens with a deadline and the transfers they
+// return with an idle bound.
 type boundedStreamer struct {
 	stream Streamer
 	within bound
@@ -216,7 +219,7 @@ func (s boundedStreamer) OpenRead(ctx context.Context, path string) (io.ReadClos
 	if err != nil {
 		return nil, err
 	}
-	return streamReader{ReadCloser: stream, release: release}, nil
+	return streamReader{stream: stream, idle: watch(time.Duration(s.within), release)}, nil
 }
 
 func (s boundedStreamer) OpenWrite(ctx context.Context, path string) (io.WriteCloser, error) {
@@ -226,30 +229,5 @@ func (s boundedStreamer) OpenWrite(ctx context.Context, path string) (io.WriteCl
 	if err != nil {
 		return nil, err
 	}
-	return streamWriter{WriteCloser: stream, release: release}, nil
-}
-
-// streamReader ends the transfer's context when the caller closes the stream,
-// which is what stops a finished transfer from holding on to the caller's.
-type streamReader struct {
-	io.ReadCloser
-	release context.CancelFunc
-}
-
-func (r streamReader) Close() error {
-	defer r.release()
-	return r.ReadCloser.Close()
-}
-
-// streamWriter ends the transfer's context on close, as streamReader does. A
-// write is not complete until Close returns, so the context outlives the last
-// byte either way.
-type streamWriter struct {
-	io.WriteCloser
-	release context.CancelFunc
-}
-
-func (w streamWriter) Close() error {
-	defer w.release()
-	return w.WriteCloser.Close()
+	return streamWriter{stream: stream, idle: watch(time.Duration(s.within), release)}, nil
 }

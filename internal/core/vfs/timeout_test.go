@@ -215,11 +215,17 @@ func TestACallThatNeverAnswersFailsAtTheDeadline(t *testing.T) {
 }
 
 // An open is a call and gets a deadline; the stream it returns is not, and
-// keeps running on the caller's context. Bounding the transfer with the open's
-// deadline would cut a healthy download at the bound.
+// runs past that deadline for as long as it keeps moving bytes. Bounding the
+// transfer with the open's deadline would cut a healthy download at the bound.
 func TestAStreamOutlivesTheBoundOnItsOpen(t *testing.T) {
+	const (
+		bound = 100 * time.Millisecond
+		gap   = 20 * time.Millisecond
+		taken = 6
+	)
+
 	note := &noting{}
-	fsys := vfs.WithTimeout(note, 10*time.Millisecond)
+	fsys := vfs.WithTimeout(note, bound)
 
 	stream, err := fsys.AsStreamer().OpenRead(context.Background(), "/big")
 	if err != nil {
@@ -227,13 +233,17 @@ func TestAStreamOutlivesTheBoundOnItsOpen(t *testing.T) {
 	}
 	defer stream.Close()
 
-	time.Sleep(50 * time.Millisecond)
+	// One byte at a time, waiting less than the bound between them and longer
+	// than it in total.
+	for range taken {
+		time.Sleep(gap)
+		if _, err := stream.Read(make([]byte, 1)); err != nil {
+			t.Fatalf("reading past the bound: %v", err)
+		}
+	}
 
 	if err := note.transferErr(); err != nil {
-		t.Errorf("the transfer ended %s after its open, want it still running: %v", 50*time.Millisecond, err)
-	}
-	if _, err := io.ReadAll(stream); err != nil {
-		t.Errorf("reading past the bound: %v", err)
+		t.Errorf("the transfer ended %s after its open, want it still running: %v", taken*gap, err)
 	}
 }
 
