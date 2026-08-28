@@ -18,6 +18,12 @@
 // asked to make a directory. Optional verb sets are reached through the
 // accessors, and a plugin that answers nil for one is not held to it.
 //
+// Silence is a claim too. Declaring nothing is the easy way to reach the
+// ordinary branch of every case, and the retry layer reads ReadDestructive and
+// AppendOnly before it repeats a failed call. So a mount that claims neither is
+// asked to answer a second read with the same bytes and to let a second write
+// stand in place of the first.
+//
 // Containment is asserted the same way, against a claim the plugin makes by
 // handing over the host directory it passes through to rather than a
 // filesystem it made itself. A kind whose storage sits inside something larger

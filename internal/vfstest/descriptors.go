@@ -13,12 +13,15 @@ import (
 // round proves nothing and enough of them leave the wrong rule nowhere to hide.
 const collisionRounds = 20
 
-// descriptorCases hold a plugin to what it claims. Every case here exists
-// because a descriptor is set, and asserts the meaning of that descriptor
-// rather than the plain read-write tree the cases elsewhere assume.
+// descriptorCases hold a plugin to what it claims, in both directions. Most
+// exist because a descriptor is set, and assert the meaning of that descriptor
+// rather than the plain read-write tree the cases elsewhere assume. Two exist
+// because a descriptor is not set, and hold a plugin to the silence.
 func descriptorCases() []testCase {
 	return []testCase{
 		{name: "Capabilities answers the same thing twice", run: capabilitiesAreStable},
+		{name: "A mount that did not claim read-destructive survives a second read", when: needs(writable, repeatable), run: undeclaredReadDestructive},
+		{name: "A mount that did not claim append-only replaces rather than adds", when: needs(writable, replacing), run: undeclaredAppendOnly},
 		{name: "Read-only refuses every mutating verb", when: readOnly, run: readOnlyRefusesMutation},
 		{name: "Append-only adds to the end", when: needs(appendOnly, writable, repeatable), run: appendOnlyAddsToTheEnd},
 		{name: "Read-destructive consumes what it hands back", when: needs(readDestructive, writable, competing), run: readDestructiveConsumes},
@@ -67,6 +70,48 @@ func readOnlyRefusesMutation(t *testing.T, w world) {
 		if !errors.Is(refusals[verb], fs.ErrPermission) {
 			t.Errorf("%s on a read-only mount = %v, want fs.ErrPermission", verb, refusals[verb])
 		}
+	}
+}
+
+// The two cases below are the only place the suite asks whether a claim is
+// true rather than what it means, and they are load-bearing rather than tidy.
+// Under-declaring is the easy way to pass: claim nothing and every case takes
+// the ordinary branch. WithRetry then reads ReadDestructive and AppendOnly to
+// decide whether a failed Read or Write may be made again, so a mount that
+// consumes or accumulates while claiming neither gets its calls repeated —
+// an entry lost or bytes stored twice, from a green run.
+//
+// These are the two descriptors worth policing because they are the two the
+// retry layer acts on. The rest of a plugin's claims cannot be checked from
+// outside the port and are not attempted here.
+
+// A second read answers the same bytes. A mount that consumes what it hands
+// back has to claim ReadDestructive, and one that does is not asked this.
+func undeclaredReadDestructive(t *testing.T, w world) {
+	mustWrite(t, w, "notes", "stored")
+
+	if first := mustRead(t, w, "notes"); first != "stored" {
+		t.Fatalf("the first Read = %q, want %q", first, "stored")
+	}
+
+	// The second read is asked directly rather than through mustRead: a mount
+	// that consumed the entry answers with an error, and that is the failure
+	// this case exists to name.
+	second, err := w.fsys.Read(t.Context(), w.at("notes"))
+	if err != nil || string(second) != "stored" {
+		t.Errorf("the second Read = %q, %v, want %q: a mount that consumes what it reads must claim ReadDestructive", second, err, "stored")
+	}
+}
+
+// A second write stands in place of the first rather than after it. Both writes
+// are the same length, so what fails here is accumulation and nothing else: a
+// mount that adds has to claim AppendOnly, and one that does is not asked this.
+func undeclaredAppendOnly(t *testing.T, w world) {
+	mustWrite(t, w, "notes", "first")
+	mustWrite(t, w, "notes", "later")
+
+	if content := mustRead(t, w, "notes"); content != "later" {
+		t.Errorf("Read after a second Write = %q, want %q: a mount that adds rather than replaces must claim AppendOnly", content, "later")
 	}
 }
 
