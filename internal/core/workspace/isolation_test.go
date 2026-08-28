@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"slices"
 	"testing"
 
@@ -155,23 +156,26 @@ func requireBobUntouched(t *testing.T, life *workspace.Lifecycle, fsys vfs.FileS
 	}
 }
 
+// climbs is every spelling that tries to leave one scope for another. Each is
+// a rest inside alice's scope and a path inside a view of it, so the same table
+// asks the question of the derivation layer and of the view.
+var climbs = []string{
+	"../../bob/cv/secret",
+	"../../../files/bob/cv/secret",
+	"/../../bob/cv/secret",
+	"drafts/../../../bob/cv/secret",
+	"../../bob/cv",
+	// A leaf bob does not have, so a verb that only ever adds is caught
+	// alongside the ones that overwrite or delete.
+	"../../bob/cv/intruder",
+	"..",
+}
+
 // The acceptance, on the layer that answers for it: no rest a caller spells
 // inside alice's scope reaches bob's, whatever the verb. Each verb runs against
 // a fresh world because several of them destroy alice's own, and a verb that
 // found nothing left of hers would prove nothing about his.
 func TestNoRestSpelledInsideOneScopeReachesAnother(t *testing.T) {
-	climbs := []string{
-		"../../bob/cv/secret",
-		"../../../files/bob/cv/secret",
-		"/../../bob/cv/secret",
-		"drafts/../../../bob/cv/secret",
-		"../../bob/cv",
-		// A leaf bob does not have, so a verb that only ever adds is caught
-		// alongside the ones that overwrite or delete.
-		"../../bob/cv/intruder",
-		"..",
-	}
-
 	for name, verb := range mutatingVerbs() {
 		t.Run(name, func(t *testing.T) {
 			for _, climb := range climbs {
@@ -370,9 +374,9 @@ func TestALinkCannotJoinTwoAreas(t *testing.T) {
 	}
 }
 
-// What no layer holds: the scope root, inside one mount.
+// Why a caller is handed a view and not the table: no layer beneath one holds
+// the scope root inside a single mount.
 //
-// Each of the three layers holds a boundary, and none of them is the scope.
 // Scope.Path contains a rest lexically, to the scope root, which every case
 // above exercises. The mount table contains a link to the mount prefix, which
 // TestALinkCannotJoinTwoAreas exercises. localfs contains a path to its own
@@ -380,15 +384,13 @@ func TestALinkCannotJoinTwoAreas(t *testing.T) {
 // calling the plugin directly — through a mount table they cannot, because
 // resolve cleans and rejects before the plugin is asked.
 //
-// A target under another user's subtree in the same mount satisfies all three.
-// So cross-user isolation rests on the derivation layer alone: it holds while
-// every path a caller passes came from Path, and Symlink takes a second path
-// that nothing dispatches.
+// A target under another user's subtree in the same mount satisfies all three:
+// the path is clean, both ends are in one mount, and the target is inside the
+// localfs root. Symlink takes a second path, and a caller holding the table
+// spells that one itself.
 //
-// This pins the boundary rather than endorsing it. Closing it is structural —
-// a scope that is a mount, or a scoped view whose every path goes through Path
-// — which E5.1's note parks for E11.3 and nrv-rfr carries.
-func TestInsideOneMountTheScopeBoundaryIsDerivationAndNotTheStore(t *testing.T) {
+// So the containment is the view's. The cases below hold it there.
+func TestTheMountTableAloneDoesNotHoldTheScopeBoundary(t *testing.T) {
 	_, fsys := newIsolated(t)
 	links := fsys.AsSymlinker()
 	if links == nil {
@@ -408,5 +410,126 @@ func TestInsideOneMountTheScopeBoundaryIsDerivationAndNotTheStore(t *testing.T) 
 	}
 	if string(content) != bobsSecret {
 		t.Fatalf("Read through the link = %q, want %q", content, bobsSecret)
+	}
+}
+
+// mustView is what a caller holding one scope is given instead of the table:
+// the area as it is seen from inside the scope.
+func mustView(t *testing.T, s workspace.Scope, fsys vfs.FileSystem, area string) vfs.FileSystem {
+	t.Helper()
+	view, err := s.View(fsys, area)
+	if err != nil {
+		t.Fatalf("View(%q) for %+v: %v", area, s, err)
+	}
+	return view
+}
+
+// The acceptance, on the layer that now answers for it: no path a caller spells
+// inside a view of alice's scope reaches bob's, whatever the verb. The table is
+// the same one, so a verb that got through would be visible to him exactly as
+// it is above.
+func TestNoPathSpelledInsideAScopedViewReachesAnotherScope(t *testing.T) {
+	for name, verb := range mutatingVerbs() {
+		t.Run(name, func(t *testing.T) {
+			for _, climb := range climbs {
+				life, table := newIsolated(t)
+				modes := bobsModes(t, table)
+				for _, area := range isolatedAreas {
+					_ = verb(t.Context(), mustView(t, alice, table, area), climb)
+				}
+				requireBobUntouched(t, life, table, modes, name+" of "+climb+" through a view")
+			}
+		})
+	}
+}
+
+// The spelling nothing below the view contains: a link target under another
+// user's subtree in the same mount. The caller does not derive it, so there is
+// no spelling of it left — the view derives both ends.
+func TestALinkMadeThroughAScopedViewCannotReachAnotherScope(t *testing.T) {
+	_, table := newIsolated(t)
+	view := mustView(t, alice, table, files)
+	links := view.AsSymlinker()
+	if links == nil {
+		t.Fatal("AsSymlinker = nil, want the host-backed area to answer through the view")
+	}
+
+	for i, target := range []string{
+		mustPath(t, bob, files, ""),
+		mustPath(t, bob, files, "secret"),
+		"../../bob/cv",
+		"/../../bob/cv",
+	} {
+		link := fmt.Sprintf("peek%d", i)
+		if err := links.Symlink(t.Context(), target, link); err != nil {
+			t.Fatalf("Symlink(%q, %q): %v", target, link, err)
+		}
+		content, err := view.Read(t.Context(), path.Join(link, "secret"))
+		if err == nil {
+			t.Errorf("Read through a link to %q = %q, want nothing of bob's reachable", target, content)
+		}
+		if string(content) == bobsSecret {
+			t.Errorf("Read through a link to %q returned bob's content", target)
+		}
+	}
+}
+
+// A read through a view answers with what alice's own scope holds at that path,
+// which is nothing, rather than with what bob's does.
+func TestNoReadInsideAScopedViewReturnsAnothersContent(t *testing.T) {
+	_, table := newIsolated(t)
+
+	for _, climb := range climbs {
+		for _, area := range isolatedAreas {
+			view := mustView(t, alice, table, area)
+			content, err := view.Read(t.Context(), climb)
+			if err == nil {
+				t.Errorf("Read(%q) in %q = %q, want it to find nothing in alice's scope", climb, area, content)
+			}
+			if string(content) == bobsSecret {
+				t.Errorf("Read(%q) in %q returned bob's content", climb, area)
+			}
+		}
+	}
+}
+
+// Listing through a view must not name another user's workspaces either: a name
+// is observable even when the content behind it is not.
+func TestNoListingInsideAScopedViewNamesAnotherScope(t *testing.T) {
+	_, table := newIsolated(t)
+	view := mustView(t, alice, table, files)
+
+	for _, climb := range []string{"/", "../..", "../../bob", "/../../bob/cv", "a/../../.."} {
+		entries, err := view.ReadDir(t.Context(), climb)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.Name == bob.User || entry.Name == "secret" {
+				t.Errorf("ReadDir(%q) named %q, want only what is inside alice's scope", climb, entry.Name)
+			}
+		}
+	}
+}
+
+// Rename is the other verb taking two paths, and a view derives both, so
+// neither end can be anchored outside the scope however it is spelled.
+func TestNoRenameThroughAScopedViewCarriesAnEntryBetweenScopes(t *testing.T) {
+	for name, ends := range map[string][2]string{
+		"out of alice's scope": {"own.md", "../../bob/cv/taken"},
+		"into alice's scope":   {"../../bob/cv/secret", "stolen"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			life, table := newIsolated(t)
+			modes := bobsModes(t, table)
+			view := mustView(t, alice, table, files)
+
+			_ = view.Rename(t.Context(), ends[0], ends[1])
+
+			requireBobUntouched(t, life, table, modes, "renaming "+name+" through a view")
+			if content, err := view.Read(t.Context(), "stolen"); err == nil {
+				t.Errorf("alice holds %q after the rename, want nothing carried across", content)
+			}
+		})
 	}
 }

@@ -7,6 +7,10 @@
 // the package: a second place that spells the layout is a second place that can
 // spell it differently, and the difference reads as one user's data appearing
 // inside another's.
+//
+// A caller is handed View rather than the tree, so that deriving the path is the
+// scope's job and not the caller's. Path alone contains a caller that uses it;
+// View contains one that does not.
 package workspace
 
 import (
