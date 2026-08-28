@@ -75,10 +75,9 @@ func TestEachFileIsItsOwnTree(t *testing.T) {
 
 // built makes a tree through the factory and closes it when the case ends.
 //
-// The port has no lifecycle verb, so Close is on the concrete type and only a
-// caller still holding it can call one. A test is such a caller; a mount built
-// from config is not, and sqlfs is the first plugin where that is a resource
-// rather than a formality (nrv-mii).
+// Close is on the concrete type rather than on the port, so a caller still
+// holding the tree calls it. A test is such a caller; a mount built from config
+// is not, and what closes that one is the registry's Release.
 func built(t *testing.T, file string) vfs.FileSystem {
 	t.Helper()
 
@@ -102,20 +101,26 @@ func built(t *testing.T, file string) vfs.FileSystem {
 // document reaches: a kind that cannot be mounted is not a plugin, whatever it
 // implements.
 //
-// The factory here hands back a tree the case opened rather than opening one,
-// because the table wraps what it builds and nothing that comes back out of it
-// can be closed. What the case is for is on the other side of the mount anyway:
-// that a prefix is stripped before sqlfs sees a path, and that the dispatcher
-// forwards the one accessor sqlfs answers.
+// The real factory opens the database, so the connection this makes is one no
+// caller can reach: the table hands back a wrapper. Release is what gives it
+// up, and the goroutine check this binary ends on is what proves it did — a
+// database/sql pool left open keeps a connection opener running.
 func TestSqlfsAnswersThroughAMountTable(t *testing.T) {
-	fsys := open(t)
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	factory := func(map[string]string) (vfs.FileSystem, error) { return fsys, nil }
-	if err := registry.Register(sqlfs.Kind, factory, sqlfs.PathSetting); err != nil {
+	if err := registry.Register(sqlfs.Kind, sqlfs.Factory, sqlfs.PathSetting); err != nil {
 		t.Fatalf("Register(sqlfs) = %v", err)
 	}
+	t.Cleanup(func() {
+		if err := registry.Release(); err != nil {
+			t.Errorf("Release = %v", err)
+		}
+	})
 
-	table, err := registry.Table([]vfs.MountSpec{{Prefix: "/scratch", Kind: sqlfs.Kind}})
+	table, err := registry.Table([]vfs.MountSpec{{
+		Prefix:   "/scratch",
+		Kind:     sqlfs.Kind,
+		Settings: map[string]string{sqlfs.PathSetting: filepath.Join(t.TempDir(), "tree.db")},
+	}})
 	if err != nil {
 		t.Fatalf("Table(/scratch) = %v", err)
 	}

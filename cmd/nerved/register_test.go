@@ -45,11 +45,10 @@ func TestRegisterKindsMakesMemfsMountable(t *testing.T) {
 	}
 }
 
-// sqlfs is registered here rather than mounted, because building one opens a
-// database this test would have no way to close: the plugin comes back out of
-// the registry wrapped (nrv-mii). What the composition root is answerable for
-// is that the kind a config can name is there, and that the setting it declares
-// is the one an operator is allowed to read back.
+// What the composition root is answerable for here is that the kind a config
+// can name is there, that the setting it declares is the one an operator is
+// allowed to read back, and that a mount naming no database file is refused
+// while an operator is still watching. None of that opens a file.
 func TestRegisterKindsDeclaresSqlfsAndItsDatabaseFile(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test"); err != nil {

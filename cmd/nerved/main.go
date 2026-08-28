@@ -112,7 +112,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := serve(ctx, srv, health, cfg.DrainDelayDuration()); err != nil {
+	served := serve(ctx, srv, health, cfg.DrainDelayDuration())
+
+	// The mounts are released last, after the server has stopped answering, so
+	// nothing is still mid-verb on one. A plugin holding a database connection
+	// or a broker channel gives it up here; before this, the only thing that
+	// ever closed one was the process ending.
+	if err := errors.Join(served, registry.Release()); err != nil {
 		fail(err)
 	}
 }
