@@ -37,6 +37,12 @@ type Config struct {
 	BreakerThreshold string `json:"breaker-threshold"`
 	BreakerCooldown  string `json:"breaker-cooldown"`
 
+	// TelemetryEndpoint is the collector traces, metrics and logs are exported
+	// to. An http:// scheme is a plaintext connection and https:// a TLS one,
+	// which is how the OTLP exporters read the standard variable. Empty
+	// exports nothing, which is what a laptop with no collector wants.
+	TelemetryEndpoint string `json:"telemetry-endpoint"`
+
 	PostgresDSN string `json:"postgres-dsn"`
 	RabbitMQURL string `json:"rabbitmq-url"`
 	OllamaURL   string `json:"ollama-url"`
@@ -197,6 +203,7 @@ var fields = []field{
 	{"retry-backoff", "ceiling on the wait before the second attempt, doubling after that", func(c *Config) *string { return &c.RetryBackoff }},
 	{"breaker-threshold", "transient failures in a row that stop a mount being called", func(c *Config) *string { return &c.BreakerThreshold }},
 	{"breaker-cooldown", "how long a mount is left alone before one call probes it", func(c *Config) *string { return &c.BreakerCooldown }},
+	{"telemetry-endpoint", "OTLP collector URL for traces, metrics and logs; empty exports nothing", func(c *Config) *string { return &c.TelemetryEndpoint }},
 	{"postgres-dsn", "Postgres connection string", func(c *Config) *string { return &c.PostgresDSN }},
 	{"rabbitmq-url", "RabbitMQ connection URL", func(c *Config) *string { return &c.RabbitMQURL }},
 	{"ollama-url", "Ollama base URL", func(c *Config) *string { return &c.OllamaURL }},

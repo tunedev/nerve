@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/inbound/admin"
+	"github.com/tunedev/nerve/internal/adapters/outbound/telemetry"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termmatch"
 	"github.com/tunedev/nerve/internal/config"
 	"github.com/tunedev/nerve/internal/core/library"
@@ -24,6 +26,9 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
+// service is the name this build reports itself to a collector under.
+const service = "nerved"
+
 // The operator surface answers from memory, so these bound a slow or absent
 // client rather than a slow answer. They are not settings: an operator who has
 // to tune them has a different problem from the one this surface solves.
@@ -32,6 +37,11 @@ const (
 	writeTimeout      = 10 * time.Second
 	idleTimeout       = 60 * time.Second
 	shutdownGrace     = 5 * time.Second
+
+	// flushGrace bounds the last export. A collector that has stopped
+	// answering must not hold the process open, and telemetry nobody can send
+	// is worth less than an exit.
+	flushGrace = 5 * time.Second
 )
 
 func main() {
@@ -47,6 +57,21 @@ func main() {
 		fail(err)
 	}
 
+	// Telemetry is built before anything it measures, because it owns the
+	// logger everything after this line writes through. An empty endpoint
+	// exports nothing and still logs, which is the laptop with no collector
+	// running.
+	signals, err := telemetry.New(context.Background(), telemetry.Options{
+		Endpoint: cfg.TelemetryEndpoint,
+		Service:  service,
+		Version:  version,
+		Level:    cfg.LogLevelValue(),
+	})
+	if err != nil {
+		fail(err)
+	}
+	slog.SetDefault(signals.Logger)
+
 	// Storage kinds register on this registry, here at composition and nowhere
 	// else, because this is the only place that knows a concrete plugin. The
 	// table itself comes from config, and so do the deadline every mount is
@@ -56,6 +81,7 @@ func main() {
 	retry := cfg.RetryPolicy()
 	breaker := cfg.BreakerPolicy()
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), retry, breaker)
+	registry.Record(signals.Recorder)
 	if err := registerKinds(registry, version); err != nil {
 		fail(err)
 	}
@@ -77,19 +103,28 @@ func main() {
 		fail(err)
 	}
 
-	fmt.Printf("nerved %s (%s)\n", version, runtime.Version())
-	fmt.Printf("log level %s\n", cfg.LogLevel)
-	fmt.Printf("call timeout %s\n", cfg.CallTimeoutDuration())
-	fmt.Printf("retry %d attempts, backoff up to %s\n", retry.Attempts, retry.Backoff)
-	fmt.Printf("breaker opens on %d transient failures in a row, cooldown %s\n", breaker.Threshold, breaker.Cooldown)
+	// The banner goes through the logger rather than to stdout, so what a
+	// process says about itself at boot reaches the same place as what it says
+	// afterwards. An operator reading a collector should not have to also read
+	// a terminal to find out what the process booted with.
+	slog.Info("nerved starting",
+		"version", version,
+		"go", runtime.Version(),
+		"log-level", cfg.LogLevel,
+		"call-timeout", cfg.CallTimeoutDuration(),
+		"retry-attempts", retry.Attempts,
+		"retry-backoff", retry.Backoff,
+		"breaker-threshold", breaker.Threshold,
+		"breaker-cooldown", breaker.Cooldown,
+		"telemetry-endpoint", cfg.TelemetryEndpoint)
 	for _, spec := range mounts {
-		fmt.Printf("mount %s kind %s %+v\n", spec.Prefix, spec.Kind, table.Capabilities(spec.Prefix))
+		slog.Info("mount", "prefix", spec.Prefix, "kind", spec.Kind, "caps", table.Capabilities(spec.Prefix))
 	}
 	for _, spec := range libraries.Specs() {
-		fmt.Printf("library %s root %s file %s\n", spec.Kind.Name, spec.Root, spec.Kind.Filename)
+		slog.Info("library", "kind", spec.Kind.Name, "root", spec.Root, "file", spec.Kind.Filename)
 	}
 	for _, path := range []string{"/config", "/livez", "/readyz"} {
-		fmt.Printf("admin http://%s%s\n", cfg.AdminAddr, path)
+		slog.Info("admin", "url", fmt.Sprintf("http://%s%s", cfg.AdminAddr, path))
 	}
 
 	// Health is the process's own answer about itself, so the probes stay
@@ -114,11 +149,18 @@ func main() {
 
 	served := serve(ctx, srv, health, cfg.DrainDelayDuration())
 
-	// The mounts are released last, after the server has stopped answering, so
+	// The mounts are released after the server has stopped answering, so
 	// nothing is still mid-verb on one. A plugin holding a database connection
 	// or a broker channel gives it up here; before this, the only thing that
 	// ever closed one was the process ending.
-	if err := errors.Join(served, registry.Release()); err != nil {
+	//
+	// The flush comes last, after everything that could record has stopped and
+	// before the process is gone, so what the last requests recorded is
+	// exported rather than dropped on exit. It runs on its own context: the one
+	// that ended is why we are here.
+	flush, cancel := context.WithTimeout(context.Background(), flushGrace)
+	defer cancel()
+	if err := errors.Join(served, registry.Release(), signals.Shutdown(flush)); err != nil {
 		fail(err)
 	}
 }
@@ -144,7 +186,7 @@ func serve(ctx context.Context, srv *http.Server, health *admin.Health, drainDel
 	}
 
 	health.Drain()
-	fmt.Printf("nerved: draining, not ready for %s\n", drainDelay)
+	slog.Info("nerved draining, not ready", "for", drainDelay)
 	time.Sleep(drainDelay)
 
 	grace, cancel := context.WithTimeout(context.Background(), shutdownGrace)

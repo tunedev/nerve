@@ -28,9 +28,15 @@ help: ## List targets
 up: ## Start Postgres, RabbitMQ, MinIO and Ollama, and wait until they answer
 	docker compose up -d --wait
 
+.PHONY: observe
+observe: ## Start the observability backend and print where to read it
+	docker compose --profile observability up -d --wait lgtm
+	@$(RUN_ENV) echo "grafana http://localhost:$${NERVE_GRAFANA_PORT:-3000} (admin/admin)"; \
+	 echo "export to it with NERVE_TELEMETRY_ENDPOINT=http://localhost:$${NERVE_OTLP_PORT:-4317}"
+
 .PHONY: down
 down: ## Stop the stack, keep the data
-	docker compose down
+	docker compose --profile observability down
 
 .PHONY: status
 status: ## Show what is running and whether it is healthy
@@ -42,7 +48,7 @@ logs: ## Follow the stack's logs
 
 .PHONY: clean
 clean: ## Stop the stack, delete its data and the binary
-	docker compose down -v
+	docker compose --profile observability down -v
 	rm -rf $(BIN)
 
 .PHONY: build

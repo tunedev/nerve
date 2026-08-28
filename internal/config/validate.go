@@ -1,8 +1,10 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"slices"
@@ -11,8 +13,13 @@ import (
 	"time"
 )
 
-// logLevels are the levels nerved understands, lowest first.
-var logLevels = []string{"debug", "info", "warn", "error"}
+// logLevels are the levels nerved understands, lowest first. It is derived from
+// the table the process resolves a level through rather than written beside it:
+// a level this accepted and that one could not resolve would boot and then log
+// at the wrong threshold.
+var logLevels = slices.SortedFunc(maps.Keys(levels), func(a, b string) int {
+	return cmp.Compare(levels[a], levels[b])
+})
 
 // Validate reports everything wrong with the resolved config at once, joined
 // into one error. An operator fixing a boot failure gets the whole list rather
@@ -26,6 +33,7 @@ func (c Config) Validate() error {
 		positiveDuration("retry-backoff", c.RetryBackoff),
 		atLeastOne("breaker-threshold", c.BreakerThreshold),
 		positiveDuration("breaker-cooldown", c.BreakerCooldown),
+		optional("telemetry-endpoint", c.TelemetryEndpoint, reachable, "http", "https"),
 		reachable("postgres-dsn", c.PostgresDSN, "postgres", "postgresql"),
 		reachable("rabbitmq-url", c.RabbitMQURL, "amqp", "amqps"),
 		reachable("ollama-url", c.OllamaURL, "http", "https"),
@@ -81,6 +89,16 @@ func atLeastOne(name, value string) error {
 		return fmt.Errorf("%s is %d, want at least 1", name, attempts)
 	}
 	return nil
+}
+
+// optional applies check to a setting that may be unset, because a setting with
+// a real "off" is a different thing from one with a default. An empty value is
+// the operator saying no, and saying no is not a boot failure.
+func optional(name, value string, check func(string, string, ...string) error, args ...string) error {
+	if value == "" {
+		return nil
+	}
+	return check(name, value, args...)
 }
 
 // reachable accepts a URL that names one of the given schemes and a host, which
