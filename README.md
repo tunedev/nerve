@@ -59,6 +59,7 @@ a bug.
 
 ```
 make up      # Postgres with pgvector, RabbitMQ, Ollama — waits until each one answers
+make observe # Grafana with Tempo, Prometheus and Loki behind an OTel Collector
 make status  # what is running, and whether it is healthy
 make run     # the binary, against that stack
 make check   # formatting, lint, tests under the race detector
@@ -140,6 +141,24 @@ mount has its own circuit, so a broken one refuses its own subtree at once while
 of the tree answers as before, and it keeps describing itself throughout — `Capabilities`
 reaches no far end. The breaker sits between the bound and the retry, so it counts attempts
 rather than sequences and the retry stops the moment it opens.
+
+Every call through every mount is measured, so "why is it slow" is a question the
+telemetry already answers. One call becomes three things that share a trace: a span
+naming the mount, the kind, the verb and the path; a measurement in
+`nerve.mount.call.duration`, labelled by mount, kind, verb and outcome but never by path,
+because one series per file is not a series; and a log line saying the same thing. What is
+timed is the call the caller made, retries and backoff included — the wrapper sits outside
+those, since a call that took three seconds across three attempts is not three fast calls.
+The outcome label is the class the retry policy already sorted the error into, so a mount
+that is failing says whether another attempt would have helped.
+
+`telemetry-endpoint` is where that goes: an OTLP collector URL, `http://` for plaintext and
+`https://` for TLS, as the OTLP exporters read the standard variable. It is empty by
+default and empty means nothing is exported — the recorder still runs, into providers that
+discard, which is the same code path a build exporting everything takes. `make observe`
+starts a backend to point it at and prints the URL. Logs always reach stderr as JSON at
+`log-level`, collector or no collector, because a collector that is down is exactly when
+they are wanted.
 
 ## Layout
 

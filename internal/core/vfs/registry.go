@@ -38,10 +38,11 @@ type MountSpec struct {
 // which is the only place that does, and a registry is written there and read
 // afterwards rather than shared across goroutines.
 //
-// Every plugin it builds comes back bounded by timeout, behind the retry policy
-// and behind a breaker of its own, so "no unbounded call", "no blind retry" and
-// "a failing mount stops being called" are properties of the only route into the
-// tree rather than habits each factory has to remember.
+// Every plugin it builds comes back bounded by timeout, behind the retry policy,
+// behind a breaker of its own and under the recorder, so "no unbounded call",
+// "no blind retry", "a failing mount stops being called" and "every call is
+// measured" are properties of the only route into the tree rather than habits
+// each factory has to remember.
 //
 // It also keeps whichever of them holds something an operating system knows
 // about — a connection pool, a broker channel — so that Release can give it
@@ -53,6 +54,7 @@ type Registry struct {
 	timeout   time.Duration
 	retry     Retry
 	breaker   Breaker
+	recorder  Recorder
 	held      []io.Closer
 }
 
@@ -62,6 +64,11 @@ type Registry struct {
 //
 // All three are parameters rather than constants because all three are
 // operational: an operator changes them in config, never in a recompile.
+//
+// Telemetry starts as NopRecorder rather than as nothing, so the wrapper is on
+// every mount from the first build and Record only changes where the reports
+// go. A build that exports nothing runs the code path a build that exports
+// everything runs.
 func NewRegistry(timeout time.Duration, retry Retry, breaker Breaker) *Registry {
 	return &Registry{
 		factories: make(map[string]Factory),
@@ -69,6 +76,7 @@ func NewRegistry(timeout time.Duration, retry Retry, breaker Breaker) *Registry 
 		timeout:   timeout,
 		retry:     retry,
 		breaker:   breaker,
+		recorder:  NopRecorder{},
 	}
 }
 
@@ -89,6 +97,16 @@ func (r *Registry) Register(kind string, factory Factory, public ...string) erro
 	r.public[kind] = public
 	return nil
 }
+
+// Record sends every call through every mount this registry builds to recorder.
+// It is a setter rather than a constructor parameter for the reason Register is
+// one: a registry is written at composition and read afterwards, and where the
+// reports go is one more thing composition says.
+//
+// It changes what later builds do and not what earlier ones did. Composition
+// registers, records and then builds the table, which is the only order the
+// process has.
+func (r *Registry) Record(recorder Recorder) { r.recorder = recorder }
 
 // Public reports the setting keys kind declared safe to read back. A kind that
 // declared none, and a kind nobody registered, have none.
@@ -119,12 +137,17 @@ func (r *Registry) Public(kind string) []string {
 //
 // Every mount gets its own breaker, built here, because a breaker shared
 // between mounts would take a working one down with a broken one.
+//
+// The recorder goes on last and therefore outermost, so what it times is the
+// call the caller made rather than one attempt of it. It is also the only layer
+// that knows which mount it is on: the spec is here and nowhere below.
 func (r *Registry) Build(spec MountSpec) (FileSystem, error) {
 	fsys, err := r.Plugin(spec)
 	if err != nil {
 		return nil, err
 	}
-	return WithRetry(WithBreaker(WithTimeout(fsys, r.timeout), r.breaker), r.retry), nil
+	guarded := WithRetry(WithBreaker(WithTimeout(fsys, r.timeout), r.breaker), r.retry)
+	return WithTelemetry(guarded, r.recorder, spec.Prefix, spec.Kind), nil
 }
 
 // Plugin builds what one spec names, bare: no bound, no breaker, no retry. It

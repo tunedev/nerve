@@ -65,6 +65,27 @@ services:
              mc mb --ignore-existing nerve/nerve"
     restart: "no"
 
+  # The observability backend: an OTel Collector with Prometheus, Tempo and Loki
+  # behind it, and Grafana in front. It is behind a profile because it is a
+  # gigabyte of images for a question nobody asks every day, and because the
+  # binary exports nothing until `telemetry-endpoint` names it — so `make up`
+  # stays the stack the code needs, and `make observe` adds the one that watches
+  # it.
+  lgtm:
+    profiles: ["observability"]
+    image: grafana/otel-lgtm:0.31.0
+    ports:
+      - "${NERVE_OTLP_PORT:-4317}:4317"
+      - "${NERVE_GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - lgtm-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 30s
+
   ollama:
     image: ollama/ollama:latest
     ports: ["${NERVE_OLLAMA_PORT:-11434}:11434"]
@@ -81,3 +102,4 @@ volumes:
   postgres-data:
   minio-data:
   ollama-data:
+  lgtm-data:

@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -98,6 +99,11 @@ func TestInvalidConfigFailsAtBoot(t *testing.T) {
 		"unreadable file":      {File: filepath.Join(t.TempDir(), "absent.json")},
 		"admin addr host only": {Args: []string{"-admin-addr", "127.0.0.1"}},
 		"admin addr no port":   {Args: []string{"-admin-addr", "127.0.0.1:"}},
+		// The exporters log a URL they cannot parse and keep their own
+		// default, so an endpoint that is not one has to be refused here or it
+		// silently exports somewhere else.
+		"telemetry endpoint not a URL": {Args: []string{"-telemetry-endpoint", "://nope"}},
+		"telemetry endpoint scheme":    {Args: []string{"-telemetry-endpoint", "grpc://collector:4317"}},
 	}
 
 	for name, src := range cases {
@@ -110,6 +116,43 @@ func TestInvalidConfigFailsAtBoot(t *testing.T) {
 				t.Errorf("Load() returned %+v alongside its error, want the zero Config", cfg)
 			}
 		})
+	}
+}
+
+// Telemetry is off by default and a setting that is off is not a broken one.
+// Every other setting here has a default that works; this one has a real "no".
+func TestNoTelemetryEndpointIsNotAProblem(t *testing.T) {
+	cfg, err := config.Load(config.Sources{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TelemetryEndpoint != "" {
+		t.Errorf("telemetry-endpoint defaults to %q, want nothing exported until an operator says so", cfg.TelemetryEndpoint)
+	}
+
+	for _, endpoint := range []string{"http://localhost:4317", "https://collector.example:4317"} {
+		if _, err := config.Load(config.Sources{Args: []string{"-telemetry-endpoint", endpoint}}); err != nil {
+			t.Errorf("Load with telemetry-endpoint %s: %v", endpoint, err)
+		}
+	}
+}
+
+// The level Validate accepts is the level the process runs at. The two used to
+// be separate lists; they are one table now, and this is what says so.
+func TestEveryAcceptedLogLevelResolves(t *testing.T) {
+	for name, want := range map[string]slog.Level{
+		"debug": slog.LevelDebug,
+		"info":  slog.LevelInfo,
+		"warn":  slog.LevelWarn,
+		"error": slog.LevelError,
+	} {
+		cfg, err := config.Load(config.Sources{Args: []string{"-log-level", name}})
+		if err != nil {
+			t.Fatalf("Load with log-level %s: %v", name, err)
+		}
+		if got := cfg.LogLevelValue(); got != want {
+			t.Errorf("log-level %s resolves to %v, want %v", name, got, want)
+		}
 	}
 }
 
