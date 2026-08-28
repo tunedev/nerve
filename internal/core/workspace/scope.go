@@ -33,6 +33,10 @@ type Scope struct {
 // so a spelling that climbs lands on the root instead of above it. A user or
 // workspace that is not a flat name is refused with fs.ErrInvalid, because a
 // segment carrying a separator is a scope that can name another one.
+//
+// The containment here is lexical, and it is only the first of two layers. A
+// derived path is a name; what the store behind it resolves that name to is
+// enforced by the plugin mounted under the scope, at its own boundary.
 func (s Scope) Path(root, rest string) (string, error) {
 	if err := validSegment("user", s.User); err != nil {
 		return "", err
