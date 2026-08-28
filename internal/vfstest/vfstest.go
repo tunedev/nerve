@@ -18,6 +18,13 @@
 // asked to make a directory. Optional verb sets are reached through the
 // accessors, and a plugin that answers nil for one is not held to it.
 //
+// Containment is asserted the same way, against a claim the plugin makes by
+// handing over the host directory it passes through to rather than a
+// filesystem it made itself. A kind whose storage sits inside something larger
+// is held to the boundary it draws: no spelling of a path and no symlink
+// planted behind the port may reach outside the mount. A kind that stores its
+// own tree has no outside and is asked nothing.
+//
 // Broadcast is the one descriptor with no case here. It separates readers that
 // each receive every entry from readers that compete for each one, and the port
 // has no second reader identity to tell the two apart.
@@ -37,6 +44,15 @@ type Plugin struct {
 	// outside the process can register its cleanup.
 	New func(t *testing.T) vfs.FileSystem
 
+	// Host is what a kind backed by a host directory hands over instead of
+	// New: the suite makes the directory and the plugin answers for it. That
+	// is what the escape cases need — a mount whose storage sits inside
+	// something larger has an outside, and only the suite knowing where it is
+	// lets a case write there behind the port's back. The directory is the
+	// ground Root names. A kind that stores its own tree leaves this nil and
+	// keeps New; it has no outside, so the escape cases do not run.
+	Host func(t *testing.T, dir string) vfs.FileSystem
+
 	// Root is the path the suite works under, "/" when it is empty. It is the
 	// plugin's own root as the suite sees it: the ground it stands on, which
 	// Remove and Rename are held to refuse. A mount whose capability varies by
@@ -54,15 +70,27 @@ func Run(t *testing.T, p Plugin) {
 		root = "/"
 	}
 
-	claimed := p.New(t).Capabilities(root)
+	claimed := p.world(t, root).fsys.Capabilities(root)
 	for _, one := range cases() {
 		if one.when != nil && !one.when(claimed) {
 			continue
 		}
 		t.Run(one.name, func(t *testing.T) {
-			one.run(t, world{fsys: p.New(t), root: root})
+			one.run(t, p.world(t, root))
 		})
 	}
+}
+
+// world builds the filesystem one case has to itself. A host-backed kind is
+// handed a directory the suite made, so the case knows where the mount's
+// storage sits and what lies outside it.
+func (p Plugin) world(t *testing.T, root string) world {
+	t.Helper()
+	if p.Host != nil {
+		dir := t.TempDir()
+		return world{fsys: p.Host(t, dir), root: root, host: dir}
+	}
+	return world{fsys: p.New(t), root: root}
 }
 
 // testCase is one assertion about the port, and what a plugin has to claim
@@ -84,6 +112,7 @@ func cases() []testCase {
 		renameCases(),
 		descriptorCases(),
 		accessorCases(),
+		escapeCases(),
 	} {
 		all = append(all, set...)
 	}
@@ -95,6 +124,10 @@ func cases() []testCase {
 type world struct {
 	fsys vfs.FileSystem
 	root string
+	// host is the directory on the host disk the plugin's root stands on,
+	// empty for a kind that stores its own tree. It is how a case reaches
+	// behind the port, which is the only way to plant an escape.
+	host string
 }
 
 // at resolves a name a case spelled relative to the plugin's root.
