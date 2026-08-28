@@ -117,9 +117,9 @@ func dsn(file string, wait time.Duration) string {
 	return "file:" + file + "?" + pragmas.Encode()
 }
 
-// Close releases the database. The port has no lifecycle verb, so a mount built
-// from config is closed by the process ending; a test that opens a tree closes
-// it itself.
+// Close releases the database. The port has no lifecycle verb, so this is on
+// the concrete type: a caller that opened a tree closes it, and a mount built
+// from config is closed by the registry's Release on the way down.
 func (f *FS) Close() error {
 	if err := f.db.Close(); err != nil {
 		return fmt.Errorf("close: %w", err)

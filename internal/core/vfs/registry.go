@@ -1,7 +1,9 @@
 package vfs
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"slices"
@@ -40,12 +42,18 @@ type MountSpec struct {
 // and behind a breaker of its own, so "no unbounded call", "no blind retry" and
 // "a failing mount stops being called" are properties of the only route into the
 // tree rather than habits each factory has to remember.
+//
+// It also keeps whichever of them holds something an operating system knows
+// about — a connection pool, a broker channel — so that Release can give it
+// back. That is what makes lifecycle a matter of two lines at the composition
+// root instead of an eleventh verb every kind would have to answer.
 type Registry struct {
 	factories map[string]Factory
 	public    map[string][]string
 	timeout   time.Duration
 	retry     Retry
 	breaker   Breaker
+	held      []io.Closer
 }
 
 // NewRegistry returns a registry holding no kinds, which bounds every plugin it
@@ -127,6 +135,14 @@ func (r *Registry) Build(spec MountSpec) (FileSystem, error) {
 // failing is hit attempts times attempts. The outer mount is wrapped by Build
 // on the way into the table, so the composed target must not be wrapped again
 // here: exactly one layer retries a given call.
+//
+// This is also where a plugin that holds a resource is noticed, by the one
+// assertion in this package that is sound: what it interrogates is the plugin
+// the factory just returned, before anything wraps it. Everywhere else the
+// value in hand is the dispatcher, which is why capability discovery goes
+// through descriptors and accessors instead. A composed target is noticed here
+// too, and it is built before the mount over it, which is what Release reads
+// the order backwards for.
 func (r *Registry) Plugin(spec MountSpec) (FileSystem, error) {
 	factory, known := r.factories[spec.Kind]
 	if !known {
@@ -137,7 +153,34 @@ func (r *Registry) Plugin(spec MountSpec) (FileSystem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("mount %q of kind %q: %w", spec.Prefix, spec.Kind, err)
 	}
+	if closer, holds := fsys.(io.Closer); holds {
+		r.held = append(r.held, closer)
+	}
 	return fsys, nil
+}
+
+// Release gives back everything the plugins this registry built are holding,
+// and reports every refusal rather than the first: a database that will not
+// close is not a reason to leave a broker connection open.
+//
+// It releases in the reverse of the order it built, so a kind that composes
+// another lets go before its target does. What it has released it no longer
+// holds, which makes a second call the no-op a drain path wants it to be.
+//
+// The composition root calls this once the server has stopped answering. Until
+// then something may still be mid-verb on a mount, and releasing under a call
+// in flight turns a shutdown into an error the caller cannot do anything about.
+func (r *Registry) Release() error {
+	held := r.held
+	r.held = nil
+
+	var refused []error
+	for i := len(held) - 1; i >= 0; i-- {
+		if err := held[i].Close(); err != nil {
+			refused = append(refused, fmt.Errorf("release: %w", err))
+		}
+	}
+	return errors.Join(refused...)
 }
 
 // Table builds every spec and mounts it, which is how a config document becomes
