@@ -1,4 +1,4 @@
-package skills_test
+package library_test
 
 import (
 	"context"
@@ -6,27 +6,27 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/tunedev/nerve/internal/core/skills"
+	"github.com/tunedev/nerve/internal/core/library"
 )
 
 // The library the discovery tests ask questions of. The descriptions overlap on
 // purpose — three of them are about a CV — so that ranking has to separate them
 // rather than find the only card with a word in it.
-var library = []skills.Skill{
-	{Card: skills.Card{Name: "tailor-cv", Description: "Rewrite a CV to answer one job advert."}, Body: "b"},
-	{Card: skills.Card{Name: "screen-cv", Description: "Score a CV against a role and explain the gaps."}, Body: "b"},
-	{Card: skills.Card{Name: "format-cv", Description: "Lay a CV out as a single readable page."}, Body: "b"},
-	{Card: skills.Card{Name: "draft-email", Description: "Write a short follow-up email to a recruiter."}, Body: "b"},
-	{Card: skills.Card{Name: "track-outcome", Description: "Record whether an application was rejected."}, Body: "b"},
+var shelf = []library.Document{
+	{Card: library.Card{Name: "tailor-cv", Description: "Rewrite a CV to answer one job advert."}, Body: "b"},
+	{Card: library.Card{Name: "screen-cv", Description: "Score a CV against a role and explain the gaps."}, Body: "b"},
+	{Card: library.Card{Name: "format-cv", Description: "Lay a CV out as a single readable page."}, Body: "b"},
+	{Card: library.Card{Name: "draft-email", Description: "Write a short follow-up email to a recruiter."}, Body: "b"},
+	{Card: library.Card{Name: "track-outcome", Description: "Record whether an application was rejected."}, Body: "b"},
 }
 
-func newLibrary(t *testing.T) *skills.Registry {
+func newLibrary(t *testing.T) *library.Registry {
 	t.Helper()
 
 	registry, _ := newRegistry(t)
-	for _, sk := range library {
-		if err := registry.Create(t.Context(), here, sk); err != nil {
-			t.Fatalf("Create(%q): %v", sk.Name, err)
+	for _, doc := range shelf {
+		if err := registry.Create(t.Context(), here, doc); err != nil {
+			t.Fatalf("Create(%q): %v", doc.Name, err)
 		}
 	}
 	return registry
@@ -74,7 +74,7 @@ func TestSearchOrdersTheSkillsThatShareAWord(t *testing.T) {
 	if matches[0].Card.Name != "format-cv" {
 		t.Fatalf("Search = %q first, want format-cv", matches[0].Card.Name)
 	}
-	if !slices.IsSortedFunc(matches, func(a, b skills.Match) int { return int(b.Score*1e6) - int(a.Score*1e6) }) {
+	if !slices.IsSortedFunc(matches, func(a, b library.Match) int { return int(b.Score*1e6) - int(a.Score*1e6) }) {
 		t.Fatalf("Search = %+v, want scores descending", matches)
 	}
 }
@@ -112,7 +112,7 @@ func TestSearchAsksTheMatcherAndReportsWhatItSays(t *testing.T) {
 	registry, fsys := newRegistry(t)
 	mustCreate(t, registry, here, "apply", "Apply to an advert.", "body")
 
-	swapped, err := skills.NewRegistry(fsys, root, everything{})
+	swapped, err := library.NewRegistry(fsys, skills, root, everything{})
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestSearchAsksTheMatcherAndReportsWhatItSays(t *testing.T) {
 		t.Fatalf("Search = %+v, want what the swapped matcher said", matches)
 	}
 
-	failing, err := skills.NewRegistry(fsys, root, refusing{})
+	failing, err := library.NewRegistry(fsys, skills, root, refusing{})
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
@@ -136,10 +136,10 @@ func TestSearchAsksTheMatcherAndReportsWhatItSays(t *testing.T) {
 // everything ranks every card, however little it has to do with the task.
 type everything struct{}
 
-func (everything) Rank(_ context.Context, _ string, cards []skills.Card) ([]skills.Match, error) {
-	matches := make([]skills.Match, len(cards))
+func (everything) Rank(_ context.Context, _ string, cards []library.Card) ([]library.Match, error) {
+	matches := make([]library.Match, len(cards))
 	for i, card := range cards {
-		matches[i] = skills.Match{Card: card, Score: 1}
+		matches[i] = library.Match{Card: card, Score: 1}
 	}
 	return matches, nil
 }
@@ -149,6 +149,6 @@ var errNoOpinion = errors.New("matcher has no opinion")
 // refusing is a matcher that fails, which a remote one can.
 type refusing struct{}
 
-func (refusing) Rank(context.Context, string, []skills.Card) ([]skills.Match, error) {
+func (refusing) Rank(context.Context, string, []library.Card) ([]library.Match, error) {
 	return nil, errNoOpinion
 }

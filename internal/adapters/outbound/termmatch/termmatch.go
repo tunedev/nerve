@@ -1,5 +1,5 @@
-// Package termmatch ranks skills by the vocabulary their cards share with a
-// task, weighting a word by how few cards use it.
+// Package termmatch ranks a library's documents by the vocabulary their cards
+// share with a task, weighting a word by how few cards use it.
 //
 // It is the laptop's matcher: no model, no network, nothing to start. The
 // second implementation is the one this exists to be replaced by — a matcher
@@ -15,7 +15,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/tunedev/nerve/internal/core/skills"
+	"github.com/tunedev/nerve/internal/core/library"
 )
 
 // Words shorter than this are dropped. Two letters stay because that is what a
@@ -24,8 +24,8 @@ import (
 const shortestWord = 2
 
 // Matcher ranks a task against cards. It holds nothing: the weights come from
-// the cards it is handed, so a library that gains a skill ranks differently on
-// the next call with no index to rebuild.
+// the cards it is handed, so a library that gains a document ranks differently
+// on the next call with no index to rebuild.
 type Matcher struct{}
 
 // New returns the matcher.
@@ -36,14 +36,14 @@ func New() Matcher { return Matcher{} }
 //
 // A word's weight falls as more cards use it, so a word every card shares
 // separates nothing and a word one card has decides the order. The weight never
-// reaches zero, which is what keeps a library of one skill answerable: with one
+// reaches zero, which is what keeps a library of one document answerable: with one
 // card, every word is both universal and unique.
 //
 // The score is the share of the task's total weight the card covers, so it sits
 // in (0,1] and a card that covers the whole task scores 1. Cards that cover
 // none of it are not returned: they are not relevant, and saying so by putting
 // them last is how everything ends up in a prompt.
-func (Matcher) Rank(_ context.Context, task string, cards []skills.Card) ([]skills.Match, error) {
+func (Matcher) Rank(_ context.Context, task string, cards []library.Card) ([]library.Match, error) {
 	wanted := words(task)
 	if len(wanted) == 0 || len(cards) == 0 {
 		return nil, nil
@@ -61,7 +61,7 @@ func (Matcher) Rank(_ context.Context, task string, cards []skills.Card) ([]skil
 		total += weights[word]
 	}
 
-	matches := make([]skills.Match, 0, len(cards))
+	matches := make([]library.Match, 0, len(cards))
 	for i, card := range cards {
 		score := 0.0
 		for word, weight := range weights {
@@ -70,13 +70,13 @@ func (Matcher) Rank(_ context.Context, task string, cards []skills.Card) ([]skil
 			}
 		}
 		if score > 0 {
-			matches = append(matches, skills.Match{Card: card, Score: score / total})
+			matches = append(matches, library.Match{Card: card, Score: score / total})
 		}
 	}
 
 	// Name breaks a tie, so two cards that cover the same words come back in
 	// the same order every time rather than in map order.
-	slices.SortFunc(matches, func(a, b skills.Match) int {
+	slices.SortFunc(matches, func(a, b library.Match) int {
 		if a.Score != b.Score {
 			return cmpDescending(a.Score, b.Score)
 		}
@@ -102,7 +102,7 @@ func weigh(word string, vocabularies []map[string]struct{}) float64 {
 
 // words is the vocabulary of a piece of text: lowercased runs of letters and
 // digits, the short ones dropped, each counted once. A word twice in a
-// description makes the description longer, not the skill more relevant.
+// description makes the description longer, not the document more relevant.
 func words(text string) map[string]struct{} {
 	found := map[string]struct{}{}
 	for _, word := range strings.FieldsFunc(strings.ToLower(text), notWord) {

@@ -4,10 +4,10 @@ import (
 	"testing"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/termmatch"
-	"github.com/tunedev/nerve/internal/core/skills"
+	"github.com/tunedev/nerve/internal/core/library"
 )
 
-func rank(t *testing.T, task string, cards ...skills.Card) []skills.Match {
+func rank(t *testing.T, task string, cards ...library.Card) []library.Match {
 	t.Helper()
 
 	matches, err := termmatch.New().Rank(t.Context(), task, cards)
@@ -17,7 +17,7 @@ func rank(t *testing.T, task string, cards ...skills.Card) []skills.Match {
 	return matches
 }
 
-func names(matches []skills.Match) []string {
+func names(matches []library.Match) []string {
 	found := make([]string, len(matches))
 	for i, match := range matches {
 		found[i] = match.Card.Name
@@ -28,9 +28,9 @@ func names(matches []skills.Match) []string {
 // The word every card uses separates nothing; the word one card uses decides.
 func TestTheRarerWordDecidesTheOrder(t *testing.T) {
 	matches := rank(t, "rewrite a CV",
-		skills.Card{Name: "read", Description: "Read a CV."},
-		skills.Card{Name: "rewrite", Description: "Rewrite a CV."},
-		skills.Card{Name: "score", Description: "Score a CV."},
+		library.Card{Name: "read", Description: "Read a CV."},
+		library.Card{Name: "rewrite", Description: "Rewrite a CV."},
+		library.Card{Name: "score", Description: "Score a CV."},
 	)
 	if len(matches) != 3 {
 		t.Fatalf("Rank = %v, want every card that shares a word", names(matches))
@@ -45,7 +45,7 @@ func TestTheRarerWordDecidesTheOrder(t *testing.T) {
 
 // A card covering the whole task's vocabulary covers all of its weight.
 func TestCoveringTheWholeTaskScoresOne(t *testing.T) {
-	matches := rank(t, "rewrite a CV", skills.Card{Name: "rewrite-cv", Description: "Rewrite a CV."})
+	matches := rank(t, "rewrite a CV", library.Card{Name: "rewrite-cv", Description: "Rewrite a CV."})
 	if len(matches) != 1 {
 		t.Fatalf("Rank = %v, want the one card", names(matches))
 	}
@@ -58,7 +58,7 @@ func TestCoveringTheWholeTaskScoresOne(t *testing.T) {
 // unique. A weight that reached zero there would answer every task with
 // nothing.
 func TestALibraryOfOneStillAnswers(t *testing.T) {
-	matches := rank(t, "score this CV", skills.Card{Name: "screen", Description: "Score a CV against a role."})
+	matches := rank(t, "score this CV", library.Card{Name: "screen", Description: "Score a CV against a role."})
 	if len(matches) != 1 {
 		t.Fatalf("Rank = %v, want the one card", names(matches))
 	}
@@ -69,7 +69,7 @@ func TestALibraryOfOneStillAnswers(t *testing.T) {
 
 func TestNothingSharedIsNoMatch(t *testing.T) {
 	matches := rank(t, "provision a kubernetes cluster",
-		skills.Card{Name: "rewrite", Description: "Rewrite a CV."},
+		library.Card{Name: "rewrite", Description: "Rewrite a CV."},
 	)
 	if len(matches) != 0 {
 		t.Fatalf("Rank = %v, want nothing", names(matches))
@@ -77,7 +77,7 @@ func TestNothingSharedIsNoMatch(t *testing.T) {
 }
 
 func TestAnEmptyTaskOrLibraryIsNoMatch(t *testing.T) {
-	if matches := rank(t, "", skills.Card{Name: "rewrite", Description: "Rewrite a CV."}); len(matches) != 0 {
+	if matches := rank(t, "", library.Card{Name: "rewrite", Description: "Rewrite a CV."}); len(matches) != 0 {
 		t.Fatalf("Rank(\"\") = %v, want nothing", names(matches))
 	}
 	if matches := rank(t, "rewrite a CV"); len(matches) != 0 {
@@ -90,8 +90,8 @@ func TestAnEmptyTaskOrLibraryIsNoMatch(t *testing.T) {
 func TestATieBreaksOnName(t *testing.T) {
 	for range 20 {
 		matches := rank(t, "rewrite a CV",
-			skills.Card{Name: "second", Description: "Rewrite a CV."},
-			skills.Card{Name: "first", Description: "Rewrite a CV."},
+			library.Card{Name: "second", Description: "Rewrite a CV."},
+			library.Card{Name: "first", Description: "Rewrite a CV."},
 		)
 		if len(matches) != 2 || matches[0].Card.Name != "first" {
 			t.Fatalf("Rank = %v, want first then second", names(matches))
@@ -101,7 +101,7 @@ func TestATieBreaksOnName(t *testing.T) {
 
 // Case and punctuation are how a task is written, not what it is about.
 func TestPunctuationAndCaseDoNotChangeTheAnswer(t *testing.T) {
-	card := skills.Card{Name: "rewrite-cv", Description: "Rewrite a CV."}
+	card := library.Card{Name: "rewrite-cv", Description: "Rewrite a CV."}
 	plain := rank(t, "rewrite cv", card)
 	shouted := rank(t, "REWRITE, the C.V.!", card)
 

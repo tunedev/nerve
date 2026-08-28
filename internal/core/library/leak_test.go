@@ -1,4 +1,4 @@
-package skills_test
+package library_test
 
 import (
 	"testing"

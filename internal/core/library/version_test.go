@@ -1,4 +1,4 @@
-package skills_test
+package library_test
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/termmatch"
 	"github.com/tunedev/nerve/internal/adapters/outbound/treecopy"
 	"github.com/tunedev/nerve/internal/core/cas"
-	"github.com/tunedev/nerve/internal/core/skills"
+	"github.com/tunedev/nerve/internal/core/library"
 	"github.com/tunedev/nerve/internal/core/version"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -26,7 +26,7 @@ func TestTheLibraryIsVersionedWithoutTheRegistryKnowing(t *testing.T) {
 		}
 	}
 
-	registry, err := skills.NewRegistry(table, root, termmatch.New())
+	registry, err := library.NewRegistry(table, skills, root, termmatch.New())
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
