@@ -89,7 +89,7 @@ rather than a flag because the file layer sits below the flag layer.
 
 What the process actually resolved is readable rather than guessable: `admin-addr`
 (`127.0.0.1:7777` by default) serves `GET /config`, which answers with every setting under
-that same single name, and with the mount table. Any password inside a connection string is
+that same single name, and with the mount and library tables. Any password inside a connection string is
 replaced first, in the view rather than at the surface, so a second surface cannot forget.
 Nothing there is writable — config changes go through the layers and a restart.
 
@@ -107,6 +107,12 @@ The mount table lives in that file too: `mounts` is a list of `{prefix, kind, se
 and a mount appears by adding a line rather than by editing code. A kind the build does not
 have stops the boot naming the ones it does. Mounts come from the file alone, because
 neither an environment variable nor a flag carries a list.
+
+So does the library table: `libraries` is a list of `{kind, file, root}`, and a kind of
+document — a skill, a blueprint, a checklist nobody has written code for — appears by
+adding a line. A document is a directory holding the file its kind names, and the root is
+where that kind's mount was put, so where a library sits is a mount and what it holds is
+the kind. Two kinds may share one root; two libraries of one kind stop the boot.
 
 Every mount is bounded. `call-timeout` is the deadline each verb carries before it reaches
 a plugin, because a mount may be remote and no caller of the tree can tell. It is a ceiling

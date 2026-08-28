@@ -12,8 +12,9 @@ import (
 // It is a separate type from Config because it is a copy. Redaction here must
 // never reach the values the process actually runs on.
 type Effective struct {
-	Settings []Setting `json:"settings"`
-	Mounts   []Mount   `json:"mounts"`
+	Settings  []Setting `json:"settings"`
+	Mounts    []Mount   `json:"mounts"`
+	Libraries []Library `json:"libraries"`
 }
 
 // Setting is one resolved value under its canonical name — the flag, the JSON
@@ -52,7 +53,10 @@ func (c Config) Effective(public PublicSettings) Effective {
 		mounts[i] = Mount{Prefix: m.Prefix, Kind: m.Kind, Settings: echo(m, public)}
 	}
 
-	return Effective{Settings: settings, Mounts: mounts}
+	// A library line is echoed as written. A kind, the file that names it and
+	// the root it sits under are all structural: there is no value here a mount
+	// setting's question about credentials could be asked of.
+	return Effective{Settings: settings, Mounts: mounts, Libraries: slices.Clone(c.Libraries)}
 }
 
 // redact replaces the password inside a URL and returns anything else as

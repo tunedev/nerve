@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/inbound/admin"
+	"github.com/tunedev/nerve/internal/adapters/outbound/termmatch"
 	"github.com/tunedev/nerve/internal/config"
+	"github.com/tunedev/nerve/internal/core/library"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -64,6 +66,17 @@ func main() {
 		fail(err)
 	}
 
+	// The libraries this process serves come from the same document: a kind is
+	// a name and the file that makes a directory one of its documents, and a
+	// root is where that kind's mount was put. Nothing here names a kind, which
+	// is what makes a third sort of document a line of config rather than a
+	// type. Which matcher ranks them is composition too — term overlap on the
+	// laptop, an embedding matcher over a provider once there is one.
+	libraries, err := library.NewCatalog(table, termmatch.New(), cfg.LibrarySpecs())
+	if err != nil {
+		fail(err)
+	}
+
 	fmt.Printf("nerved %s (%s)\n", version, runtime.Version())
 	fmt.Printf("log level %s\n", cfg.LogLevel)
 	fmt.Printf("call timeout %s\n", cfg.CallTimeoutDuration())
@@ -71,6 +84,9 @@ func main() {
 	fmt.Printf("breaker opens on %d transient failures in a row, cooldown %s\n", breaker.Threshold, breaker.Cooldown)
 	for _, spec := range mounts {
 		fmt.Printf("mount %s kind %s %+v\n", spec.Prefix, spec.Kind, table.Capabilities(spec.Prefix))
+	}
+	for _, spec := range libraries.Specs() {
+		fmt.Printf("library %s root %s file %s\n", spec.Kind.Name, spec.Root, spec.Kind.Filename)
 	}
 	for _, path := range []string{"/config", "/livez", "/readyz"} {
 		fmt.Printf("admin http://%s%s\n", cfg.AdminAddr, path)

@@ -10,8 +10,9 @@ import (
 // be said about it.
 //
 // It is a value a caller hands the registry, so the kinds below are the two
-// there are today rather than the two there can be. A caller with a third sort
-// of document constructs a Kind for it and gets the same eight verbs.
+// there are today rather than the two there can be. A third sort of document is
+// a Kind a config document describes, reaching the registry through a Spec, and
+// it gets the same eight verbs.
 type Kind struct {
 	// Name is what one document of this kind is called, in errors and in
 	// anything above that has to name what it is holding.

@@ -8,7 +8,10 @@
 //
 // The kind is data, not a type. Skills and blueprints differ in what their file
 // is called and in nothing else, so one Registry serves both and a third kind
-// is a Kind value rather than a second registry.
+// is a Kind value rather than a second registry. Which kinds a process serves,
+// and where each of them keeps its documents, is a Catalog built from config:
+// the two kinds named here are the two this package writes down, not the two a
+// build can hold.
 //
 // The registry stores nothing itself. It reads and writes the one FileSystem
 // the mount table presents, at paths derived from the scope that owns them, so

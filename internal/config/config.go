@@ -49,6 +49,10 @@ type Config struct {
 	// Mounts is the mount table: which plugin answers for which subtree. It is
 	// a list, so unlike the settings above it comes from the file layer alone.
 	Mounts []Mount `json:"mounts"`
+
+	// Libraries is the library table: which document kind is kept under which
+	// root. It is a list, so it comes from the file layer alone as Mounts does.
+	Libraries []Library `json:"libraries"`
 }
 
 // Defaults are the bottom layer: what a local checkout needs to run with no
