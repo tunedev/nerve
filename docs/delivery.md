@@ -9,6 +9,12 @@ merge it.
 
 The mayor never runs `gh pr merge`.
 
+The bead closes after the merge, not before. Nothing else closes it: `gt done`
+force-closes only when a branch has no commits and therefore no merge request, and
+the refinery that would otherwise close on merge is stopped. So a delivered bead
+stays hooked until tunedev merges the PR and the mayor closes it with the merge as
+the evidence.
+
 This covers nerve only. Fixes to gastown and beads keep the direct-commit flow,
 because they unblock the town that reviews this.
 
