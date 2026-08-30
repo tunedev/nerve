@@ -159,6 +159,24 @@ func (st *Store) Complete(ctx context.Context, s workspace.Scope, name string) (
 	return resourceOf(name, held), nil
 }
 
+// Stat returns what the store knows about the resource named name in s,
+// without moving its content.
+//
+// It is the answer Complete gave, read back by whoever arrives after it: a
+// resource that has not been finalised reports itself incomplete rather than
+// being refused, because "it is not ready yet" is what the caller asked.
+func (st *Store) Stat(ctx context.Context, s workspace.Scope, name string) (Resource, error) {
+	dir, err := st.dir(s, name)
+	if err != nil {
+		return Resource{}, fmt.Errorf("stat resource: %w", err)
+	}
+	held, err := st.read(ctx, dir)
+	if err != nil {
+		return Resource{}, fmt.Errorf("stat resource %q: %w", name, err)
+	}
+	return resourceOf(name, held), nil
+}
+
 // SignedDownload returns the grant letting its holder read the resource named
 // name in s for ttl, presenting nothing else.
 //
@@ -298,6 +316,28 @@ func (st *Store) dir(s workspace.Scope, name string) (string, error) {
 		return "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
 	}
 	return s.Path(st.root, name)
+}
+
+// Resolve returns the resource the changed path declares: the scope it stands
+// in and the name it has. It is dir read backwards, which is what turns a
+// notification that something changed into the resource it is about.
+//
+// Only a resource's meta file declares one. Content changing is not a resource
+// arriving — nothing reads it until the separate call that finalises it — and
+// only what a resource says about itself can say that call has happened. Every
+// other path is refused with fs.ErrNotExist, whether it is inside a resource,
+// beside one, or under another root entirely.
+func (st *Store) Resolve(changed string) (workspace.Scope, string, error) {
+	s, inside, err := workspace.Locate(st.root, changed)
+	if err != nil {
+		return workspace.Scope{}, "", fmt.Errorf("resolve %q: %w", changed, err)
+	}
+	name, declares := path.Split(inside)
+	name = strings.TrimSuffix(name, "/")
+	if declares != metaFile || validName(name) != nil {
+		return workspace.Scope{}, "", fmt.Errorf("resolve %q: it declares no resource: %w", changed, fs.ErrNotExist)
+	}
+	return s, name, nil
 }
 
 // resourceOf is what name and held say together. A resource that has not been
