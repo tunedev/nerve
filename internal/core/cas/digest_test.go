@@ -1,10 +1,12 @@
 package cas_test
 
 import (
+	"bytes"
 	"errors"
 	"io/fs"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/tunedev/nerve/internal/core/cas"
 )
@@ -76,5 +78,28 @@ func TestParseDigestRefusesWhatIsNotOne(t *testing.T) {
 func TestParseDigestAcceptsAnAlgorithmTheStoreDoesNotCompute(t *testing.T) {
 	if _, err := cas.ParseDigest("sha512:e3b0c44298fc1c14"); err != nil {
 		t.Errorf("ParseDigest of a sha512 spelling: %v", err)
+	}
+}
+
+// Content larger than memory is digested by passing through, and what comes out
+// is the digest the whole bytes would have computed. A second spelling of the
+// hash here is a second answer to "what is this content called".
+func TestComputeFromMatchesComputeOverTheSameBytes(t *testing.T) {
+	content := []byte("a file too large to hold, in miniature")
+
+	got, err := cas.ComputeFrom(bytes.NewReader(content))
+	if err != nil {
+		t.Fatalf("ComputeFrom: %v", err)
+	}
+	if want := cas.Compute(content); got != want {
+		t.Errorf("ComputeFrom = %s, want %s", got, want)
+	}
+}
+
+func TestComputeFromReportsWhatTheReaderFailedWith(t *testing.T) {
+	broken := errors.New("the mount went away mid-read")
+
+	if _, err := cas.ComputeFrom(iotest.ErrReader(broken)); !errors.Is(err, broken) {
+		t.Errorf("ComputeFrom over a failing reader = %v, want %v", err, broken)
 	}
 }

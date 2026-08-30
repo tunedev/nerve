@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"io/fs"
 	"strings"
 )
@@ -33,6 +34,17 @@ type Digest struct {
 func Compute(data []byte) Digest {
 	sum := sha256.Sum256(data)
 	return Digest{algorithm: sha256Algorithm, hex: hex.EncodeToString(sum[:])}
+}
+
+// ComputeFrom returns the digest of everything r yields, without holding it.
+// It is what a caller with content larger than memory hashes through, and it
+// answers what Compute would have over the same bytes.
+func ComputeFrom(r io.Reader) (Digest, error) {
+	sum := sha256.New()
+	if _, err := io.Copy(sum, r); err != nil {
+		return Digest{}, fmt.Errorf("compute digest: %w", err)
+	}
+	return Digest{algorithm: sha256Algorithm, hex: hex.EncodeToString(sum.Sum(nil))}, nil
 }
 
 // String is the canonical spelling, "<algorithm>:<hex>". It is what a ref or a
