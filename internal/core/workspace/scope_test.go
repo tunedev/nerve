@@ -116,3 +116,60 @@ func TestPathsOfTwoUsersNeverNest(t *testing.T) {
 		t.Errorf("%q and %q nest", alice, bob)
 	}
 }
+
+// The property that makes Locate the inverse rather than a second reader of the
+// layout: whatever Path derived, Locate takes apart into what it was derived
+// from.
+func TestLocateIsTheInverseOfPath(t *testing.T) {
+	for _, rest := range []string{"", "one.md", "drafts/one.md", "resources/t.txt/meta.json"} {
+		s := workspace.Scope{User: "alice", Workspace: "cv"}
+		name, err := s.Path("/files", rest)
+		if err != nil {
+			t.Fatalf("Path(%q): %v", rest, err)
+		}
+
+		got, inside, err := workspace.Locate("/files", name)
+		if err != nil {
+			t.Fatalf("Locate(%q): %v", name, err)
+		}
+		if got != s {
+			t.Errorf("Locate(%q) scope = %+v, want %+v", name, got, s)
+		}
+		if inside != rest {
+			t.Errorf("Locate(%q) inside = %q, want %q", name, inside, rest)
+		}
+	}
+}
+
+// A key comes off a queue without the leading slash a path carries, and it
+// names the same place.
+func TestLocateReadsAPathThatLostItsLeadingSlash(t *testing.T) {
+	s, inside, err := workspace.Locate("/resources", "resources/alice/cv/t.txt/meta.json")
+	if err != nil {
+		t.Fatalf("Locate: %v", err)
+	}
+	if want := (workspace.Scope{User: "alice", Workspace: "cv"}); s != want {
+		t.Errorf("scope = %+v, want %+v", s, want)
+	}
+	if want := "t.txt/meta.json"; inside != want {
+		t.Errorf("inside = %q, want %q", inside, want)
+	}
+}
+
+// Nothing outside the area belongs to a scope in it, including a path whose
+// spelling only starts the same way.
+func TestLocateRefusesAPathOutsideTheRoot(t *testing.T) {
+	for _, name := range []string{"/files", "/keys/alice/cv/one.md", "/filesystem/alice/cv/one.md", "/"} {
+		if _, _, err := workspace.Locate("/files", name); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("Locate(%q) = %v, want fs.ErrNotExist", name, err)
+		}
+	}
+}
+
+// A path with only a user segment is the subtree holding every workspace that
+// user has, which is not a place inside one.
+func TestLocateRefusesAPathThatNamesNoWorkspace(t *testing.T) {
+	if _, _, err := workspace.Locate("/files", "/files/alice"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Locate = %v, want fs.ErrNotExist", err)
+	}
+}

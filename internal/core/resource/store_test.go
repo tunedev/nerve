@@ -295,3 +295,60 @@ func TestScopeWithNoWorkspaceAndAnEscapingNameAreRefused(t *testing.T) {
 		}
 	}
 }
+
+// Stat is what the store knows about a resource without moving its content:
+// the same answer Complete gave, read back later by whoever arrives after it.
+func TestStatReadsBackWhatCompleteEstablished(t *testing.T) {
+	store := newStore(t, memfs.New())
+	mustCreate(t, store, here, "transcript.txt")
+	mustUpload(t, store, here, "transcript.txt", "a first draft")
+	want := mustComplete(t, store, here, "transcript.txt")
+
+	got, err := store.Stat(t.Context(), here, "transcript.txt")
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got != want {
+		t.Errorf("Stat = %+v, want %+v", got, want)
+	}
+}
+
+func TestStatOfAResourceThatWasNeverDeclared(t *testing.T) {
+	store := newStore(t, memfs.New())
+
+	if _, err := store.Stat(t.Context(), here, "nothing.txt"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Stat = %v, want fs.ErrNotExist", err)
+	}
+}
+
+// A resource declares itself in one file, and Resolve is what turns a change to
+// that file back into the resource it is about.
+func TestResolveNamesTheResourceItsMetaFileDeclares(t *testing.T) {
+	store := newStore(t, memfs.New())
+
+	s, name, err := store.Resolve("/resources/ada/hunt/transcript.txt/meta.json")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if s != here || name != "transcript.txt" {
+		t.Errorf("Resolve = %+v %q, want %+v %q", s, name, here, "transcript.txt")
+	}
+}
+
+// Only what a resource says about itself can say it is complete, so nothing
+// else that changed under the root is a resource arriving.
+func TestResolveRefusesEveryPathThatDeclaresNothing(t *testing.T) {
+	store := newStore(t, memfs.New())
+
+	for _, changed := range []string{
+		"/resources/ada/hunt/transcript.txt/content",
+		"/resources/ada/hunt/transcript.txt",
+		"/resources/ada/hunt",
+		"/resources/ada/hunt/deeper/transcript.txt/meta.json",
+		"/keys/ada/hunt/transcript.txt/meta.json",
+	} {
+		if _, _, err := store.Resolve(changed); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("Resolve(%q) = %v, want fs.ErrNotExist", changed, err)
+		}
+	}
+}

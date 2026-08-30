@@ -67,3 +67,37 @@ func validSegment(kind, name string) error {
 	}
 	return nil
 }
+
+// Locate is the inverse of Path: it returns the scope that name stands in under
+// root, and what name is inside that scope.
+//
+// It is here rather than at whoever needs it for the reason Path is: a caller
+// that took a scope out of a path its own way would be the second place that
+// spells the layout, and the two would disagree the day one of them changed.
+//
+// name is cleaned first, so a key that lost the leading slash a path carries —
+// which is what a queue hands back — names the same place as the path did.
+//
+// A name outside root is refused with fs.ErrNotExist, and so is one that names
+// no workspace: a path with only a user segment is the subtree holding every
+// workspace that user has, not a place inside one.
+func Locate(root, name string) (Scope, string, error) {
+	prefix := path.Clean("/" + root)
+	if prefix != "/" {
+		prefix += "/"
+	}
+	rest, inside := strings.CutPrefix(path.Clean("/"+name), prefix)
+	if !inside {
+		return Scope{}, "", fmt.Errorf("%q is not under %q: %w", name, root, fs.ErrNotExist)
+	}
+
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) < 2 {
+		return Scope{}, "", fmt.Errorf("%q names no workspace under %q: %w", name, root, fs.ErrNotExist)
+	}
+	s := Scope{User: parts[0], Workspace: parts[1]}
+	if len(parts) == 2 {
+		return s, "", nil
+	}
+	return s, parts[2], nil
+}
