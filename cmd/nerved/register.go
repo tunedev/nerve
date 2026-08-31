@@ -12,12 +12,15 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/localfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/objectfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/pdfproc"
 	"github.com/tunedev/nerve/internal/adapters/outbound/proxyfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/queuefs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/serverinfofs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamrotatefs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/textproc"
+	"github.com/tunedev/nerve/internal/core/ingest"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -73,5 +76,20 @@ func registerKinds(registry *vfs.Registry, version string) error {
 		registry.Register(httpfs.Kind, httpfs.Factory, httpfs.Public...),
 		registry.Register(proxyfs.Kind, proxyfs.Factory(registry.Plugin), proxyfs.Public...),
 		registry.Register(exportfs.Kind, exportfs.Factory(registry.Plugin), exportfs.Public...),
+	)
+}
+
+// registerProcessors puts every format this build can read under the media type
+// an upload declares it as. It is here for the reason registerKinds is: the
+// composition root is the only place that knows a concrete processor, and
+// adding a format is a package plus a line here rather than an edit to
+// whatever dispatches.
+//
+// A processor is registered under every type it reads. textproc takes the two
+// that are already text; pdfproc takes the one it parses.
+func registerProcessors(registry *ingest.Registry) error {
+	return errors.Join(
+		registry.Register(textproc.New(), textproc.MediaTypes...),
+		registry.Register(pdfproc.New(), pdfproc.MediaType),
 	)
 }

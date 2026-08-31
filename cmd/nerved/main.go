@@ -19,6 +19,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/telemetry"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termmatch"
 	"github.com/tunedev/nerve/internal/config"
+	"github.com/tunedev/nerve/internal/core/ingest"
 	"github.com/tunedev/nerve/internal/core/library"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -105,6 +106,16 @@ func main() {
 		fail(err)
 	}
 
+	// The formats this build can ingest register here for the reason storage
+	// kinds do: this is the only place that knows a concrete processor. What a
+	// resource is read by is the media type it declared, so which types the
+	// build has is an operations answer and goes out with the rest of the
+	// banner.
+	processors := ingest.NewRegistry()
+	if err := registerProcessors(processors); err != nil {
+		fail(err)
+	}
+
 	// The banner goes through the logger rather than to stdout, so what a
 	// process says about itself at boot reaches the same place as what it says
 	// afterwards. An operator reading a collector should not have to also read
@@ -126,6 +137,7 @@ func main() {
 	for _, spec := range libraries.Specs() {
 		slog.Info("library", "kind", spec.Kind.Name, "root", spec.Root, "file", spec.Kind.Filename)
 	}
+	slog.Info("ingest", "formats", processors.MediaTypes())
 	for _, path := range []string{"/config", "/livez", "/readyz"} {
 		slog.Info("admin", "url", fmt.Sprintf("http://%s%s", cfg.AdminAddr, path))
 	}
