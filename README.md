@@ -142,6 +142,15 @@ of the tree answers as before, and it keeps describing itself throughout — `Ca
 reaches no far end. The breaker sits between the bound and the retry, so it counts attempts
 rather than sequences and the retry stops the moment it opens.
 
+A streaming read runs with a fetch in front of it. `readahead-window` (`262144`) is how
+many bytes are pulled off a plugin before the caller has asked for them, so the next piece
+is arriving while the caller works on the one it has: over a source costing 2ms a piece,
+the first read drops from 2.14ms to 0.008ms and a 512KiB stream from 70.8ms to 36.8ms. It
+is speculative, and a caller that stops early threw away at most a window. A path a read
+consumes is never read ahead of, because what the queue holds when the caller closes is
+dropped and there that would lose the job. The fetch sits under the bound, so what the
+idle bound counts is still the caller's reads; `0` turns it off.
+
 Every call through every mount is measured, so "why is it slow" is a question the
 telemetry already answers. One call becomes three things that share a trace: a span
 naming the mount, the kind, the verb and the path; a measurement in
