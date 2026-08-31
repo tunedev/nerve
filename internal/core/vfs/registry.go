@@ -39,10 +39,11 @@ type MountSpec struct {
 // afterwards rather than shared across goroutines.
 //
 // Every plugin it builds comes back bounded by timeout, behind the retry policy,
-// behind a breaker of its own and under the recorder, so "no unbounded call",
-// "no blind retry", "a failing mount stops being called" and "every call is
-// measured" are properties of the only route into the tree rather than habits
-// each factory has to remember.
+// behind a breaker of its own, under the recorder and with a fetch running in
+// front of its streaming reads, so "no unbounded call", "no blind retry", "a
+// failing mount stops being called", "every call is measured" and "a caller
+// does not wait for a piece that could already be here" are properties of the
+// only route into the tree rather than habits each factory has to remember.
 //
 // It also keeps whichever of them holds something an operating system knows
 // about — a connection pool, a broker channel — so that Release can give it
@@ -55,6 +56,7 @@ type Registry struct {
 	retry     Retry
 	breaker   Breaker
 	recorder  Recorder
+	readahead int
 	held      []io.Closer
 }
 
@@ -69,6 +71,9 @@ type Registry struct {
 // every mount from the first build and Record only changes where the reports
 // go. A build that exports nothing runs the code path a build that exports
 // everything runs.
+//
+// Readahead starts at DefaultReadahead for the same reason, and ReadAhead only
+// changes how far in front of a caller a streaming read runs.
 func NewRegistry(timeout time.Duration, retry Retry, breaker Breaker) *Registry {
 	return &Registry{
 		factories: make(map[string]Factory),
@@ -77,6 +82,7 @@ func NewRegistry(timeout time.Duration, retry Retry, breaker Breaker) *Registry 
 		retry:     retry,
 		breaker:   breaker,
 		recorder:  NopRecorder{},
+		readahead: DefaultReadahead,
 	}
 }
 
@@ -97,6 +103,15 @@ func (r *Registry) Register(kind string, factory Factory, public ...string) erro
 	r.public[kind] = public
 	return nil
 }
+
+// ReadAhead sets how far in front of a caller the mounts this registry builds
+// fetch a streaming read, in bytes. Zero or less turns reading ahead off, and
+// the mounts are built without the wrapper at all.
+//
+// It is a setter for the reason Record is one: how far a read runs in front is
+// operational, and a registry is written at composition and read afterwards. It
+// changes what later builds do and not what earlier ones did.
+func (r *Registry) ReadAhead(window int) { r.readahead = window }
 
 // Record sends every call through every mount this registry builds to recorder.
 // It is a setter rather than a constructor parameter for the reason Register is
@@ -141,12 +156,18 @@ func (r *Registry) Public(kind string) []string {
 // The recorder goes on last and therefore outermost, so what it times is the
 // call the caller made rather than one attempt of it. It is also the only layer
 // that knows which mount it is on: the spec is here and nowhere below.
+//
+// The fetch that runs in front of a streaming read goes under all of it, next
+// to the plugin. Above the bound it would be the fetch's reads the idle bound
+// counted rather than the caller's, and a caller slower than the queue is deep
+// would lose a transfer whose far end was answering.
 func (r *Registry) Build(spec MountSpec) (FileSystem, error) {
 	fsys, err := r.Plugin(spec)
 	if err != nil {
 		return nil, err
 	}
-	guarded := WithRetry(WithBreaker(WithTimeout(fsys, r.timeout), r.breaker), r.retry)
+	ahead := WithReadahead(fsys, r.readahead)
+	guarded := WithRetry(WithBreaker(WithTimeout(ahead, r.timeout), r.breaker), r.retry)
 	return WithTelemetry(guarded, r.recorder, spec.Prefix, spec.Kind), nil
 }
 

@@ -33,6 +33,7 @@ func (c Config) Validate() error {
 		positiveDuration("retry-backoff", c.RetryBackoff),
 		atLeastOne("breaker-threshold", c.BreakerThreshold),
 		positiveDuration("breaker-cooldown", c.BreakerCooldown),
+		nonNegativeNumber("readahead-window", c.ReadaheadWindow),
 		optional("telemetry-endpoint", c.TelemetryEndpoint, reachable, "http", "https"),
 		reachable("postgres-dsn", c.PostgresDSN, "postgres", "postgresql"),
 		reachable("rabbitmq-url", c.RabbitMQURL, "amqp", "amqps"),
@@ -87,6 +88,20 @@ func atLeastOne(name, value string) error {
 	}
 	if attempts < 1 {
 		return fmt.Errorf("%s is %d, want at least 1", name, attempts)
+	}
+	return nil
+}
+
+// nonNegativeNumber accepts a whole number of bytes that does not run
+// backwards. Zero is a real answer here — it is how reading ahead is turned
+// off — so it is accepted rather than read as a mistake.
+func nonNegativeNumber(name, value string) error {
+	count, err := strconv.Atoi(value)
+	if err != nil {
+		return fmt.Errorf("%s is not a number: %w", name, err)
+	}
+	if count < 0 {
+		return fmt.Errorf("%s is %d, want zero or a positive number of bytes", name, count)
 	}
 	return nil
 }

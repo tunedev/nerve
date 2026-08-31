@@ -76,12 +76,14 @@ func main() {
 	// else, because this is the only place that knows a concrete plugin. The
 	// table itself comes from config, and so do the deadline every mount is
 	// bounded by, the policy its transient failures are retried under and the
-	// breaker that stops calling it when they do not stop: a mount may be
-	// remote, and no caller of the tree can tell.
+	// breaker that stops calling it when they do not stop, and how far in front
+	// of a caller its streaming reads are fetched: a mount may be remote, and no
+	// caller of the tree can tell.
 	retry := cfg.RetryPolicy()
 	breaker := cfg.BreakerPolicy()
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), retry, breaker)
 	registry.Record(signals.Recorder)
+	registry.ReadAhead(cfg.ReadaheadBytes())
 	if err := registerKinds(registry, version); err != nil {
 		fail(err)
 	}
@@ -116,6 +118,7 @@ func main() {
 		"retry-backoff", retry.Backoff,
 		"breaker-threshold", breaker.Threshold,
 		"breaker-cooldown", breaker.Cooldown,
+		"readahead-window", cfg.ReadaheadBytes(),
 		"telemetry-endpoint", cfg.TelemetryEndpoint)
 	for _, spec := range mounts {
 		slog.Info("mount", "prefix", spec.Prefix, "kind", spec.Kind, "caps", table.Capabilities(spec.Prefix))

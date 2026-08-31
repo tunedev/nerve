@@ -12,7 +12,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+
+	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
 // Config is everything nerved needs to reach the world outside itself.
@@ -36,6 +39,11 @@ type Config struct {
 	// left alone before one call finds out whether it is back.
 	BreakerThreshold string `json:"breaker-threshold"`
 	BreakerCooldown  string `json:"breaker-cooldown"`
+
+	// ReadaheadWindow is how many bytes of a streaming read are fetched in
+	// front of the caller, so the next piece is arriving while the caller works
+	// on the one it has. Zero turns reading ahead off.
+	ReadaheadWindow string `json:"readahead-window"`
 
 	// TelemetryEndpoint is the collector traces, metrics and logs are exported
 	// to. An http:// scheme is a plaintext connection and https:// a TLS one,
@@ -72,6 +80,7 @@ func Defaults() Config {
 		RetryBackoff:     "100ms",
 		BreakerThreshold: "5",
 		BreakerCooldown:  "30s",
+		ReadaheadWindow:  strconv.Itoa(vfs.DefaultReadahead),
 		PostgresDSN:      "postgres://nerve:nerve@localhost:5432/nerve?sslmode=disable",
 		RabbitMQURL:      "amqp://nerve:nerve@localhost:5672/",
 		OllamaURL:        "http://localhost:11434",
@@ -203,6 +212,7 @@ var fields = []field{
 	{"retry-backoff", "ceiling on the wait before the second attempt, doubling after that", func(c *Config) *string { return &c.RetryBackoff }},
 	{"breaker-threshold", "transient failures in a row that stop a mount being called", func(c *Config) *string { return &c.BreakerThreshold }},
 	{"breaker-cooldown", "how long a mount is left alone before one call probes it", func(c *Config) *string { return &c.BreakerCooldown }},
+	{"readahead-window", "bytes of a streaming read fetched in front of the caller; 0 turns it off", func(c *Config) *string { return &c.ReadaheadWindow }},
 	{"telemetry-endpoint", "OTLP collector URL for traces, metrics and logs; empty exports nothing", func(c *Config) *string { return &c.TelemetryEndpoint }},
 	{"postgres-dsn", "Postgres connection string", func(c *Config) *string { return &c.PostgresDSN }},
 	{"rabbitmq-url", "RabbitMQ connection URL", func(c *Config) *string { return &c.RabbitMQURL }},
