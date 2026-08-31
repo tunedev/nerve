@@ -62,6 +62,7 @@ func (l listen) Listen(ctx context.Context, notify queuefs.Notify) error {
 // path makes from the write that made it to the pipeline that acts on it.
 type bus struct {
 	resources *resource.Store
+	ledger    *ingest.Ledger
 	jobs      vfs.FileSystem
 	keyspace  *kvfs.MemStore
 	pipeline  *ingest.Pipeline
@@ -80,6 +81,9 @@ func newBus(t *testing.T, stages ...ingest.Stage) *bus {
 	if err := table.Mount(resourcesRoot, memfs.New()); err != nil {
 		t.Fatalf("Mount(%q): %v", resourcesRoot, err)
 	}
+	if err := table.Mount(ledgerRoot, memfs.New()); err != nil {
+		t.Fatalf("Mount(%q): %v", ledgerRoot, err)
+	}
 	signer, err := resource.NewSigner([]byte("a key nobody else has"), time.Now)
 	if err != nil {
 		t.Fatalf("NewSigner: %v", err)
@@ -89,7 +93,31 @@ func newBus(t *testing.T, stages ...ingest.Stage) *bus {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
-	return &bus{resources: store, jobs: jobs, keyspace: keyspace, pipeline: ingest.New(store, stages...)}
+	// The ledger is given the table rather than the observed tree: what is
+	// watched for resources arriving is the resources mount, and a status write
+	// is not a resource arriving.
+	ledger, err := ingest.NewLedger(table, ledgerRoot, func() time.Time { return recordedAt })
+	if err != nil {
+		t.Fatalf("NewLedger: %v", err)
+	}
+	return &bus{
+		resources: store,
+		ledger:    ledger,
+		jobs:      jobs,
+		keyspace:  keyspace,
+		pipeline:  ingest.New(store, ledger, stages...),
+	}
+}
+
+// indexing is where the bus says the ingestion of name stands.
+func (b *bus) indexing(t *testing.T, name string) ingest.Indexing {
+	t.Helper()
+
+	got, err := b.ledger.Get(t.Context(), here, name)
+	if err != nil {
+		t.Fatalf("Get(%q): %v", name, err)
+	}
+	return got
 }
 
 // queued is every job standing on the queue, read from the keyspace holding
@@ -277,5 +305,86 @@ func TestAStageThatFailsIsNamedAndEndsTheRun(t *testing.T) {
 	}
 	if len(ran.ran) != 0 {
 		t.Errorf("stages ran after the failure = %v, want none", ran.ran)
+	}
+}
+
+// The acceptance: a caller can tell when its document became searchable. Before
+// the work is claimed the document is pending, and the record that replaces it
+// says the moment every stage had run.
+func TestACallerLearnsWhenADocumentBecameSearchable(t *testing.T) {
+	ran := &seen{}
+	b := newBus(t, ran.stage("extract"))
+
+	b.upload(t, "transcript.txt", "a first draft")
+
+	if got := b.indexing(t, "transcript.txt"); got.Status != ingest.Pending {
+		t.Fatalf("indexing after the upload = %+v, want it pending", got)
+	}
+
+	b.work(t)
+
+	want := ingest.Indexing{Name: "transcript.txt", Status: ingest.Indexed, At: recordedAt}
+	if got := b.indexing(t, "transcript.txt"); got != want {
+		t.Errorf("indexing after the work = %+v, want %+v", got, want)
+	}
+}
+
+// A document that did not become searchable says so, and says which stage
+// stopped it. The worker's error is gone with the worker; this outlives it.
+func TestADocumentWhoseStageFailedSaysWhichStageAndWhy(t *testing.T) {
+	refused := errors.New("no processor for this format")
+	fails := ingest.Stage{Name: "extract", Run: func(context.Context, workspace.Scope, resource.Resource) error {
+		return refused
+	}}
+	b := newBus(t, fails)
+
+	b.upload(t, "transcript.txt", "a first draft")
+	if err := b.worker(t).Run(t.Context()); !errors.Is(err, refused) {
+		t.Fatalf("Run = %v, want %v", err, refused)
+	}
+
+	got := b.indexing(t, "transcript.txt")
+	if got.Status != ingest.Failed || got.Stage != "extract" {
+		t.Fatalf("indexing = %+v, want it failed at the extract stage", got)
+	}
+	if !strings.Contains(got.Failure, refused.Error()) {
+		t.Errorf("indexing failure = %q, want it to carry %q", got.Failure, refused.Error())
+	}
+}
+
+// A document is said to be working while its stages run, so a caller polling a
+// slow ingestion can tell work in progress from work not yet claimed.
+func TestADocumentIsSaidToBeWorkingWhileItsStagesRun(t *testing.T) {
+	var during ingest.Status
+	b := newBus(t)
+	watching := ingest.Stage{Name: "extract", Run: func(ctx context.Context, s workspace.Scope, r resource.Resource) error {
+		got, err := b.ledger.Get(ctx, s, r.Name)
+		during = got.Status
+		return err
+	}}
+	b.pipeline = ingest.New(b.resources, b.ledger, watching)
+
+	b.upload(t, "transcript.txt", "a first draft")
+	b.work(t)
+
+	if during != ingest.Working {
+		t.Errorf("indexing during the run = %q, want %q", during, ingest.Working)
+	}
+}
+
+// Three of the four things a notification can be about are nothing to do, and
+// none of them is an ingestion. A record for one would say a document is being
+// worked on that nothing is working on.
+func TestNothingIsRecordedForAChangeThatIsNotADocumentArriving(t *testing.T) {
+	ran := &seen{}
+	b := newBus(t, ran.stage("extract"))
+
+	if _, err := b.resources.Create(t.Context(), here, "transcript.txt", "text/plain"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	b.work(t)
+
+	if got := b.indexing(t, "transcript.txt"); got.Status != ingest.Pending {
+		t.Errorf("indexing of a resource still arriving = %+v, want it pending", got)
 	}
 }
