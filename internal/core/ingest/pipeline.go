@@ -16,6 +16,11 @@
 // The stages are what ingestion does, in order, and they are given to the
 // pipeline rather than known by it. A format that needs its own handling is a
 // stage the composition root adds, not a branch here.
+//
+// Where a run got to is written down as it goes. The caller that uploaded the
+// document is long gone and the error a failed stage returns dies with the
+// worker that claimed the job, so the ledger is the only thing a caller asking
+// whether its document is searchable yet has to read.
 package ingest
 
 import (
@@ -45,13 +50,14 @@ type Stage struct {
 // pipeline doing nothing rather than one polling.
 type Pipeline struct {
 	resources *resource.Store
+	ledger    *Ledger
 	stages    []Stage
 }
 
 // New returns a pipeline that runs stages, in the order given, over resources
-// in store.
-func New(resources *resource.Store, stages ...Stage) *Pipeline {
-	return &Pipeline{resources: resources, stages: stages}
+// in store, recording where each run got to in ledger.
+func New(resources *resource.Store, ledger *Ledger, stages ...Stage) *Pipeline {
+	return &Pipeline{resources: resources, ledger: ledger, stages: stages}
 }
 
 // Ingest is the work one changed path is.
@@ -63,10 +69,13 @@ func New(resources *resource.Store, stages ...Stage) *Pipeline {
 // one whose content is still arriving, and its own completion will queue this
 // job again. Only the fourth runs the stages.
 //
-// A stage that fails ends the run and is named in the error. What that costs is
-// the rest of the stages for this resource, which is the honest answer while
-// nothing records how far a resource got: E6.6 is where a caller learns that a
-// document did not become searchable.
+// A stage that fails ends the run and is named in the error, and is named in
+// the ledger too. The error goes to whoever claimed the job and dies with it;
+// the record is what a caller asking about its document reads afterwards.
+//
+// Nothing is recorded for the three notifications that are nothing to do. A
+// document said to be working that nothing is working on is worse than no
+// record at all, because the caller would wait for it.
 func (p *Pipeline) Ingest(ctx context.Context, changed string) error {
 	s, name, err := p.resources.Resolve(changed)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -87,10 +96,21 @@ func (p *Pipeline) Ingest(ctx context.Context, changed string) error {
 		return nil
 	}
 
+	if err := p.ledger.Working(ctx, s, name); err != nil {
+		return fmt.Errorf("ingest %q: %w", name, err)
+	}
 	for _, stage := range p.stages {
 		if err := stage.Run(ctx, s, arrived); err != nil {
-			return fmt.Errorf("ingest %q: stage %q: %w", name, stage.Name, err)
+			failed := fmt.Errorf("ingest %q: stage %q: %w", name, stage.Name, err)
+			// The stage is what went wrong and is what the caller is told. A
+			// ledger that could not be written is joined to it rather than
+			// dropped: it leaves the document saying it is working and nothing
+			// else would ever say otherwise.
+			return errors.Join(failed, p.ledger.Failed(ctx, s, name, stage.Name, err.Error()))
 		}
+	}
+	if err := p.ledger.Indexed(ctx, s, name); err != nil {
+		return fmt.Errorf("ingest %q: %w", name, err)
 	}
 	return nil
 }
