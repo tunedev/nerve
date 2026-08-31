@@ -1,13 +1,19 @@
 # Delivery
 
-Nerve work reaches `main` through a pull request that tunedev merges. Nothing else
-merges. The refinery is stopped and its patrol disabled; `gt done` still submits an
-MR bead, and that bead is the record that work is waiting, not an instruction to
-merge it.
+Nerve work reaches `main` through a pull request. The refinery is stopped and its
+patrol disabled; `gt done` still submits an MR bead, and that bead is the record
+that work is waiting, not an instruction to merge it.
 
     polecat delivers branch -> mayor verifies -> mayor opens PR -> tunedev merges
 
-The mayor never runs `gh pr merge`.
+tunedev merges. The mayor merges only when tunedev asks for it in that instance,
+and never on its own judgement that a PR looks ready — a green PR is not consent.
+Nothing else merges: not the refinery, not a patrol, not an agent deciding the
+queue has waited long enough.
+
+The gate is human review, not the identity of whoever types the command. When
+tunedev delegates a merge, that review has happened; when it has not, no amount of
+green CI substitutes for it.
 
 This covers nerve only. Fixes to gastown and beads keep the direct-commit flow,
 because they unblock the town that reviews this.
