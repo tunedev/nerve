@@ -159,7 +159,13 @@ func (b *bus) work(t *testing.T) {
 func (b *bus) upload(t *testing.T, name, content string) {
 	t.Helper()
 
-	if _, err := b.resources.Create(t.Context(), here, name, "text/plain"); err != nil {
+	b.uploadAs(t, name, "text/plain", content)
+}
+
+func (b *bus) uploadAs(t *testing.T, name, contentType, content string) {
+	t.Helper()
+
+	if _, err := b.resources.Create(t.Context(), here, name, contentType); err != nil {
 		t.Fatalf("Create(%q): %v", name, err)
 	}
 	if _, err := b.resources.Upload(t.Context(), here, name, strings.NewReader(content)); err != nil {
@@ -387,4 +393,16 @@ func TestNothingIsRecordedForAChangeThatIsNotADocumentArriving(t *testing.T) {
 	if got := b.indexing(t, "transcript.txt"); got.Status != ingest.Pending {
 		t.Errorf("indexing of a resource still arriving = %+v, want it pending", got)
 	}
+}
+
+// derived is the sidecar a stage left beside a resource, which is where the
+// work a run did is visible from outside it.
+func (b *bus) derived(t *testing.T, name, kind string) string {
+	t.Helper()
+
+	got, err := b.resources.Derived(t.Context(), here, name, kind)
+	if err != nil {
+		t.Fatalf("Derived(%q, %q): %v", name, kind, err)
+	}
+	return string(got)
 }
