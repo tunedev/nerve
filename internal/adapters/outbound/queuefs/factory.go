@@ -75,7 +75,7 @@ func Factory(settings map[string]string) (vfs.FileSystem, error) {
 		journal.Close()
 		return nil, fmt.Errorf("kind %q: %w", Kind, err)
 	}
-	return New(name, journal, NewRelay(journal, broker, batch)), nil
+	return holding(New(name, journal, NewRelay(journal, broker, batch)), journal, broker), nil
 }
 
 // batchSetting is how many messages one pass of the relay carries. It is
