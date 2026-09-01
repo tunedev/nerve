@@ -88,35 +88,34 @@ func (v *Versioner) Commit(ctx context.Context, ref, message string) (ID, error)
 
 	stood, err := v.work.Base(ctx)
 	if err != nil {
-		return "", err
+		return ID{}, err
 	}
 	committed, err := v.entries(ctx, stood)
 	if err != nil {
-		return "", err
+		return ID{}, err
 	}
 	working, err := v.stored(ctx)
 	if err != nil {
-		return "", err
+		return ID{}, err
 	}
 
 	id := stood
 	if len(changes(committed, working)) > 0 {
 		data, err := manifest{Parent: stood, Message: message, Time: v.now(), Entries: working}.encode()
 		if err != nil {
-			return "", err
+			return ID{}, err
 		}
-		digest, err := v.objects.Put(ctx, data)
+		id, err = v.objects.Put(ctx, data)
 		if err != nil {
-			return "", fmt.Errorf("commit to %q: %w", ref, err)
+			return ID{}, fmt.Errorf("commit to %q: %w", ref, err)
 		}
-		id = ID(digest.String())
 	}
 
 	if err := v.point(ctx, ref, stood, id); err != nil {
-		return "", err
+		return ID{}, err
 	}
 	if err := v.work.SetBase(ctx, id); err != nil {
-		return "", err
+		return ID{}, err
 	}
 	return id, nil
 }
@@ -133,8 +132,8 @@ func (v *Versioner) point(ctx context.Context, ref string, stood, id ID) error {
 	if current == id {
 		return nil
 	}
-	if current == "" {
-		stood = ""
+	if current.IsZero() {
+		stood = ID{}
 	}
 	return v.refs.Set(ctx, ref, stood, id)
 }
@@ -148,7 +147,7 @@ func (v *Versioner) ListVersions(ctx context.Context, ref string) ([]Version, er
 	}
 
 	var history []Version
-	for id != "" {
+	for !id.IsZero() {
 		m, err := v.manifest(ctx, id)
 		if err != nil {
 			return nil, err
@@ -175,11 +174,7 @@ func (v *Versioner) ReadVersion(ctx context.Context, id ID, name string) ([]byte
 		return nil, fmt.Errorf("read %q at version %s: %w", want, id, fs.ErrNotExist)
 	}
 
-	digest, err := cas.ParseDigest(entries[at].Digest)
-	if err != nil {
-		return nil, fmt.Errorf("read %q at version %s: %w", want, id, err)
-	}
-	return v.objects.Get(ctx, digest)
+	return v.objects.Get(ctx, entries[at].Digest)
 }
 
 // Diff reports what would have to happen to the content of from for it to be
@@ -209,7 +204,7 @@ func (v *Versioner) Diff(ctx context.Context, from, to ID) ([]Change, error) {
 // nothing about the directories on the way, so removing them would be the
 // versioner deciding something it was never told.
 func (v *Versioner) Restore(ctx context.Context, id ID) ([]Change, error) {
-	if id == "" {
+	if id.IsZero() {
 		return nil, fmt.Errorf("restore: the zero version names nothing: %w", fs.ErrInvalid)
 	}
 
@@ -298,26 +293,18 @@ func (v *Versioner) reachable(ctx context.Context) (map[cas.Digest]struct{}, err
 
 	reachable := make(map[cas.Digest]struct{})
 	for _, id := range roots {
-		for id != "" {
-			digest, err := cas.ParseDigest(string(id))
-			if err != nil {
-				return nil, fmt.Errorf("purge: version %q: %w", id, err)
-			}
-			if _, walked := reachable[digest]; walked {
+		for !id.IsZero() {
+			if _, walked := reachable[id]; walked {
 				break
 			}
-			reachable[digest] = struct{}{}
+			reachable[id] = struct{}{}
 
 			m, err := v.manifest(ctx, id)
 			if err != nil {
 				return nil, err
 			}
 			for _, e := range m.Entries {
-				content, err := cas.ParseDigest(e.Digest)
-				if err != nil {
-					return nil, fmt.Errorf("purge: version %s at %q: %w", id, e.Path, err)
-				}
-				reachable[content] = struct{}{}
+				reachable[e.Digest] = struct{}{}
 			}
 			id = m.Parent
 		}
@@ -363,11 +350,7 @@ func (v *Versioner) apply(ctx context.Context, change Change, target []entry) er
 	if !found {
 		return fmt.Errorf("write %q: %w", change.Path, fs.ErrNotExist)
 	}
-	digest, err := cas.ParseDigest(target[at].Digest)
-	if err != nil {
-		return fmt.Errorf("write %q: %w", change.Path, err)
-	}
-	data, err := v.objects.Get(ctx, digest)
+	data, err := v.objects.Get(ctx, target[at].Digest)
 	if err != nil {
 		return fmt.Errorf("write %q: %w", change.Path, err)
 	}
@@ -380,10 +363,10 @@ func (v *Versioner) apply(ctx context.Context, change Change, target []entry) er
 func (v *Versioner) resolve(ctx context.Context, ref string) (ID, error) {
 	id, err := v.refs.Resolve(ctx, ref)
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
+		return ID{}, nil
 	}
 	if err != nil {
-		return "", err
+		return ID{}, err
 	}
 	return id, nil
 }
@@ -391,14 +374,10 @@ func (v *Versioner) resolve(ctx context.Context, ref string) (ID, error) {
 // manifest returns what id says. The zero ID says nothing, which is what makes
 // a comparison against an unset ref a comparison against an empty version.
 func (v *Versioner) manifest(ctx context.Context, id ID) (manifest, error) {
-	if id == "" {
+	if id.IsZero() {
 		return manifest{}, nil
 	}
-	digest, err := cas.ParseDigest(string(id))
-	if err != nil {
-		return manifest{}, fmt.Errorf("version %q: %w", id, err)
-	}
-	data, err := v.objects.Get(ctx, digest)
+	data, err := v.objects.Get(ctx, id)
 	if err != nil {
 		return manifest{}, fmt.Errorf("read version %s: %w", id, err)
 	}
@@ -419,7 +398,7 @@ func (v *Versioner) entries(ctx context.Context, id ID) ([]entry, error) {
 func (v *Versioner) hashed(ctx context.Context) ([]entry, error) {
 	var entries []entry
 	err := v.work.Walk(ctx, func(name string, data []byte) error {
-		entries = append(entries, entry{Path: name, Digest: cas.Compute(data).String()})
+		entries = append(entries, entry{Path: name, Digest: cas.Compute(data)})
 		return nil
 	})
 	if err != nil {
@@ -439,7 +418,7 @@ func (v *Versioner) stored(ctx context.Context) ([]entry, error) {
 		if err != nil {
 			return err
 		}
-		entries = append(entries, entry{Path: name, Digest: digest.String()})
+		entries = append(entries, entry{Path: name, Digest: digest})
 		return nil
 	})
 	if err != nil {

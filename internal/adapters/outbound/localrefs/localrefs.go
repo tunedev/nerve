@@ -16,6 +16,7 @@ import (
 	"path"
 	"sync"
 
+	"github.com/tunedev/nerve/internal/core/cas"
 	"github.com/tunedev/nerve/internal/core/version"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -37,7 +38,7 @@ func New(fsys vfs.FileSystem, root string) *Store {
 // Resolve returns the version name stands for.
 func (s *Store) Resolve(ctx context.Context, name string) (version.ID, error) {
 	if err := version.ValidateRefName(name); err != nil {
-		return "", err
+		return version.ID{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -70,7 +71,7 @@ func (s *Store) Set(ctx context.Context, name string, expected, next version.ID)
 	if err := version.ValidateRefName(name); err != nil {
 		return err
 	}
-	if next == "" {
+	if next.IsZero() {
 		return fmt.Errorf("ref %q cannot be set to no version: %w", name, fs.ErrInvalid)
 	}
 
@@ -83,7 +84,7 @@ func (s *Store) Set(ctx context.Context, name string, expected, next version.ID)
 	if err := s.fsys.Mkdir(ctx, s.root); err != nil {
 		return fmt.Errorf("make ref directory %q: %w", s.root, err)
 	}
-	if err := s.fsys.Write(ctx, s.pathOf(name), []byte(next)); err != nil {
+	if err := s.fsys.Write(ctx, s.pathOf(name), []byte(next.String())); err != nil {
 		return fmt.Errorf("set ref %q: %w", name, err)
 	}
 	return nil
@@ -117,19 +118,27 @@ func (s *Store) expect(ctx context.Context, name string, want version.ID) error 
 		return err
 	}
 	if current != want {
-		return fmt.Errorf("ref %q stands for %q, not %q: %w", name, current, want, version.ErrConflict)
+		return fmt.Errorf("ref %q stands for %s, not %s: %w", name, current, want, version.ErrConflict)
 	}
 	return nil
 }
 
 // read returns what name stands for, and fs.ErrNotExist with the zero ID when
 // it stands for nothing.
+//
+// What was written is parsed rather than carried on as text, so a ref file
+// holding something that was never a version fails here — where the bad value
+// is — instead of when someone reads the version it claims to name.
 func (s *Store) read(ctx context.Context, name string) (version.ID, error) {
 	data, err := s.fsys.Read(ctx, s.pathOf(name))
 	if err != nil {
-		return "", fmt.Errorf("read ref %q: %w", name, err)
+		return version.ID{}, fmt.Errorf("read ref %q: %w", name, err)
 	}
-	return version.ID(data), nil
+	id, err := cas.ParseDigest(string(data))
+	if err != nil {
+		return version.ID{}, fmt.Errorf("read ref %q: %w", name, err)
+	}
+	return id, nil
 }
 
 func (s *Store) pathOf(name string) string { return path.Join(s.root, name) }

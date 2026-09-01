@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"path"
 
+	"github.com/tunedev/nerve/internal/core/cas"
 	"github.com/tunedev/nerve/internal/core/version"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -62,16 +63,25 @@ func (c *Copy) Remove(ctx context.Context, name string) error {
 }
 
 // Base returns the version the copy was taken from. A copy that has never been
-// put anywhere stands nowhere, which is the zero ID rather than an error.
+// put anywhere stands nowhere, which is the zero ID rather than an error, and
+// so is one whose state file records the zero ID's empty spelling.
+//
+// What was written is parsed rather than carried on as text, so a state file
+// holding something that was never a version fails here instead of when a
+// commit or a sweep reads the version it claims to stand at.
 func (c *Copy) Base(ctx context.Context) (version.ID, error) {
 	data, err := c.fsys.Read(ctx, c.state)
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
+		return version.ID{}, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("read where %q stands: %w", c.root, err)
+		return version.ID{}, fmt.Errorf("read where %q stands: %w", c.root, err)
 	}
-	return version.ID(data), nil
+	id, err := cas.ParseDigest(string(data))
+	if err != nil {
+		return version.ID{}, fmt.Errorf("read where %q stands: %w", c.root, err)
+	}
+	return id, nil
 }
 
 // SetBase records that the copy now stands at id.
@@ -79,7 +89,7 @@ func (c *Copy) SetBase(ctx context.Context, id version.ID) error {
 	if err := c.fsys.Mkdir(ctx, path.Dir(c.state)); err != nil {
 		return fmt.Errorf("record where %q stands: %w", c.root, err)
 	}
-	if err := c.fsys.Write(ctx, c.state, []byte(id)); err != nil {
+	if err := c.fsys.Write(ctx, c.state, []byte(id.String())); err != nil {
 		return fmt.Errorf("record where %q stands: %w", c.root, err)
 	}
 	return nil

@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"io/fs"
 	"time"
+
+	"github.com/tunedev/nerve/internal/core/cas"
 )
 
 // entry is one path in a version and the object holding what was there. The
-// digest is kept as its spelling rather than as a cas.Digest, because a version
-// is a record that outlives the build that wrote it and text is what a later
-// one can still read.
+// digest is recorded as its spelling, because a version outlives the build that
+// wrote it and text is what a later one can still read; it is a cas.Digest in
+// memory, so the spelling is checked where the record is decoded and every
+// reader after that holds a digest rather than a hope.
 type entry struct {
-	Path   string `json:"path"`
-	Digest string `json:"digest"`
+	Path   string     `json:"path"`
+	Digest cas.Digest `json:"digest"`
 }
 
 // manifest is what a version is: the version it followed, why it was made,
@@ -25,7 +28,7 @@ type entry struct {
 // message and same instant is one version, and identical content under two
 // paths is one object however many versions name it.
 type manifest struct {
-	Parent  ID        `json:"parent,omitempty"`
+	Parent  ID        `json:"parent,omitzero"`
 	Message string    `json:"message,omitempty"`
 	Time    time.Time `json:"time"`
 	Entries []entry   `json:"entries"`

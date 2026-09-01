@@ -137,7 +137,7 @@ func (s *Store) stored(ctx context.Context, name string) (bool, error) {
 // no path: it names nothing, and it reaches here from a caller that read an
 // error from ParseDigest and carried on.
 func (s *Store) path(digest Digest) (string, error) {
-	if digest == (Digest{}) {
+	if digest.IsZero() {
 		return "", fmt.Errorf("cas: the zero digest names nothing: %w", fs.ErrInvalid)
 	}
 	return path.Join(s.root, digest.algorithm, digest.hex[:2], digest.hex[2:]), nil
