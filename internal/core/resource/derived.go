@@ -103,3 +103,33 @@ func (st *Store) sidecar(s workspace.Scope, name, kind string) (string, error) {
 	}
 	return path.Join(dir, kind), nil
 }
+
+// Derivations lists the sidecars standing beside the resource named name in s,
+// by kind and sorted by name, leaving out the two files the resource itself is
+// made of.
+//
+// It is one listing rather than a read of each kind a caller might want: a
+// caller deciding what to read should not pay for every answer to find out
+// which ones exist, and a mount that may be remote should not be asked once per
+// kind.
+//
+// A resource that is not there reports fs.ErrNotExist. One whose ingestion has
+// not run has no sidecars, which is an empty list rather than a refusal.
+func (st *Store) Derivations(ctx context.Context, s workspace.Scope, name string) ([]string, error) {
+	dir, err := st.dir(s, name)
+	if err != nil {
+		return nil, fmt.Errorf("list derivations of resource: %w", err)
+	}
+	entries, err := st.fsys.ReadDir(ctx, dir)
+	if err != nil {
+		return nil, fmt.Errorf("list derivations of resource %q: %w", name, err)
+	}
+
+	kinds := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Name != metaFile && entry.Name != contentFile {
+			kinds = append(kinds, entry.Name)
+		}
+	}
+	return kinds, nil
+}
