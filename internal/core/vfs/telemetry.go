@@ -257,3 +257,33 @@ func (s telemeteredStreamer) OpenWrite(ctx context.Context, path string) (io.Wri
 	done(err)
 	return stream, err
 }
+
+// Recorders reports every call to each of recorders, which is how one process
+// both exports a call and counts it without a second wrapper on the way to
+// every plugin. The registry holds one recorder, and this is the one it holds
+// when there is more than one thing to tell.
+//
+// The context threads through them in order, so a recorder that opens a span
+// hands that span to the recorders after it and to the call itself. Their Done
+// functions run in reverse, so what one recorder began inside another ends
+// inside it too.
+func Recorders(recorders ...Recorder) Recorder { return fanout(recorders) }
+
+// fanout is a recorder over recorders. It is a slice rather than a type with
+// two fields because the composition is the same for two as for any number.
+type fanout []Recorder
+
+// Begin starts the call on every recorder and returns the context the last of
+// them made, which carries whatever the ones before it put there.
+func (f fanout) Begin(ctx context.Context, call Call) (context.Context, Done) {
+	ends := make([]Done, len(f))
+	for i, recorder := range f {
+		ctx, ends[i] = recorder.Begin(ctx, call)
+	}
+
+	return ctx, func(err error) {
+		for i := len(ends) - 1; i >= 0; i-- {
+			ends[i](err)
+		}
+	}
+}

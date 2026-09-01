@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/kvfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termmatch"
@@ -32,7 +33,7 @@ func wire(t *testing.T, body string) *library.Catalog {
 	}
 
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), cfg.RetryPolicy(), cfg.BreakerPolicy())
-	if err := registerKinds(registry, "test", kvfs.NewMemStore()); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
 		t.Fatalf("registerKinds: %v", err)
 	}
 	table, err := registry.Table(cfg.MountSpecs())

@@ -84,6 +84,12 @@ func main() {
 	// The keyspace every kvfs mount is a part of is built before the table that
 	// mounts over it, because a store two mounts share is the composition
 	// root's to own rather than a mount's to build.
+	//
+	// The tally counts what every mount is asked for and is read back through
+	// the tree, so per-mount accounting is answerable on a laptop with no
+	// collector running. It is a second recorder rather than a second wrapper:
+	// the report a call already makes is what both of them read.
+	traffic := vfs.NewTraffic(time.Now)
 	retry := cfg.RetryPolicy()
 	breaker := cfg.BreakerPolicy()
 	store, err := keyspace(cfg.KVStoreURL)
@@ -91,9 +97,9 @@ func main() {
 		fail(err)
 	}
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), retry, breaker)
-	registry.Record(signals.Recorder)
+	registry.Record(vfs.Recorders(signals.Recorder, traffic))
 	registry.ReadAhead(cfg.ReadaheadBytes())
-	if err := registerKinds(registry, version, store); err != nil {
+	if err := registerKinds(registry, version, store, traffic); err != nil {
 		fail(err)
 	}
 

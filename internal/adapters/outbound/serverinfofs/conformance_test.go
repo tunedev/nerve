@@ -11,6 +11,6 @@ import (
 
 func TestConformance(t *testing.T) {
 	vfstest.Run(t, vfstest.Plugin{
-		New: func(*testing.T) vfs.FileSystem { return serverinfofs.New("test", time.Now) },
+		New: func(*testing.T) vfs.FileSystem { return serverinfofs.New("test", time.Now, vfs.NewTraffic(time.Now)) },
 	})
 }

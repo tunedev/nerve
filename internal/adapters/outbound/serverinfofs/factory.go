@@ -14,16 +14,17 @@ import (
 // Kind is the name a mount config uses to ask the process about itself.
 const Kind = "serverinfofs"
 
-// Factory builds mounts describing this process, built at version. The version
-// is a parameter rather than a setting because it is the binary's, not the
-// operator's: a build that let a config say which version it was would be a
-// build that could lie about itself.
-func Factory(version string) vfs.Factory {
+// Factory builds mounts describing this process, built at version, reading the
+// counters traffic keeps. Both are parameters rather than settings because
+// both are the process's, not the operator's: a build that let a config say
+// which version it was would be a build that could lie about itself, and a
+// tally a config could name would be a tally of something else.
+func Factory(version string, traffic *vfs.Traffic) vfs.Factory {
 	return func(settings map[string]string) (vfs.FileSystem, error) {
 		if len(settings) > 0 {
 			named := slices.Sorted(maps.Keys(settings))
 			return nil, fmt.Errorf("kind %q takes no settings, and was given %s: %w", Kind, strings.Join(named, ", "), fs.ErrInvalid)
 		}
-		return New(version, time.Now), nil
+		return New(version, time.Now, traffic), nil
 	}
 }
