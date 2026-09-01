@@ -36,10 +36,12 @@ import (
 // its endpoint, its bucket and its region, and by saying nothing about the two
 // credentials beside them makes them read back as redacted.
 //
-// kvfs is given the one keyspace this build has, built here, because every kvfs
-// mount is a namespaced part of a store rather than a store of its own. That is
-// what makes the namespace mean anything, and the composition root is where a
-// thing two mounts share is owned.
+// kvfs is given the one keyspace this build has, because every kvfs mount is a
+// namespaced part of a store rather than a store of its own. That is what makes
+// the namespace mean anything, and the composition root is where a thing two
+// mounts share is owned — which is also why the keyspace arrives here already
+// built: whether it is a map or a bucket is what config says, and this table
+// does not read config.
 //
 // serverinfofs is given the version this binary was built at, for the reason
 // kvfs is given the store: a mount that let a config name its own version could
@@ -59,11 +61,11 @@ import (
 // once — by the Build that puts the proxy itself into the table. exportfs is
 // given it for the same reason: the kind holding an export's inputs is a kind
 // like any other, and the export mount over it is what goes into the table.
-func registerKinds(registry *vfs.Registry, version string) error {
+func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store) error {
 	return errors.Join(
 		registry.Register(memfs.Kind, memfs.Factory),
 		registry.Register(localfs.Kind, localfs.Factory, localfs.RootSetting),
-		registry.Register(kvfs.Kind, kvfs.Factory(kvfs.NewMemStore()), kvfs.NamespaceSetting),
+		registry.Register(kvfs.Kind, kvfs.Factory(keyspace), kvfs.NamespaceSetting),
 		registry.Register(objectfs.Kind, objectfs.Factory, objectfs.Public...),
 		registry.Register(queuefs.Kind, queuefs.Factory, queuefs.Public...),
 		registry.Register(sqlfs.Kind, sqlfs.Factory, sqlfs.PathSetting),

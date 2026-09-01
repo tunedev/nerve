@@ -23,9 +23,13 @@ const (
 	settingRegion   = "region"
 	settingKeyID    = "access_key_id"
 	settingSecret   = "secret_access_key"
-
-	defaultRegion = "us-east-1"
 )
+
+// DefaultRegion is what a bucket is signed for when nothing names a region. It
+// is exported because a mount is not the only way a bucket is reached: the
+// composition root builds one from a URL, and two spellings of the fallback
+// would sign two ways.
+const DefaultRegion = "us-east-1"
 
 // Public names the settings safe to read back to an operator. The two
 // credentials are not among them, so `GET /config` shows that a mount carries
@@ -54,7 +58,7 @@ func Factory(settings map[string]string) (vfs.FileSystem, error) {
 		Secret:   settings[settingSecret],
 	}
 	if cfg.Region == "" {
-		cfg.Region = defaultRegion
+		cfg.Region = DefaultRegion
 	}
 	if missing := missingSettings(settings); len(missing) > 0 {
 		return nil, fmt.Errorf("kind %q needs %s: %w", Kind, strings.Join(missing, ", "), fs.ErrInvalid)

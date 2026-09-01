@@ -202,3 +202,21 @@ func declaring(kind string, keys ...string) config.PublicSettings {
 		return keys
 	}
 }
+
+// The keyspace's URL carries the store's secret, and an operator reading the
+// config back has to be able to see which bucket a keyspace is in without the
+// answer handing out the credential that reaches it.
+func TestEffectiveRedactsTheStoreSecret(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.KVStoreURL = "https://AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMI@objects.example.com/nerve?region=eu-west-1"
+
+	got := settingValue(t, cfg.Effective(nil), "kv-store-url")
+	if strings.Contains(got, "wJalrXUtnFEMI") {
+		t.Errorf("kv-store-url = %q, still carries the secret", got)
+	}
+	for _, part := range []string{"objects.example.com", "/nerve", "region=eu-west-1"} {
+		if !strings.Contains(got, part) {
+			t.Errorf("kv-store-url = %q, want it to still name %q", got, part)
+		}
+	}
+}

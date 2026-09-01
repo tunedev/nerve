@@ -161,6 +161,16 @@ those, since a call that took three seconds across three attempts is not three f
 The outcome label is the class the retry policy already sorted the error into, so a mount
 that is failing says whether another attempt would have helped.
 
+`kv-store-url` is the keyspace every `kvfs` mount is a namespaced part of. It is one
+setting rather than five because it is one connection: a mount names which part of the
+keyspace it holds, and the store behind it belongs to the process, so a bucket named per
+mount would give every mount its own client and its own credentials. The value is the
+bucket's own URL, addressed path-style — `http://key:secret@localhost:9000/nerve?region=us-east-1`
+— which is the shape `postgres-dsn` and `rabbitmq-url` already have, and the reason the
+secret is redacted everywhere the setting is read back. It is empty by default and empty
+means the keyspace is in memory, which is the laptop with no bucket; a value written
+through a mount over one survives the process that wrote it.
+
 `telemetry-endpoint` is where that goes: an OTLP collector URL, `http://` for plaintext and
 `https://` for TLS, as the OTLP exporters read the standard variable. It is empty by
 default and empty means nothing is exported — the recorder still runs, into providers that

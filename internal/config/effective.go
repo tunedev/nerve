@@ -45,7 +45,7 @@ const redacted = "xxxxx"
 func (c Config) Effective(public PublicSettings) Effective {
 	settings := make([]Setting, len(fields))
 	for i, f := range fields {
-		settings[i] = Setting{Name: f.name, Value: redact(*f.of(&c))}
+		settings[i] = Setting{Name: f.name, Value: Redact(*f.of(&c))}
 	}
 
 	mounts := make([]Mount, len(c.Mounts))
@@ -59,10 +59,15 @@ func (c Config) Effective(public PublicSettings) Effective {
 	return Effective{Settings: settings, Mounts: mounts, Libraries: slices.Clone(c.Libraries)}
 }
 
-// redact replaces the password inside a URL and returns anything else as
+// Redact replaces the password inside a URL and returns anything else as
 // written. It is what an echoed value still gets: a setting a kind declares
 // safe can still be written as a connection string with a password in it.
-func redact(value string) string {
+//
+// It is exported because the operator surface is not the only place a resolved
+// setting is read back. The composition root says at boot what it booted on,
+// and a second spelling of what a credential looks like is how one of them
+// ends up wrong.
+func Redact(value string) string {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.User == nil {
 		return value
@@ -89,7 +94,7 @@ func echo(m Mount, public PublicSettings) map[string]string {
 	out := make(map[string]string, len(m.Settings))
 	for name, value := range m.Settings {
 		if slices.Contains(declared, name) {
-			out[name] = redact(value)
+			out[name] = Redact(value)
 			continue
 		}
 		out[name] = redacted
