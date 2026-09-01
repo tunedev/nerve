@@ -55,6 +55,16 @@ type Config struct {
 	RabbitMQURL string `json:"rabbitmq-url"`
 	OllamaURL   string `json:"ollama-url"`
 
+	// KVStoreURL is the keyspace every kvfs mount is a namespaced part of. It
+	// is one URL rather than five settings because a keyspace is shared: a
+	// mount names which part of it it holds, and the store behind it belongs to
+	// the process. Path-style addressing makes the value the bucket's own URL —
+	// credentials as userinfo, the bucket as the path, the signing region as a
+	// query — so the same redaction postgres-dsn gets covers the secret here.
+	// Empty is the keyspace in memory, which is what a laptop with no bucket
+	// wants.
+	KVStoreURL string `json:"kv-store-url"`
+
 	// AdminAddr is where the operator surface listens. It defaults to the
 	// loopback interface because what it answers with — endpoints, hosts, the
 	// shape of the mount table — is for whoever is on the box.
@@ -217,6 +227,7 @@ var fields = []field{
 	{"postgres-dsn", "Postgres connection string", func(c *Config) *string { return &c.PostgresDSN }},
 	{"rabbitmq-url", "RabbitMQ connection URL", func(c *Config) *string { return &c.RabbitMQURL }},
 	{"ollama-url", "Ollama base URL", func(c *Config) *string { return &c.OllamaURL }},
+	{"kv-store-url", "bucket URL holding the keyspace kvfs mounts share; empty keeps it in memory", func(c *Config) *string { return &c.KVStoreURL }},
 	{"admin-addr", "host:port for the operator surface", func(c *Config) *string { return &c.AdminAddr }},
 }
 

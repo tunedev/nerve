@@ -172,3 +172,52 @@ func TestValidateReportsEveryProblem(t *testing.T) {
 		}
 	}
 }
+
+// The keyspace kvfs mounts share is one URL because it is one connection, and
+// it is optional because a laptop with no bucket keeps the keyspace in memory.
+// A default that named a bucket would make a durable store the thing you have
+// to turn off.
+func TestKVStoreURLIsUnsetByDefault(t *testing.T) {
+	cfg, err := config.Load(config.Sources{})
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	if cfg.KVStoreURL != "" {
+		t.Errorf("kv-store-url = %q, want it unset", cfg.KVStoreURL)
+	}
+}
+
+// The URL is the bucket's own address path-style, so what makes it usable is
+// what the boot refuses: a store nothing can be signed for, a path that is not
+// one bucket, and no bucket at all.
+func TestValidateRefusesAStoreURLThatIsNotOneBucket(t *testing.T) {
+	for name, url := range map[string]string{
+		"noBucket":      "http://nerve:nervenerve@127.0.0.1:9000",
+		"deeperPath":    "http://nerve:nervenerve@127.0.0.1:9000/nerve/sessions",
+		"noCredentials": "http://127.0.0.1:9000/nerve",
+		"noSecret":      "http://nerve@127.0.0.1:9000/nerve",
+		"noHost":        "http:///nerve",
+		"wrongScheme":   "s3://nerve:nervenerve@127.0.0.1:9000/nerve",
+	} {
+		cfg := config.Defaults()
+		cfg.KVStoreURL = url
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("%s: Validate(%q) = nil, want an error", name, url)
+		}
+	}
+}
+
+// A bucket an operator can reach is one the boot accepts, with or without the
+// region a signature is made for.
+func TestValidateAcceptsABucketURL(t *testing.T) {
+	for _, url := range []string{
+		"http://nerve:nervenerve@127.0.0.1:9000/nerve",
+		"https://AKIA:wJalrXUt@objects.example.com/nerve?region=eu-west-1",
+	} {
+		cfg := config.Defaults()
+		cfg.KVStoreURL = url
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate(%q) = %v", url, err)
+		}
+	}
+}

@@ -38,6 +38,7 @@ func (c Config) Validate() error {
 		reachable("postgres-dsn", c.PostgresDSN, "postgres", "postgresql"),
 		reachable("rabbitmq-url", c.RabbitMQURL, "amqp", "amqps"),
 		reachable("ollama-url", c.OllamaURL, "http", "https"),
+		optional("kv-store-url", c.KVStoreURL, bucketURL),
 		listenable("admin-addr", c.AdminAddr),
 	)
 }
@@ -120,15 +121,51 @@ func optional(name, value string, check func(string, string, ...string) error, a
 // is what every client here needs to dial. Whether the far end answers is not a
 // config question.
 func reachable(name, value string, schemes ...string) error {
+	_, err := reachableURL(name, value, schemes...)
+	return err
+}
+
+// reachableURL is reachable's check with the parsed URL handed back, for a
+// check that has more to say about the rest of it.
+func reachableURL(name, value string, schemes ...string) (*url.URL, error) {
 	parsed, err := url.Parse(value)
 	if err != nil {
-		return fmt.Errorf("%s is not a URL: %w", name, err)
+		return nil, fmt.Errorf("%s is not a URL: %w", name, err)
 	}
 	if !slices.Contains(schemes, parsed.Scheme) {
-		return fmt.Errorf("%s has scheme %q, want %s", name, parsed.Scheme, strings.Join(schemes, " or "))
+		return nil, fmt.Errorf("%s has scheme %q, want %s", name, parsed.Scheme, strings.Join(schemes, " or "))
 	}
 	if parsed.Host == "" {
-		return fmt.Errorf("%s names no host", name)
+		return nil, fmt.Errorf("%s names no host", name)
+	}
+	return parsed, nil
+}
+
+// bucketURL accepts the URL of one bucket, addressed path-style: a scheme a
+// store answers on, a host, a path naming the bucket and nothing else, and the
+// two credentials as userinfo. A deeper path is refused rather than read as a
+// prefix inside the bucket, since a keyspace an operator thought was scoped and
+// is not is found as keys under the wrong name.
+//
+// The credentials are required here rather than where they are signed with, so
+// that a URL missing them is reported beside everything else wrong with the
+// config instead of one restart later.
+func bucketURL(name, value string, _ ...string) error {
+	parsed, err := reachableURL(name, value, "http", "https")
+	if err != nil {
+		return err
+	}
+
+	switch bucket := strings.Trim(parsed.Path, "/"); {
+	case bucket == "":
+		return fmt.Errorf("%s names no bucket; its path is the bucket", name)
+	case strings.Contains(bucket, "/"):
+		return fmt.Errorf("%s has path %q, want one bucket name", name, parsed.Path)
+	}
+
+	secret, given := parsed.User.Password()
+	if parsed.User.Username() == "" || !given || secret == "" {
+		return fmt.Errorf("%s carries no credentials; write them as key:secret@ before the host", name)
 	}
 	return nil
 }

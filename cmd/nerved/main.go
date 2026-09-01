@@ -80,12 +80,20 @@ func main() {
 	// breaker that stops calling it when they do not stop, and how far in front
 	// of a caller its streaming reads are fetched: a mount may be remote, and no
 	// caller of the tree can tell.
+	//
+	// The keyspace every kvfs mount is a part of is built before the table that
+	// mounts over it, because a store two mounts share is the composition
+	// root's to own rather than a mount's to build.
 	retry := cfg.RetryPolicy()
 	breaker := cfg.BreakerPolicy()
+	store, err := keyspace(cfg.KVStoreURL)
+	if err != nil {
+		fail(err)
+	}
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), retry, breaker)
 	registry.Record(signals.Recorder)
 	registry.ReadAhead(cfg.ReadaheadBytes())
-	if err := registerKinds(registry, version); err != nil {
+	if err := registerKinds(registry, version, store); err != nil {
 		fail(err)
 	}
 
@@ -130,7 +138,8 @@ func main() {
 		"breaker-threshold", breaker.Threshold,
 		"breaker-cooldown", breaker.Cooldown,
 		"readahead-window", cfg.ReadaheadBytes(),
-		"telemetry-endpoint", cfg.TelemetryEndpoint)
+		"telemetry-endpoint", cfg.TelemetryEndpoint,
+		"kv-store-url", config.Redact(cfg.KVStoreURL))
 	for _, spec := range mounts {
 		slog.Info("mount", "prefix", spec.Prefix, "kind", spec.Kind, "caps", table.Capabilities(spec.Prefix))
 	}
