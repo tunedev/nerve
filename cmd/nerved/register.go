@@ -43,9 +43,10 @@ import (
 // built: whether it is a map or a bucket is what config says, and this table
 // does not read config.
 //
-// serverinfofs is given the version this binary was built at, for the reason
-// kvfs is given the store: a mount that let a config name its own version could
-// lie about which build an agent is talking to.
+// serverinfofs is given the version this binary was built at and the tally the
+// registry counts through, for the reason kvfs is given the store: a mount that
+// let a config name its own version could lie about which build an agent is
+// talking to, and the counters it reads back are the process's own.
 //
 // streamfs and streamrotatefs each name how much of a log they hold: the first
 // its ring capacity and how long a reader follows, the second its segment size
@@ -61,7 +62,7 @@ import (
 // once — by the Build that puts the proxy itself into the table. exportfs is
 // given it for the same reason: the kind holding an export's inputs is a kind
 // like any other, and the export mount over it is what goes into the table.
-func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store) error {
+func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store, traffic *vfs.Traffic) error {
 	return errors.Join(
 		registry.Register(memfs.Kind, memfs.Factory),
 		registry.Register(localfs.Kind, localfs.Factory, localfs.RootSetting),
@@ -73,7 +74,7 @@ func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store) 
 		registry.Register(streamrotatefs.Kind, streamrotatefs.Factory, streamrotatefs.Public...),
 		registry.Register(hellofs.Kind, hellofs.Factory, hellofs.MessageSetting),
 		registry.Register(heartbeatfs.Kind, heartbeatfs.Factory, heartbeatfs.IntervalSetting),
-		registry.Register(serverinfofs.Kind, serverinfofs.Factory(version)),
+		registry.Register(serverinfofs.Kind, serverinfofs.Factory(version, traffic)),
 		registry.Register(devfs.Kind, devfs.Factory, devfs.SizeSetting),
 		registry.Register(httpfs.Kind, httpfs.Factory, httpfs.Public...),
 		registry.Register(proxyfs.Kind, proxyfs.Factory(registry.Plugin), proxyfs.Public...),

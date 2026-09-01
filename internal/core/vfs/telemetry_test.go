@@ -290,3 +290,74 @@ func TestTheRecordedVerbsAreTheOutboundOnes(t *testing.T) {
 		t.Errorf("verbs driven = %v, want the port's %v", driven, sending)
 	}
 }
+
+// A process that exports its calls and counts them holds two recorders behind
+// the one the registry has, and both have to be told.
+func TestRecordersTellEveryRecorder(t *testing.T) {
+	t.Parallel()
+
+	first, second := &spy{}, &spy{}
+	_, done := vfs.Recorders(first, second).Begin(t.Context(), vfs.Call{Mount: "/local", Kind: "localfs", Verb: "Read"})
+	done(fs.ErrNotExist)
+
+	for name, recorder := range map[string]*spy{"first": first, "second": second} {
+		seen := recorder.seen()
+		if len(seen) != 1 {
+			t.Fatalf("%s recorder saw %d calls, want 1", name, len(seen))
+		}
+		if !seen[0].ended || !errors.Is(seen[0].err, fs.ErrNotExist) {
+			t.Errorf("%s recorder saw %+v, want the call ended with fs.ErrNotExist", name, seen[0])
+		}
+	}
+}
+
+// What a recorder puts on the context has to reach the recorders after it and
+// the plugin under them, or a recorder beside a tracing one runs outside the
+// span it should be inside.
+func TestRecordersThreadTheContextThrough(t *testing.T) {
+	t.Parallel()
+
+	var carried bool
+	second := recorderFunc(func(ctx context.Context, _ vfs.Call) (context.Context, vfs.Done) {
+		carried = ctx.Value(spyKey{}) != nil
+		return ctx, func(error) {}
+	})
+
+	ctx, done := vfs.Recorders(&spy{}, second).Begin(t.Context(), vfs.Call{Mount: "/local", Kind: "localfs", Verb: "Read"})
+	done(nil)
+
+	if !carried {
+		t.Error("the second recorder began on a context without what the first put there")
+	}
+	if ctx.Value(spyKey{}) == nil {
+		t.Error("the call runs on a context without what the recorders put there")
+	}
+}
+
+// A recorder that began inside another ends inside it, which is what keeps a
+// span opened by one from outliving the span it was opened in.
+func TestRecordersEndInReverse(t *testing.T) {
+	t.Parallel()
+
+	var ended []string
+	ending := func(name string) recorderFunc {
+		return func(ctx context.Context, _ vfs.Call) (context.Context, vfs.Done) {
+			return ctx, func(error) { ended = append(ended, name) }
+		}
+	}
+
+	_, done := vfs.Recorders(ending("first"), ending("second")).Begin(t.Context(), vfs.Call{Mount: "/local"})
+	done(nil)
+
+	if want := []string{"second", "first"}; !slices.Equal(ended, want) {
+		t.Errorf("recorders ended %v, want %v", ended, want)
+	}
+}
+
+// recorderFunc is a Recorder that is one function, for a test that cares only
+// about what Begin does.
+type recorderFunc func(context.Context, vfs.Call) (context.Context, vfs.Done)
+
+func (f recorderFunc) Begin(ctx context.Context, call vfs.Call) (context.Context, vfs.Done) {
+	return f(ctx, call)
+}
