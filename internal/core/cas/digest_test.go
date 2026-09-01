@@ -2,6 +2,7 @@ package cas_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"strings"
@@ -101,5 +102,53 @@ func TestComputeFromReportsWhatTheReaderFailedWith(t *testing.T) {
 
 	if _, err := cas.ComputeFrom(iotest.ErrReader(broken)); !errors.Is(err, broken) {
 		t.Errorf("ComputeFrom over a failing reader = %v, want %v", err, broken)
+	}
+}
+
+// The zero digest names nothing, and nothing is what it spells. A record that
+// says nothing reads back as the zero digest rather than as an error, which is
+// what lets a ref or a working copy be put back to standing nowhere.
+func TestTheZeroDigestSpellsItselfAsNothing(t *testing.T) {
+	var zero cas.Digest
+
+	if !zero.IsZero() {
+		t.Error("the zero digest does not report itself as zero")
+	}
+	if got := zero.String(); got != "" {
+		t.Errorf("the zero digest spells itself %q, want nothing", got)
+	}
+
+	got, err := cas.ParseDigest("")
+	if err != nil {
+		t.Fatalf("ParseDigest(\"\") = %v", err)
+	}
+	if !got.IsZero() {
+		t.Errorf("ParseDigest(\"\") = %s, want the zero digest", got)
+	}
+}
+
+// A digest in a record is text, and reading one back is where a spelling that
+// was never a digest is refused — before anything holds it as one.
+func TestDigestRoundTripsThroughARecord(t *testing.T) {
+	want := cas.Compute([]byte("what a version records"))
+
+	record, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", want, err)
+	}
+	if string(record) != `"`+want.String()+`"` {
+		t.Errorf("recorded as %s, want the spelling", record)
+	}
+
+	var got cas.Digest
+	if err := json.Unmarshal(record, &got); err != nil {
+		t.Fatalf("unmarshal %s: %v", record, err)
+	}
+	if got != want {
+		t.Errorf("read back %s, want %s", got, want)
+	}
+
+	if err := json.Unmarshal([]byte(`"not a digest"`), &got); !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("reading back what is not a digest = %v, want fs.ErrInvalid", err)
 	}
 }

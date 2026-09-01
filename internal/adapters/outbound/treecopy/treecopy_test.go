@@ -2,11 +2,15 @@ package treecopy_test
 
 import (
 	"context"
+	"errors"
+	"io/fs"
+	"path"
 	"slices"
 	"testing"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/treecopy"
+	"github.com/tunedev/nerve/internal/core/cas"
 	"github.com/tunedev/nerve/internal/core/version"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -19,6 +23,10 @@ const (
 // A copy over a mounted tree answers the port a versioner holds, which is the
 // only reason it can be versioned at all.
 var _ version.WorkingCopy = treecopy.New(memfs.New(), root, state)
+
+// stands is a version the copy can be put at: a digest of something, rather
+// than a string that was never one.
+var stands = cas.Compute([]byte("a version"))
 
 func newCopy(t *testing.T) (vfs.FileSystem, *treecopy.Copy) {
 	t.Helper()
@@ -51,8 +59,8 @@ func TestACopyThatHasNeverBeenPutAnywhereStandsNowhere(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Base of a fresh copy: %v", err)
 	}
-	if stood != "" {
-		t.Errorf("a fresh copy stands at %q, want the zero ID", stood)
+	if !stood.IsZero() {
+		t.Errorf("a fresh copy stands at %s, want the zero ID", stood)
 	}
 }
 
@@ -60,15 +68,15 @@ func TestWhereACopyStandsSurvivesBeingRead(t *testing.T) {
 	ctx := context.Background()
 	_, copy := newCopy(t)
 
-	if err := copy.SetBase(ctx, "sha256:abc"); err != nil {
+	if err := copy.SetBase(ctx, stands); err != nil {
 		t.Fatalf("SetBase: %v", err)
 	}
 	stood, err := copy.Base(ctx)
 	if err != nil {
 		t.Fatalf("Base: %v", err)
 	}
-	if stood != "sha256:abc" {
-		t.Errorf("the copy stands at %q, want the version it was put at", stood)
+	if stood != stands {
+		t.Errorf("the copy stands at %s, want the version it was put at", stood)
 	}
 }
 
@@ -82,7 +90,7 @@ func TestWhereACopyStandsIsNotContentOfIt(t *testing.T) {
 	if err := copy.Write(ctx, "a.md", []byte("the only content")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if err := copy.SetBase(ctx, "sha256:abc"); err != nil {
+	if err := copy.SetBase(ctx, stands); err != nil {
 		t.Fatalf("SetBase: %v", err)
 	}
 
@@ -115,5 +123,43 @@ func TestACopyWhoseRootIsNotThereIsEmpty(t *testing.T) {
 
 	if got := walked(t, copy); len(got) != 0 {
 		t.Errorf("a copy that was never written to holds %v, want nothing", got)
+	}
+}
+
+// Standing nowhere is a thing a copy can be put back to, and it survives being
+// written down: the zero ID spells itself as nothing, and nothing reads back as
+// the zero ID rather than as a version that cannot be found.
+func TestACopyCanBePutBackToStandingNowhere(t *testing.T) {
+	ctx := context.Background()
+	_, copy := newCopy(t)
+
+	if err := copy.SetBase(ctx, version.ID{}); err != nil {
+		t.Fatalf("SetBase(zero): %v", err)
+	}
+	stood, err := copy.Base(ctx)
+	if err != nil {
+		t.Fatalf("Base: %v", err)
+	}
+	if !stood.IsZero() {
+		t.Errorf("the copy stands at %s, want the zero ID", stood)
+	}
+}
+
+// A state file holding something that was never a version fails here, where the
+// bad value is, rather than in the commit or the sweep that would have taken it
+// for a version.
+func TestBaseRefusesAStateThatIsNotAVersion(t *testing.T) {
+	ctx := context.Background()
+	fsys, copy := newCopy(t)
+
+	if err := fsys.Mkdir(ctx, path.Dir(state)); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	if err := fsys.Write(ctx, state, []byte("not a digest")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if _, err := copy.Base(ctx); !errors.Is(err, fs.ErrInvalid) {
+		t.Fatalf("Base over a state that is not a version = %v, want fs.ErrInvalid", err)
 	}
 }

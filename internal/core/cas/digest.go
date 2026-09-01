@@ -47,15 +47,45 @@ func ComputeFrom(r io.Reader) (Digest, error) {
 	return Digest{algorithm: sha256Algorithm, hex: hex.EncodeToString(sum.Sum(nil))}, nil
 }
 
-// String is the canonical spelling, "<algorithm>:<hex>". It is what a ref or a
-// manifest records, and what ParseDigest reads back.
-func (d Digest) String() string { return d.algorithm + ":" + d.hex }
+// IsZero reports whether d names nothing. It is what a caller holding a digest
+// that may have come from an unset record asks before using it, and what tells
+// encoding/json to leave such a field out.
+func (d Digest) IsZero() bool { return d == Digest{} }
 
-// ParseDigest reads back what String wrote. It accepts any algorithm name,
-// because a spelling recorded before this process started is not this process's
-// to reject; content stored under an algorithm the store does not compute is
-// simply not there.
+// String is the canonical spelling, "<algorithm>:<hex>". It is what a ref or a
+// manifest records, and what ParseDigest reads back. The zero digest spells
+// itself as nothing, because a record saying nothing is what it means.
+func (d Digest) String() string {
+	if d.IsZero() {
+		return ""
+	}
+	return d.algorithm + ":" + d.hex
+}
+
+// MarshalText writes the spelling, so a digest in a record is the text every
+// build that reads the record can still read.
+func (d Digest) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
+
+// UnmarshalText reads a spelling back, and refuses one that is not a digest.
+// That refusal is the point: a record is where a digest that was never computed
+// gets in, so it is where the check belongs rather than at the first use.
+func (d *Digest) UnmarshalText(spelling []byte) error {
+	parsed, err := ParseDigest(string(spelling))
+	if err != nil {
+		return err
+	}
+	*d = parsed
+	return nil
+}
+
+// ParseDigest reads back what String wrote, the zero digest included. It
+// accepts any algorithm name, because a spelling recorded before this process
+// started is not this process's to reject; content stored under an algorithm
+// the store does not compute is simply not there.
 func ParseDigest(spelling string) (Digest, error) {
+	if spelling == "" {
+		return Digest{}, nil
+	}
 	algorithm, digits, found := strings.Cut(spelling, ":")
 	if !found || algorithm == "" {
 		return Digest{}, fmt.Errorf("parse digest %q: want %q: %w", spelling, "<algorithm>:<hex>", fs.ErrInvalid)

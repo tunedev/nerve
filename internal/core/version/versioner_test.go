@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"path"
+	"strings"
 	"testing"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/localfs"
@@ -237,7 +238,7 @@ func TestListVersionsIsNewestFirst(t *testing.T) {
 	if history[0].Parent != first {
 		t.Errorf("the second version follows %s, want %s", history[0].Parent, first)
 	}
-	if history[1].Parent != "" {
+	if !history[1].Parent.IsZero() {
 		t.Errorf("the first version follows %s, want nothing", history[1].Parent)
 	}
 	if history[0].Message != "second" {
@@ -308,7 +309,7 @@ func TestRestoreRefusesTheZeroVersion(t *testing.T) {
 	versioner := newVersioner(t, fsys)
 	write(t, fsys, "a.md", "one")
 
-	if _, err := versioner.Restore(context.Background(), ""); !errors.Is(err, fs.ErrInvalid) {
+	if _, err := versioner.Restore(context.Background(), version.ID{}); !errors.Is(err, fs.ErrInvalid) {
 		t.Fatalf("restoring the zero version returned %v, want fs.ErrInvalid", err)
 	}
 	if got := read(t, fsys, "a.md"); got != "one" {
@@ -324,7 +325,7 @@ func TestDiffFromTheZeroVersionIsEveryPathAdded(t *testing.T) {
 	write(t, fsys, "deep/b.md", "two")
 	id := commit(t, versioner, "main", "two files")
 
-	difference, err := versioner.Diff(ctx, "", id)
+	difference, err := versioner.Diff(ctx, version.ID{}, id)
 	if err != nil {
 		t.Fatalf("diff: %v", err)
 	}
@@ -484,4 +485,48 @@ func TestCommitFromACopyThatNeverSawTheRefIsAConflict(t *testing.T) {
 	if _, err := blind.Commit(ctx, "main", "racing"); !errors.Is(err, version.ErrConflict) {
 		t.Fatalf("committing onto a ref that moved returned %v, want version.ErrConflict", err)
 	}
+}
+
+// A version outlives the build that wrote it, so what it says about content is
+// text: a digest spelled the way ParseDigest reads it. The root version says
+// nothing about a parent rather than saying it has an empty one, which is what
+// keeps a version's bytes — and so its ID — the same as they were.
+func TestAVersionRecordsItsDigestsAsText(t *testing.T) {
+	fsys := memfs.New()
+	versioner := newVersioner(t, fsys)
+	write(t, fsys, "a.md", "one")
+	id := commit(t, versioner, "main", "one file")
+
+	record := readAt(t, fsys, objectsRoot, objectPath(id))
+	if want := `"digest":"` + cas.Compute([]byte("one")).String() + `"`; !strings.Contains(record, want) {
+		t.Errorf("the version records %s, want it to contain %s", record, want)
+	}
+	if strings.Contains(record, "parent") {
+		t.Errorf("the version records %s, want a root version to say nothing about a parent", record)
+	}
+}
+
+// A record is where a digest that was never computed gets in, so it is where
+// the refusal happens. The reader asking for the content is told the version is
+// invalid rather than handed a name the object store then fails on.
+func TestAVersionRecordingWhatIsNotADigestIsRefused(t *testing.T) {
+	ctx := context.Background()
+	fsys := memfs.New()
+	versioner := newVersioner(t, fsys)
+
+	record := []byte(`{"time":"2026-01-01T00:00:00Z","entries":[{"path":"a.md","digest":"not a digest"}]}`)
+	id, err := cas.New(fsys, objectsRoot).Put(ctx, record)
+	if err != nil {
+		t.Fatalf("store a version saying that: %v", err)
+	}
+
+	if _, err := versioner.ReadVersion(ctx, id, "a.md"); !errors.Is(err, fs.ErrInvalid) {
+		t.Fatalf("reading a version that records what is not a digest = %v, want fs.ErrInvalid", err)
+	}
+}
+
+// objectPath is where the store keeps what id names, relative to its root.
+func objectPath(id version.ID) string {
+	algorithm, digits, _ := strings.Cut(id.String(), ":")
+	return path.Join(algorithm, digits[:2], digits[2:])
 }

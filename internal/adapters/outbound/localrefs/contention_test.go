@@ -18,7 +18,7 @@ import (
 func TestOnlyOneWriterMovesARef(t *testing.T) {
 	ctx := context.Background()
 	store := newStore(t)
-	mustSet(t, store, "main", "", "v1")
+	mustSet(t, store, "main", version.ID{}, v("v1"))
 
 	const writers = 8
 	var (
@@ -32,14 +32,14 @@ func TestOnlyOneWriterMovesARef(t *testing.T) {
 		go func() {
 			defer running.Done()
 
-			next := version.ID(fmt.Sprintf("v1-from-%d", writer))
-			switch err := store.Set(ctx, "main", "v1", next); {
+			next := v(fmt.Sprintf("v1-from-%d", writer))
+			switch err := store.Set(ctx, "main", v("v1"), next); {
 			case err == nil:
 				won.Add(1)
 				winner.Store(next)
 			case errors.Is(err, version.ErrConflict):
 			default:
-				t.Errorf("Set(main, v1, %q) = %v, want nil or ErrConflict", next, err)
+				t.Errorf("Set(main, v1, %s) = %v, want nil or ErrConflict", next, err)
 			}
 		}()
 	}
@@ -49,6 +49,6 @@ func TestOnlyOneWriterMovesARef(t *testing.T) {
 		t.Fatalf("%d writers moved the ref, want exactly 1", got)
 	}
 	if got, want := mustResolve(t, store, "main"), winner.Load(); got != want {
-		t.Errorf("Resolve(main) = %q, want the winner's %q", got, want)
+		t.Errorf("Resolve(main) = %s, want the winner's %s", got, want)
 	}
 }

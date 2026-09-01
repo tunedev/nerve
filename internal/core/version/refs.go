@@ -6,12 +6,23 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+
+	"github.com/tunedev/nerve/internal/core/cas"
 )
 
-// ID identifies one version. It is opaque here: the object store decides what
-// it says, and a ref store only ever compares one for equality or writes it
-// down. The zero ID names no version, which is what an unset ref resolves to.
-type ID string
+// ID identifies one version: the digest of the manifest saying what that
+// version holds. It is cas.Digest under the name this domain uses for it, not a
+// second type over the same idea — a version is one object, so its ID is what
+// the object store already calls that object.
+//
+// Being the same type is what makes it checked. An ID is computed from content
+// or parsed from a recorded spelling, so a ref store that reads one back has
+// already refused a value that was never a digest, rather than passing a string
+// on for the first reader of a version to fail on.
+//
+// The zero ID names no version, which is what an unset ref resolves to, and
+// what a working copy taken from nothing stands at.
+type ID = cas.Digest
 
 // ErrConflict reports that a ref did not hold the value the writer expected, so
 // the write was refused. It is the reason every write names an expected value:
