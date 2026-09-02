@@ -20,7 +20,7 @@ const probeBudget = time.Second
 func probe(t *testing.T, health *admin.Health, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	handler := admin.Handler(config.Defaults().Effective(nil), health)
+	handler := admin.Handler(config.Defaults().Effective(nil, nil), health)
 	handler.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 	return rec
 }
@@ -51,7 +51,7 @@ func unreachable() config.Config {
 // address no packet reaches, and both probes still answer. One that dialled
 // would spend its dial timeout, not a millisecond.
 func TestProbesAnswerWithoutTouchingADependency(t *testing.T) {
-	handler := admin.Handler(unreachable().Effective(nil), &admin.Health{})
+	handler := admin.Handler(unreachable().Effective(nil, nil), &admin.Health{})
 
 	for _, path := range []string{"/livez", "/readyz"} {
 		rec := httptest.NewRecorder()

@@ -15,7 +15,7 @@ func TestEffectiveRedactsThePassword(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.PostgresDSN = "postgres://nerve:hunter2@db:5432/nerve?sslmode=disable"
 
-	value := settingValue(t, cfg.Effective(nil), "postgres-dsn")
+	value := settingValue(t, cfg.Effective(nil, nil), "postgres-dsn")
 
 	if strings.Contains(value, "hunter2") {
 		t.Errorf("postgres-dsn = %q, still carries the password", value)
@@ -34,7 +34,7 @@ func TestEffectiveLeavesEverythingElseAlone(t *testing.T) {
 	cfg.LogLevel = "debug"
 	cfg.OllamaURL = "http://localhost:11434"
 
-	effective := cfg.Effective(nil)
+	effective := cfg.Effective(nil, nil)
 
 	if got := settingValue(t, effective, "log-level"); got != "debug" {
 		t.Errorf("log-level = %q, want %q", got, "debug")
@@ -48,7 +48,7 @@ func TestEffectiveLeavesEverythingElseAlone(t *testing.T) {
 // one thing that would put "what is it configured as" back to guessing, so the
 // count is checked against the struct rather than against a list kept by hand.
 func TestEffectiveNamesEverySetting(t *testing.T) {
-	effective := config.Defaults().Effective(nil)
+	effective := config.Defaults().Effective(nil, nil)
 
 	typ := reflect.TypeOf(config.Config{})
 	for i := range typ.NumField() {
@@ -81,7 +81,7 @@ func TestEffectiveRedactsAPasswordInADeclaredSetting(t *testing.T) {
 		Settings: map[string]string{"endpoint": "https://key:s3cret@minio:9000", "bucket": "nerve"},
 	}}
 
-	mounts := cfg.Effective(declaring("s3", "endpoint", "bucket")).Mounts
+	mounts := cfg.Effective(declaring("s3", "endpoint", "bucket"), nil).Mounts
 	if len(mounts) != 1 {
 		t.Fatalf("Mounts has %d entries, want 1", len(mounts))
 	}
@@ -101,7 +101,7 @@ func TestEffectiveDoesNotChangeTheConfig(t *testing.T) {
 	cfg.PostgresDSN = dsn
 	cfg.Mounts = []config.Mount{{Prefix: "/blob", Kind: "s3", Settings: map[string]string{"endpoint": "https://key:s3cret@minio:9000"}}}
 
-	_ = cfg.Effective(declaring("s3", "endpoint"))
+	_ = cfg.Effective(declaring("s3", "endpoint"), nil)
 
 	if cfg.PostgresDSN != dsn {
 		t.Errorf("PostgresDSN = %q, want the unredacted %q", cfg.PostgresDSN, dsn)
@@ -113,7 +113,7 @@ func TestEffectiveDoesNotChangeTheConfig(t *testing.T) {
 
 // The view is JSON, because the surface that serves it is.
 func TestEffectiveMarshals(t *testing.T) {
-	data, err := json.Marshal(config.Defaults().Effective(nil))
+	data, err := json.Marshal(config.Defaults().Effective(nil, nil))
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestEffectiveRedactsSettingsAKindDidNotDeclare(t *testing.T) {
 		},
 	}}
 
-	settings := cfg.Effective(declaring("s3", "bucket")).Mounts[0].Settings
+	settings := cfg.Effective(declaring("s3", "bucket"), nil).Mounts[0].Settings
 
 	if got := settings["bucket"]; got != "nerve" {
 		t.Errorf("bucket = %q, want %q", got, "nerve")
@@ -186,7 +186,7 @@ func TestEffectiveRedactsWhenNothingIsDeclared(t *testing.T) {
 		"declaresNothing": declaring("unregistered"),
 		"otherKind":       declaring("s3", "bucket"),
 	} {
-		if got := cfg.Effective(public).Mounts[0].Settings["bucket"]; got == "nerve" {
+		if got := cfg.Effective(public, nil).Mounts[0].Settings["bucket"]; got == "nerve" {
 			t.Errorf("%s: bucket = %q, want it redacted", name, got)
 		}
 	}
@@ -210,7 +210,7 @@ func TestEffectiveRedactsTheStoreSecret(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.KVStoreURL = "https://AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMI@objects.example.com/nerve?region=eu-west-1"
 
-	got := settingValue(t, cfg.Effective(nil), "kv-store-url")
+	got := settingValue(t, cfg.Effective(nil, nil), "kv-store-url")
 	if strings.Contains(got, "wJalrXUtnFEMI") {
 		t.Errorf("kv-store-url = %q, still carries the secret", got)
 	}

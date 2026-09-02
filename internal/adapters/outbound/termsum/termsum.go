@@ -2,10 +2,11 @@
 // carry most of its vocabulary, weighting a word by how much of the document it
 // runs through.
 //
-// It is the laptop's summariser: no model, no network, nothing to start. The
-// second implementation is the one this exists to be replaced by — a model
-// behind the retrieval layer's gateway, which writes sentences the document
-// never contained — and the stage that holds the port cannot tell them apart.
+// It is the laptop's provider: no model, no network, nothing to start. It
+// reaches a caller the way every model endpoint does, through the gateway's
+// chain, so a build that puts a hosted model in front of it — one that writes
+// sentences the document never contained — changes a line of config, and the
+// stage holding the port cannot tell the two apart.
 //
 // Be plain about what this is: it is extractive, not abstractive. Every
 // sentence it returns is one the document already had, and a document that

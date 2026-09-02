@@ -21,6 +21,7 @@ import (
 	"github.com/tunedev/nerve/internal/config"
 	"github.com/tunedev/nerve/internal/core/ingest"
 	"github.com/tunedev/nerve/internal/core/library"
+	"github.com/tunedev/nerve/internal/core/llm"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -130,6 +131,26 @@ func main() {
 		fail(err)
 	}
 
+	// The model endpoints this build has register here for the reason storage
+	// kinds do: this is the only place that knows a concrete provider. The
+	// chain comes from config in the order it is asked, so putting a hosted
+	// model in front of the laptop's is moving a line, and nothing downstream
+	// of the gateway ever holds a client.
+	//
+	// Its deadline is its own rather than the one every mount is bounded by,
+	// because a model is slow in a way a filesystem is not. The retry and
+	// breaker policies are shared: a transient failure and a far end that has
+	// stopped answering mean the same thing on either side of the process.
+	providers := llm.NewRegistry(cfg.ProviderTimeoutDuration(), retry, breaker)
+	if err := registerProviders(providers); err != nil {
+		fail(err)
+	}
+
+	gateway, err := providers.Gateway(cfg.ProviderSpecs())
+	if err != nil {
+		fail(err)
+	}
+
 	// The banner goes through the logger rather than to stdout, so what a
 	// process says about itself at boot reaches the same place as what it says
 	// afterwards. An operator reading a collector should not have to also read
@@ -143,6 +164,7 @@ func main() {
 		"retry-backoff", retry.Backoff,
 		"breaker-threshold", breaker.Threshold,
 		"breaker-cooldown", breaker.Cooldown,
+		"provider-timeout", cfg.ProviderTimeoutDuration(),
 		"readahead-window", cfg.ReadaheadBytes(),
 		"telemetry-endpoint", cfg.TelemetryEndpoint,
 		"kv-store-url", config.Redact(cfg.KVStoreURL))
@@ -153,6 +175,7 @@ func main() {
 		slog.Info("library", "kind", spec.Kind.Name, "root", spec.Root, "file", spec.Kind.Filename)
 	}
 	slog.Info("ingest", "formats", processors.MediaTypes())
+	slog.Info("gateway", "providers", gateway.Providers(), "serves", gateway.Capabilities())
 	for _, path := range []string{"/config", "/livez", "/readyz"} {
 		slog.Info("admin", "url", fmt.Sprintf("http://%s%s", cfg.AdminAddr, path))
 	}
@@ -168,7 +191,7 @@ func main() {
 	// its settings is a credential, and what it does not declare is redacted.
 	srv := &http.Server{
 		Addr:              cfg.AdminAddr,
-		Handler:           admin.Handler(cfg.Effective(registry.Public), health),
+		Handler:           admin.Handler(cfg.Effective(registry.Public, providers.Public), health),
 		ReadHeaderTimeout: readHeaderTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,

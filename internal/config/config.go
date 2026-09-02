@@ -40,6 +40,13 @@ type Config struct {
 	BreakerThreshold string `json:"breaker-threshold"`
 	BreakerCooldown  string `json:"breaker-cooldown"`
 
+	// ProviderTimeout is the deadline one call to a model endpoint carries. It
+	// is separate from call-timeout because a model answers in seconds where a
+	// filesystem answers in milliseconds, and one deadline covering both is
+	// either too short to summarise anything or too long to notice a mount that
+	// has stopped answering.
+	ProviderTimeout string `json:"provider-timeout"`
+
 	// ReadaheadWindow is how many bytes of a streaming read are fetched in
 	// front of the caller, so the next piece is arriving while the caller works
 	// on the one it has. Zero turns reading ahead off.
@@ -77,6 +84,11 @@ type Config struct {
 	// Libraries is the library table: which document kind is kept under which
 	// root. It is a list, so it comes from the file layer alone as Mounts does.
 	Libraries []Library `json:"libraries"`
+
+	// Providers is the gateway's chain: which model endpoints this build has,
+	// in the order they are asked. It is a list, so it comes from the file
+	// layer alone as Mounts does.
+	Providers []Provider `json:"providers"`
 }
 
 // Defaults are the bottom layer: what a local checkout needs to run with no
@@ -90,6 +102,7 @@ func Defaults() Config {
 		RetryBackoff:     "100ms",
 		BreakerThreshold: "5",
 		BreakerCooldown:  "30s",
+		ProviderTimeout:  "60s",
 		ReadaheadWindow:  strconv.Itoa(vfs.DefaultReadahead),
 		PostgresDSN:      "postgres://nerve:nerve@localhost:5432/nerve?sslmode=disable",
 		RabbitMQURL:      "amqp://nerve:nerve@localhost:5672/",
@@ -222,6 +235,7 @@ var fields = []field{
 	{"retry-backoff", "ceiling on the wait before the second attempt, doubling after that", func(c *Config) *string { return &c.RetryBackoff }},
 	{"breaker-threshold", "transient failures in a row that stop a mount being called", func(c *Config) *string { return &c.BreakerThreshold }},
 	{"breaker-cooldown", "how long a mount is left alone before one call probes it", func(c *Config) *string { return &c.BreakerCooldown }},
+	{"provider-timeout", "deadline given to one call to a model endpoint", func(c *Config) *string { return &c.ProviderTimeout }},
 	{"readahead-window", "bytes of a streaming read fetched in front of the caller; 0 turns it off", func(c *Config) *string { return &c.ReadaheadWindow }},
 	{"telemetry-endpoint", "OTLP collector URL for traces, metrics and logs; empty exports nothing", func(c *Config) *string { return &c.TelemetryEndpoint }},
 	{"postgres-dsn", "Postgres connection string", func(c *Config) *string { return &c.PostgresDSN }},
