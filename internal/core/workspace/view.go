@@ -48,7 +48,11 @@ type view struct {
 // which is the whole property: a second way to spell the layout here is a way
 // to spell it differently.
 func (v view) at(name string) (string, error) {
-	return v.scope.Path(v.root, name)
+	base, err := v.scope.Path(v.root, "")
+	if err != nil {
+		return "", err
+	}
+	return path.Join(base, name), nil
 }
 
 // from maps a path the tree beneath spelled back into the view's vocabulary,
