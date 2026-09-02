@@ -127,7 +127,7 @@ func TestDrainIsObservableBeforeShutdown(t *testing.T) {
 	health := &admin.Health{}
 	srv := &http.Server{
 		Addr:    freeAddr(t),
-		Handler: admin.Handler(config.Defaults().Effective(nil), health),
+		Handler: admin.Handler(config.Defaults().Effective(nil, nil), health),
 	}
 
 	// Shutdown runs its hooks the moment it is entered. It is the one event

@@ -55,12 +55,16 @@ func WithRetry(fsys FileSystem, policy Retry) FileSystem {
 	return retrying{fsys: fsys, policy: policy}
 }
 
-// repeat makes the call until it answers, until an error another attempt
-// cannot change, or until the attempts or the caller's time run out. What the
-// caller gets back is the last attempt's error rather than a summary: the
-// failure that ended it is the one worth reading, and errors.Is still works on
-// it.
-func (r Retry) repeat(ctx context.Context, call func(context.Context) error) error {
+// Do makes the call until it answers, until an error another attempt cannot
+// change, or until the attempts or the caller's time run out. What the caller
+// gets back is the last attempt's error rather than a summary: the failure that
+// ended it is the one worth reading, and errors.Is still works on it.
+//
+// It is exported because the tree is not the only remote thing this process
+// calls. A second retry loop written beside this one would be a second answer
+// to when a failure is worth another attempt, and the two would drift; a caller
+// with its own idea of what may be repeated brings that idea and shares this.
+func (r Retry) Do(ctx context.Context, call func(context.Context) error) error {
 	for made := 1; ; made++ {
 		err := call(ctx)
 		if err == nil || made >= r.Attempts || Classify(err) != Retryable {
@@ -109,11 +113,11 @@ func wait(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// attempt is repeat for a verb that returns a value. The value of the attempt
+// attempt is Do for a verb that returns a value. The value of the attempt
 // that answered is the one that comes back.
 func attempt[T any](ctx context.Context, policy Retry, call func(context.Context) (T, error)) (T, error) {
 	var value T
-	err := policy.repeat(ctx, func(ctx context.Context) error {
+	err := policy.Do(ctx, func(ctx context.Context) error {
 		var err error
 		value, err = call(ctx)
 		return err
@@ -144,13 +148,13 @@ func (r retrying) rewritable(path string) bool {
 }
 
 func (r retrying) Create(ctx context.Context, path string) error {
-	return r.policy.repeat(ctx, func(ctx context.Context) error {
+	return r.policy.Do(ctx, func(ctx context.Context) error {
 		return r.fsys.Create(ctx, path)
 	})
 }
 
 func (r retrying) Mkdir(ctx context.Context, path string) error {
-	return r.policy.repeat(ctx, func(ctx context.Context) error {
+	return r.policy.Do(ctx, func(ctx context.Context) error {
 		return r.fsys.Mkdir(ctx, path)
 	})
 }
@@ -165,7 +169,7 @@ func (r retrying) Remove(ctx context.Context, path string) error {
 // RemoveAll is repeated: a path that is already gone is not an error, so the
 // second attempt reports what the first one did.
 func (r retrying) RemoveAll(ctx context.Context, path string) error {
-	return r.policy.repeat(ctx, func(ctx context.Context) error {
+	return r.policy.Do(ctx, func(ctx context.Context) error {
 		return r.fsys.RemoveAll(ctx, path)
 	})
 }
@@ -181,7 +185,7 @@ func (r retrying) Read(ctx context.Context, path string) ([]byte, error) {
 func (r retrying) Write(ctx context.Context, path string, data []byte) error {
 	write := func(ctx context.Context) error { return r.fsys.Write(ctx, path, data) }
 	if r.rewritable(path) {
-		return r.policy.repeat(ctx, write)
+		return r.policy.Do(ctx, write)
 	}
 	return write(ctx)
 }
@@ -206,7 +210,7 @@ func (r retrying) Rename(ctx context.Context, oldPath, newPath string) error {
 }
 
 func (r retrying) Chmod(ctx context.Context, path string, mode fs.FileMode) error {
-	return r.policy.repeat(ctx, func(ctx context.Context) error {
+	return r.policy.Do(ctx, func(ctx context.Context) error {
 		return r.fsys.Chmod(ctx, path, mode)
 	})
 }
@@ -273,7 +277,7 @@ type retryingTruncater struct {
 // Truncate is repeated: cutting a path to a length it already has is the same
 // path.
 func (c retryingTruncater) Truncate(ctx context.Context, path string, size int64) error {
-	return c.policy.repeat(ctx, func(ctx context.Context) error {
+	return c.policy.Do(ctx, func(ctx context.Context) error {
 		return c.cut.Truncate(ctx, path, size)
 	})
 }

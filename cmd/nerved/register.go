@@ -19,8 +19,10 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamrotatefs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/termsum"
 	"github.com/tunedev/nerve/internal/adapters/outbound/textproc"
 	"github.com/tunedev/nerve/internal/core/ingest"
+	"github.com/tunedev/nerve/internal/core/llm"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -94,5 +96,20 @@ func registerProcessors(registry *ingest.Registry) error {
 	return errors.Join(
 		registry.Register(textproc.New(), textproc.MediaTypes...),
 		registry.Register(pdfproc.New(), pdfproc.MediaType),
+	)
+}
+
+// registerProviders puts every model endpoint kind this build has under the
+// name a provider config asks for it by. It is here for the reason
+// registerKinds is: the composition root is the only place that knows a
+// concrete provider, and a second endpoint is a package plus a line here rather
+// than an edit to whatever routes.
+//
+// termsum takes no settings, so it names none. A kind that reached a hosted
+// model would name its endpoint and its model and say nothing about the key
+// beside them, which is what makes the key read back as redacted.
+func registerProviders(registry *llm.Registry) error {
+	return errors.Join(
+		registry.Register(termsum.Kind, termsum.Factory),
 	)
 }

@@ -26,3 +26,15 @@ func (c Config) DrainDelayDuration() time.Duration {
 	d, _ := time.ParseDuration(c.DrainDelay)
 	return d
 }
+
+// ProviderTimeoutDuration is the provider-timeout setting in the vocabulary of
+// the code that uses it: the deadline one call to a model endpoint carries.
+//
+// It is the gateway's own rather than the one every mount is bounded by,
+// because a model is slow in a way a filesystem is not, and a chain that fell
+// through to its next endpoint on a deadline the first was always going to
+// overrun would spend every endpoint it has.
+func (c Config) ProviderTimeoutDuration() time.Duration {
+	d, _ := time.ParseDuration(c.ProviderTimeout)
+	return d
+}

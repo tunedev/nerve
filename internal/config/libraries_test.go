@@ -65,7 +65,7 @@ func TestEffectiveEchoesTheLibraryTable(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 
-	libraries := cfg.Effective(nil).Libraries
+	libraries := cfg.Effective(nil, nil).Libraries
 	if len(libraries) != 1 || libraries[0] != (config.Library{Kind: "checklist", File: "CHECKLIST.md", Root: "/checklists"}) {
 		t.Errorf("Effective().Libraries = %+v, want the library the config named", libraries)
 	}

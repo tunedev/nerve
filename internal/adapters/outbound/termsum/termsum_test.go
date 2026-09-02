@@ -1,6 +1,7 @@
 package termsum_test
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -117,5 +118,24 @@ func TestNothingToSayIsAnEmptySummary(t *testing.T) {
 	}
 	if got := summarise(t, report, 0); got != nil {
 		t.Errorf("summary of no sentences = %q, want none", got)
+	}
+}
+
+// The summariser reaches a caller as a model endpoint, so the one path a
+// summary takes does not depend on whether a model wrote it.
+func TestTheProviderServesSummarisation(t *testing.T) {
+	provider, err := termsum.Factory(nil)
+	if err != nil {
+		t.Fatalf("Factory = %v", err)
+	}
+
+	summariser := provider.AsSummariser()
+	if summariser == nil {
+		t.Fatal("AsSummariser = nil, want the summariser")
+	}
+
+	answer, err := summariser.Summarise(context.Background(), "One sentence. Another sentence.", 1)
+	if err != nil || answer == "" {
+		t.Errorf("Summarise = %q, %v, want a sentence", answer, err)
 	}
 }

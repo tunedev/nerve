@@ -115,6 +115,18 @@ adding a line. A document is a directory holding the file its kind names, and th
 where that kind's mount was put, so where a library sits is a mount and what it holds is
 the kind. Two kinds may share one root; two libraries of one kind stop the boot.
 
+So does the gateway's chain: `providers` is a list of `{name, kind, settings}` in the order
+they are asked, and it is the one path a model call takes. Nothing downstream holds a
+client — a stage that wants a summary holds a routed verb, the way a caller of the tree
+holds the mount table rather than a plugin — so putting a hosted model in front of the
+laptop's is moving a line. Each endpoint carries `provider-timeout` (`60s`), its own
+setting because a model answers in seconds where a filesystem answers in milliseconds, and
+its own circuit under the shared breaker policy. An endpoint that fails transiently, or one
+whose circuit is already open, is passed over for the next in the chain; anything else is
+an answer, and the next model refuses the same invalid request just as slowly. A capability
+no endpoint serves is answered with nil rather than an endpoint that errors, so a build
+finds that out where it wires a pipeline instead of on the first document.
+
 Every mount is bounded. `call-timeout` is the deadline each verb carries before it reaches
 a plugin, because a mount may be remote and no caller of the tree can tell. It is a ceiling
 rather than an extension — a caller with less time left keeps its own — and no spelling of

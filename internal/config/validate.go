@@ -33,6 +33,7 @@ func (c Config) Validate() error {
 		positiveDuration("retry-backoff", c.RetryBackoff),
 		atLeastOne("breaker-threshold", c.BreakerThreshold),
 		positiveDuration("breaker-cooldown", c.BreakerCooldown),
+		positiveDuration("provider-timeout", c.ProviderTimeout),
 		nonNegativeNumber("readahead-window", c.ReadaheadWindow),
 		optional("telemetry-endpoint", c.TelemetryEndpoint, reachable, "http", "https"),
 		reachable("postgres-dsn", c.PostgresDSN, "postgres", "postgresql"),

@@ -30,7 +30,7 @@ func withPassword() config.Config {
 func get(t *testing.T, cfg config.Config, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	admin.Handler(cfg.Effective(nil), &admin.Health{}).ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+	admin.Handler(cfg.Effective(nil, nil), &admin.Health{}).ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 	return rec
 }
 
@@ -58,8 +58,8 @@ func TestConfigEndpointAnswersWithoutGuessing(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
 		t.Fatalf("decode body %s: %v", body, err)
 	}
-	if len(answer.Settings) != len(cfg.Effective(nil).Settings) {
-		t.Errorf("body names %d settings, want %d", len(answer.Settings), len(cfg.Effective(nil).Settings))
+	if len(answer.Settings) != len(cfg.Effective(nil, nil).Settings) {
+		t.Errorf("body names %d settings, want %d", len(answer.Settings), len(cfg.Effective(nil, nil).Settings))
 	}
 	if len(answer.Mounts) != 1 || answer.Mounts[0].Prefix != "/blob" {
 		t.Errorf("body mounts = %+v, want the one at /blob", answer.Mounts)
