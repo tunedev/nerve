@@ -5,6 +5,7 @@ go 1.27
 toolchain go1.27.0
 
 require (
+	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/rabbitmq/amqp091-go v1.14.0
