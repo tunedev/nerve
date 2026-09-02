@@ -14,6 +14,8 @@ func renameCases() []testCase {
 		{name: "Rename moves an entry", when: writable, run: renameMovesAnEntry},
 		{name: "Rename moves a whole subtree", when: needs(writable, tree), run: renameMovesASubtree},
 		{name: "Rename replaces the entry it lands on", when: writable, run: renameReplacesTheLanding},
+		{name: "Rename replaces an empty directory it lands on", when: needs(writable, tree), run: renameReplacesAnEmptyDirectory},
+		{name: "Rename of a directory replaces the file it lands on", when: needs(writable, tree), run: renameReplacesAFileWithADirectory},
 		{name: "Rename refuses to replace a directory that is not empty", when: needs(writable, tree), run: renameRefusesANonEmptyLanding},
 		{name: "Rename onto itself changes nothing", when: writable, run: renameOntoItself},
 		{name: "Rename of a missing path does not exist", when: writable, run: renameOfAMissingPath},
@@ -71,6 +73,51 @@ func renameReplacesTheLanding(t *testing.T, w world) {
 
 	if content := mustRead(t, w, "current"); content != "new" {
 		t.Errorf("Read of the landing = %q, want %q", content, "new")
+	}
+}
+
+// A host disk refuses to move a file onto a directory, so a kind backed by one
+// takes the landing out of the way itself. The promise holds whatever the two
+// entries are.
+func renameReplacesAnEmptyDirectory(t *testing.T, w world) {
+	mustWrite(t, w, "next", "new")
+	mustMkdir(t, w, "current")
+
+	if err := w.fsys.Rename(t.Context(), w.at("next"), w.at("current")); err != nil {
+		t.Fatalf("Rename(%q, %q) = %v", w.at("next"), w.at("current"), err)
+	}
+
+	info, err := w.fsys.Stat(t.Context(), w.at("current"))
+	if err != nil {
+		t.Fatalf("Stat(%q) = %v", w.at("current"), err)
+	}
+	if info.IsDir() {
+		t.Fatalf("Stat(%q).IsDir() = true, want the file that landed on it", w.at("current"))
+	}
+	if content := mustRead(t, w, "current"); content != "new" {
+		t.Errorf("Read of the landing = %q, want %q", content, "new")
+	}
+}
+
+// The other crossing, which a host disk refuses the same way.
+func renameReplacesAFileWithADirectory(t *testing.T, w world) {
+	mustMkdir(t, w, "jobs")
+	mustWrite(t, w, "jobs/first", "work")
+	mustWrite(t, w, "current", "old")
+
+	if err := w.fsys.Rename(t.Context(), w.at("jobs"), w.at("current")); err != nil {
+		t.Fatalf("Rename(%q, %q) = %v", w.at("jobs"), w.at("current"), err)
+	}
+
+	info, err := w.fsys.Stat(t.Context(), w.at("current"))
+	if err != nil {
+		t.Fatalf("Stat(%q) = %v", w.at("current"), err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("Stat(%q).IsDir() = false, want the directory that landed on it", w.at("current"))
+	}
+	if content := mustRead(t, w, "current/first"); content != "work" {
+		t.Errorf("Read under the landing = %q, want %q", content, "work")
 	}
 }
 
