@@ -22,6 +22,7 @@
 package fusefs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -45,7 +46,16 @@ const name = "nerve"
 // attribute timeout nil, so the kernel re-asks for everything. That is slow and
 // it is the safe direction — a mount that hands out a timeout hands out a
 // window in which a revoked path still answers.
+//
+// A mount left at dir by a process that died holding one is cleared first. That
+// is the whole of what a killed process leaves behind, and mounting is where it
+// is reached: the point is unusable until something unmounts it, and the next
+// mount is the only thing that comes for it.
 func Serve(dir string, fsys vfs.FileSystem) (*Mount, error) {
+	if err := reclaim(dir); err != nil {
+		return nil, err
+	}
+
 	root := &node{tree: &tree{fsys: fsys}}
 	server, err := fs.Mount(dir, root, &fs.Options{
 		MountOptions: fuse.MountOptions{
@@ -67,20 +77,31 @@ func Serve(dir string, fsys vfs.FileSystem) (*Mount, error) {
 	return &Mount{server: server, dir: dir}, nil
 }
 
-// Mount is one served filesystem. It is what a caller unmounts and waits on;
-// what happens when neither is reached is E11.5's.
+// Mount is one served filesystem. It is what a caller unmounts and waits on.
 type Mount struct {
 	server *fuse.Server
 	dir    string
 }
 
-// Unmount detaches the filesystem. It fails with EBUSY while any descriptor
-// opened through the mount is still open: unmounting is a fallible operation
-// with a live blocker rather than a teardown line, and a caller that ignores
-// the error leaves a mount behind.
+// Unmount takes the filesystem out of the mount table, and leaves nothing there
+// when it returns nil.
+//
+// The ordinary unmount fails with EBUSY while any descriptor opened through the
+// mount is still open, which at shutdown is a mount left behind rather than
+// something a caller can wait out: whatever holds the descriptor is inside, and
+// the process about to exit is what serves it. The fallback is a lazy detach —
+// the mount leaves the table at once and the kernel frees it when the last
+// descriptor closes.
+//
+// Wait does not return after a detach until those descriptors are closed, so a
+// caller that must exit should not wait on one.
 func (m *Mount) Unmount() error {
-	if err := m.server.Unmount(); err != nil {
-		return fmt.Errorf("unmount %q: %w", m.dir, err)
+	first := m.server.Unmount()
+	if first == nil {
+		return nil
+	}
+	if second := detach(m.dir); second != nil {
+		return fmt.Errorf("unmount %q: %w", m.dir, errors.Join(first, second))
 	}
 	return nil
 }
