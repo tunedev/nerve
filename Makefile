@@ -84,6 +84,11 @@ test-queue: ## Run the queue tests against the running Postgres and RabbitMQ
 		NERVE_QUEUEFS_BROKER=$${NERVE_QUEUEFS_BROKER:-$${NERVE_RABBITMQ_URL:-amqp://nerve:nerve@127.0.0.1:$${NERVE_RABBITMQ_PORT:-5672}/}} \
 		$(GO) test ./internal/adapters/outbound/queuefs/
 
+.PHONY: test-projection
+test-projection: ## Run the projection engine tests against a DuckDB binary
+	@$(RUN_ENV) NERVE_DUCKDB_BIN=$${NERVE_DUCKDB_BIN:-duckdb} \
+		$(GO) test ./internal/adapters/outbound/duckparquet/
+
 .PHONY: race
 race: ## Run tests under the race detector
 	$(GO) test -race ./...
@@ -101,9 +106,10 @@ lint: ## Verify the lint config, then run golangci-lint
 	$(LINT) config verify
 	$(LINT) run
 
-# `test-store` and `test-queue` are deliberately not here. Everything check runs
-# has to run with nothing started and no network, which is what keeps the plane
-# test true; both of those are the same suite against the started stack and need
-# `make up` first.
+# `test-store`, `test-queue` and `test-projection` are deliberately not here.
+# Everything check runs has to run with nothing started and no network, which is
+# what keeps the plane test true; the first two are the same suite against the
+# started stack and need `make up` first, and the third needs a DuckDB binary,
+# which is not a Go dependency and cannot be one without cgo.
 .PHONY: check
 check: fmt-check lint race repro ## Everything CI runs

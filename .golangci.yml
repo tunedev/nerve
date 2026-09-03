@@ -27,6 +27,8 @@ linters:
               desc: "core owns ports; the broker client belongs in an adapter"
             - pkg: "net/http"
               desc: "core owns ports; transport belongs in internal/adapters/inbound"
+            - pkg: "os/exec"
+              desc: "core owns ports; running an engine belongs in internal/adapters/outbound"
 
     errcheck:
       # An unchecked type assertion is the discovery move the settled decision
