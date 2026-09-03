@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/ollama"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termsum"
 	"github.com/tunedev/nerve/internal/core/llm"
 	"github.com/tunedev/nerve/internal/core/vfs"
@@ -63,5 +67,89 @@ func TestABuildWithNoProvidersServesNothing(t *testing.T) {
 
 	if served := gateway.Capabilities(); len(served) != 0 {
 		t.Errorf("the gateway serves %v, want nothing", served)
+	}
+}
+
+// stubOllama stands an embedding endpoint up and returns its address. Every
+// vector it answers is the mark it was given, so a test can tell which endpoint
+// a routed call reached.
+func stubOllama(t *testing.T, mark float32) string {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var asked struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&asked); err != nil {
+			t.Errorf("decoding the request = %v", err)
+		}
+
+		vectors := make([][]float32, len(asked.Input))
+		for i := range vectors {
+			vectors[i] = []float32{mark}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{"embeddings": vectors}); err != nil {
+			t.Errorf("encoding the answer = %v", err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// embedded is what one routed call to the chain a config document names comes
+// back with, which is the whole of what "swapping a provider is config" has to
+// mean: nothing but the settings changes between two runs of this.
+func embedded(t *testing.T, base string) float32 {
+	t.Helper()
+
+	specs := []llm.ProviderSpec{{
+		Name: "embeddings",
+		Kind: ollama.Kind,
+		Settings: map[string]string{
+			ollama.BaseSetting:  base,
+			ollama.ModelSetting: "nomic-embed-text",
+		},
+	}}
+
+	gateway, err := providerRegistry(t).Gateway(specs)
+	if err != nil {
+		t.Fatalf("Gateway(embeddings) = %v", err)
+	}
+	if served := gateway.Capabilities(); !slices.Contains(served, "embed") {
+		t.Fatalf("the gateway serves %v, want embedding", served)
+	}
+
+	vectors, err := gateway.AsEmbedder().Embed(context.Background(), []string{"the pumps had not run"})
+	if err != nil {
+		t.Fatalf("Embed = %v", err)
+	}
+	if len(vectors) != 1 || len(vectors[0]) != 1 {
+		t.Fatalf("Embed returned %v, want one vector", vectors)
+	}
+	return vectors[0][0]
+}
+
+// Which endpoint an embedding call reaches is a setting and nothing else. The
+// two runs here differ by one string; the caller holds the same routed verb and
+// cannot tell there was a swap.
+func TestSwappingTheEmbeddingEndpointIsConfig(t *testing.T) {
+	laptop, hosted := stubOllama(t, 1), stubOllama(t, 2)
+
+	if mark := embedded(t, laptop); mark != 1 {
+		t.Errorf("the chain reached the endpoint marking %v, want the laptop's", mark)
+	}
+	if mark := embedded(t, hosted); mark != 2 {
+		t.Errorf("the chain reached the endpoint marking %v, want the hosted one's", mark)
+	}
+}
+
+// ollama names its endpoint and its model, so an operator can read back which
+// model an index was built with. A kind that declared them secret would hide
+// the one fact that makes a vector comparable with another.
+func TestOllamaReadsItsEndpointAndModelBack(t *testing.T) {
+	public := providerRegistry(t).Public(ollama.Kind)
+	if !slices.Contains(public, ollama.BaseSetting) || !slices.Contains(public, ollama.ModelSetting) {
+		t.Errorf("Public(%q) = %v, want both settings", ollama.Kind, public)
 	}
 }

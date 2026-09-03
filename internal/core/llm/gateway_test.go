@@ -52,6 +52,29 @@ func (e *endpoint) Summarise(ctx context.Context, _ string, _ int) (string, erro
 // overrides an accessor.
 type mute struct{ llm.NoAccessors }
 
+// vectors answers Embed with one vector per text, counting the calls that
+// reached it. It embeds and does not summarise, which is the mixed chain a
+// build with a summariser and an embedding model actually has.
+type vectors struct {
+	llm.NoAccessors
+	err   error
+	calls int
+}
+
+func (v *vectors) AsEmbedder() llm.Embedder { return v }
+
+func (v *vectors) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	v.calls++
+	if v.err != nil {
+		return nil, v.err
+	}
+	answer := make([][]float32, len(texts))
+	for i, text := range texts {
+		answer[i] = []float32{float32(len(text))}
+	}
+	return answer, nil
+}
+
 // chain builds a gateway over the providers given, in order, under the policies
 // above. Every kind is registered here rather than in a config document,
 // because what a test varies is the chain and never the factory.
@@ -230,5 +253,74 @@ func TestTheChainNamesItselfInOrder(t *testing.T) {
 	names := chain(t, &endpoint{}, &mute{}).Providers()
 	if len(names) != 2 || names[0] != "provider0" || names[1] != "provider1" {
 		t.Errorf("Providers = %v, want provider0 then provider1", names)
+	}
+}
+
+// A capability is served by the providers whose accessor answers it, and by no
+// others. A chain holding a summariser and an embedding model routes each verb
+// to the endpoint that has it without a table saying which is which — the
+// summariser is never asked for a vector.
+func TestEachCapabilityReachesTheProviderThatServesIt(t *testing.T) {
+	said := &endpoint{answer: "the pumps had not run"}
+	embedded := &vectors{}
+	gateway := chain(t, said, embedded)
+
+	answer, err := gateway.AsEmbedder().Embed(context.Background(), []string{"one", "two"})
+	if err != nil {
+		t.Fatalf("Embed = %v", err)
+	}
+	if len(answer) != 2 {
+		t.Fatalf("Embed returned %d vectors, want 2", len(answer))
+	}
+	if said.calls != 0 {
+		t.Errorf("the summarising provider saw %d calls, want 0: it serves no embedding", said.calls)
+	}
+
+	if _, err := gateway.AsSummariser().Summarise(context.Background(), "the pumps had not run", 1); err != nil {
+		t.Fatalf("Summarise = %v", err)
+	}
+	if embedded.calls != 1 {
+		t.Errorf("the embedding provider saw %d calls, want the one embedding: it summarises nothing", embedded.calls)
+	}
+}
+
+// A chain of two endpoints running one model is what an embedding failover is
+// for, so a wobbling one passes to the next exactly as a summariser does.
+func TestATransientEmbeddingFailurePassesToTheNextProvider(t *testing.T) {
+	first := &vectors{err: errTransient}
+	second := &vectors{}
+
+	answer, err := chain(t, first, second).AsEmbedder().Embed(context.Background(), []string{"one"})
+	if err != nil {
+		t.Fatalf("Embed = %v", err)
+	}
+	if len(answer) != 1 {
+		t.Fatalf("Embed returned %d vectors, want 1", len(answer))
+	}
+	if second.calls != 1 {
+		t.Errorf("the second provider saw %d calls, want 1", second.calls)
+	}
+}
+
+// The banner and the operator surface read back every capability the chain
+// serves, so a build wired to endpoints that serve nothing it needs looks wired
+// and is not.
+func TestTheChainNamesEveryCapabilityItServes(t *testing.T) {
+	served := chain(t, &endpoint{}, &vectors{}).Capabilities()
+	if len(served) != 2 || served[0] != "summarise" || served[1] != "embed" {
+		t.Errorf("Capabilities = %v, want summarise then embed", served)
+	}
+}
+
+// A chain that summarises and embeds nothing says so, rather than handing back
+// a routed verb over no endpoint.
+func TestAChainWithNoEmbeddingEndpointAnswersNil(t *testing.T) {
+	gateway := chain(t, &endpoint{})
+
+	if verb := gateway.AsEmbedder(); verb != nil {
+		t.Errorf("AsEmbedder = %v, want nil: no provider in the chain embeds", verb)
+	}
+	if served := gateway.Capabilities(); len(served) != 1 || served[0] != "summarise" {
+		t.Errorf("Capabilities = %v, want summarise alone", served)
 	}
 }

@@ -33,6 +33,10 @@ type Provider interface {
 	// AsSummariser returns the endpoint's summarisation verb, or nil when it
 	// does not summarise.
 	AsSummariser() Summariser
+
+	// AsEmbedder returns the endpoint's embedding verb, or nil when it does
+	// not embed.
+	AsEmbedder() Embedder
 }
 
 // NoAccessors is the default a provider embeds so that implementing one
@@ -43,6 +47,9 @@ type NoAccessors struct{}
 // AsSummariser reports that the provider does not summarise.
 func (NoAccessors) AsSummariser() Summariser { return nil }
 
+// AsEmbedder reports that the provider does not embed.
+func (NoAccessors) AsEmbedder() Embedder { return nil }
+
 // Summariser says what a document is about in at most the sentences it is
 // given.
 //
@@ -51,4 +58,20 @@ func (NoAccessors) AsSummariser() Summariser { return nil }
 // sentences are the document's own, and the caller is not told which it has.
 type Summariser interface {
 	Summarise(ctx context.Context, text string, sentences int) (string, error)
+}
+
+// Embedder turns text into the vectors a similarity search compares.
+//
+// It is a batch verb because a model endpoint is remote and a corpus is many
+// documents: asking for a thousand vectors one call at a time pays the round
+// trip a thousand times. One vector comes back per text, in the order the texts
+// were given, which is what lets a caller pair them without a key.
+//
+// The vectors are one model's and are comparable only with each other. That is
+// the operator's line to hold: a chain is meant to be one model at two
+// endpoints, so a failover keeps an index comparable, and a chain listing two
+// different embedding models is a config that quietly fills an index with
+// vectors from neither.
+type Embedder interface {
+	Embed(ctx context.Context, texts []string) ([][]float32, error)
 }
