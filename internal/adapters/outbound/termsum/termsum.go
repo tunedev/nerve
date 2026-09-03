@@ -45,7 +45,7 @@ func New() Summariser { return Summariser{} }
 // together are not put together here either: run into a paragraph they would
 // read as prose the document never wrote.
 func (Summariser) Summarise(_ context.Context, text string, sentences int) (string, error) {
-	said := split(text)
+	said := Sentences(text)
 	if sentences < 1 || len(said) == 0 {
 		return "", nil
 	}
@@ -132,7 +132,10 @@ func count(sentence string) map[string]int {
 
 func notWord(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }
 
-// split is the sentences a document is made of.
+// Sentences is the text as the sentences it is made of. It is exported because
+// cutting prose into sentences is the same job wherever it is done, and a
+// second reader of a transcript that cut it its own way would disagree with
+// this one about where a fact ends.
 //
 // A sentence ends at a full stop, a question mark or an exclamation — or at the
 // end of the paragraph, because a heading and a list item are sentences that
@@ -143,7 +146,7 @@ func notWord(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }
 // It is a reader of prose and it knows nothing of abbreviations: "e.g. the
 // pumps" is two sentences here. A number is not, because a stop with no space
 // after it has not ended anything.
-func split(text string) []string {
+func Sentences(text string) []string {
 	var said []string
 	for _, block := range paragraphs(text) {
 		said = append(said, sentencesOf(block)...)

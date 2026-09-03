@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/cuefact"
 	"github.com/tunedev/nerve/internal/adapters/outbound/ollama"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termsum"
 	"github.com/tunedev/nerve/internal/core/llm"
@@ -50,10 +51,40 @@ func TestRegisterProvidersMakesTermsumRoutable(t *testing.T) {
 }
 
 // termsum reads no settings, so it declares none safe to read back and the
-// effective-config surface has nothing of its to show.
-func TestTermsumDeclaresNoPublicSettings(t *testing.T) {
+// effective-config surface has nothing of its to show. cuefact has one and it
+// is not a credential, so an operator can read back whose turns are extracted.
+func TestAKindDeclaresWhatIsSafeToReadBack(t *testing.T) {
 	if public := providerRegistry(t).Public(termsum.Kind); len(public) != 0 {
 		t.Errorf("Public(%q) = %v, want none", termsum.Kind, public)
+	}
+	if public := providerRegistry(t).Public(cuefact.Kind); !slices.Contains(public, cuefact.RoleSetting) {
+		t.Errorf("Public(%q) = %v, want the role", cuefact.Kind, public)
+	}
+}
+
+// The laptop can commit a conversation with no model configured. One chain
+// holds both local endpoints and each capability routes to the one that serves
+// it, which is what makes the memory pipeline runnable on a plane.
+func TestTheLaptopChainSummarisesAndExtracts(t *testing.T) {
+	gateway, err := providerRegistry(t).Gateway([]llm.ProviderSpec{
+		{Name: "summaries", Kind: termsum.Kind},
+		{Name: "facts", Kind: cuefact.Kind},
+	})
+	if err != nil {
+		t.Fatalf("Gateway(laptop) = %v", err)
+	}
+
+	served := gateway.Capabilities()
+	if !slices.Contains(served, "summarise") || !slices.Contains(served, "extract") {
+		t.Fatalf("the gateway serves %v, want summarisation and extraction", served)
+	}
+
+	facts, err := gateway.AsFactExtractor().Extract(context.Background(), []llm.Turn{{Role: "user", Body: "Never force push."}})
+	if err != nil {
+		t.Fatalf("Extract = %v", err)
+	}
+	if len(facts) != 1 || facts[0].Kind != "instruction" || facts[0].Priority != llm.High {
+		t.Errorf("Extract = %+v, want one high-priority instruction", facts)
 	}
 }
 

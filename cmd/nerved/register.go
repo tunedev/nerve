@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/cuefact"
 	"github.com/tunedev/nerve/internal/adapters/outbound/devfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/exportfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/heartbeatfs"
@@ -107,16 +108,19 @@ func registerProcessors(registry *ingest.Registry) error {
 // than an edit to whatever routes.
 //
 // termsum takes no settings, so it names none. ollama names its endpoint and
-// its model, and has no credential beside them to say nothing about; a kind
-// that reached a hosted model would, and that silence is what makes the key
-// read back as redacted.
+// its model, and cuefact names whose turns it reads, because that is an
+// operator's business and not a credential. A kind that reached a hosted model
+// would say nothing about the key beside them, which is what makes the key read
+// back as redacted.
 //
-// The two serve different capabilities, so which one a call reaches is the
+// The three serve different capabilities, so which one a call reaches is the
 // accessor it asked for rather than the order they are listed in here. A chain
-// naming both summarises through termsum and embeds through ollama.
+// naming all three summarises through termsum, embeds through ollama and
+// extracts through cuefact.
 func registerProviders(registry *llm.Registry) error {
 	return errors.Join(
 		registry.Register(termsum.Kind, termsum.Factory),
 		registry.Register(ollama.Kind, ollama.Factory, ollama.Public...),
+		registry.Register(cuefact.Kind, cuefact.Factory, cuefact.RoleSetting),
 	)
 }
