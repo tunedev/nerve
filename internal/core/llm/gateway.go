@@ -77,6 +77,9 @@ func (g *Gateway) Capabilities() []string {
 	if g.AsEmbedder() != nil {
 		served = append(served, "embed")
 	}
+	if g.AsFactExtractor() != nil {
+		served = append(served, "extract")
+	}
 	return served
 }
 
@@ -126,6 +129,28 @@ type embedding struct{ chain []served[Embedder] }
 func (e embedding) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	return route(ctx, e.chain, func(ctx context.Context, provider Embedder) ([][]float32, error) {
 		return provider.Embed(ctx, texts)
+	})
+}
+
+// AsFactExtractor returns a FactExtractor routed across every provider that has
+// one, or nil when no provider in the chain extracts. It is nil for the reason
+// AsSummariser is: a build with no extracting endpoint finds that out where it
+// wires the pipeline rather than on the first transcript it commits.
+func (g *Gateway) AsFactExtractor() FactExtractor {
+	chain := serving(g, Provider.AsFactExtractor)
+	if len(chain) == 0 {
+		return nil
+	}
+	return extracting{chain: chain}
+}
+
+// extracting is the routed extraction verb over the providers that serve it,
+// resolved once when the accessor answered rather than per call.
+type extracting struct{ chain []served[FactExtractor] }
+
+func (e extracting) Extract(ctx context.Context, turns []Turn) ([]Fact, error) {
+	return route(ctx, e.chain, func(ctx context.Context, provider FactExtractor) ([]Fact, error) {
+		return provider.Extract(ctx, turns)
 	})
 }
 

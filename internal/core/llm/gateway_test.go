@@ -242,6 +242,12 @@ func TestAnEmptyChainServesNothing(t *testing.T) {
 	if verb := gateway.AsSummariser(); verb != nil {
 		t.Errorf("AsSummariser = %v, want nil", verb)
 	}
+	if verb := gateway.AsFactExtractor(); verb != nil {
+		t.Errorf("AsFactExtractor = %v, want nil", verb)
+	}
+	if served := gateway.Capabilities(); len(served) != 0 {
+		t.Errorf("Capabilities = %v, want none", served)
+	}
 	if names := gateway.Providers(); len(names) != 0 {
 		t.Errorf("Providers = %v, want none", names)
 	}
@@ -322,5 +328,73 @@ func TestAChainWithNoEmbeddingEndpointAnswersNil(t *testing.T) {
 	}
 	if served := gateway.Capabilities(); len(served) != 1 || served[0] != "summarise" {
 		t.Errorf("Capabilities = %v, want summarise alone", served)
+	}
+}
+
+// extractor answers Extract with whatever a test set. It summarises nothing,
+// which is what makes it the control for the capability routing below.
+type extractor struct {
+	llm.NoAccessors
+	facts []llm.Fact
+	err   error
+	calls int
+}
+
+func (e *extractor) AsFactExtractor() llm.FactExtractor { return e }
+
+func (e *extractor) Extract(context.Context, []llm.Turn) ([]llm.Fact, error) {
+	e.calls++
+	return e.facts, e.err
+}
+
+// Each capability is routed over the providers that serve that capability, and
+// not over the chain. An endpoint that summarises and does not extract is
+// passed over by extraction without being called, which is what lets one chain
+// hold a summarising endpoint and an extracting one.
+func TestACapabilityIsRoutedOverTheProvidersThatServeIt(t *testing.T) {
+	summariser := &endpoint{answer: "a summary"}
+	facts := &extractor{facts: []llm.Fact{{Kind: "preference", Body: "tabs", Priority: llm.High}}}
+
+	extracted, err := chain(t, summariser, facts).AsFactExtractor().Extract(t.Context(), []llm.Turn{{Role: "user", Body: "I prefer tabs"}})
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if len(extracted) != 1 || extracted[0].Body != "tabs" || extracted[0].Priority != llm.High {
+		t.Errorf("Extract = %+v, want the extracting endpoint's one fact", extracted)
+	}
+	if summariser.calls != 0 {
+		t.Errorf("the summarising endpoint saw %d calls, want 0: it does not extract", summariser.calls)
+	}
+}
+
+// A transient failure passes extraction to the next extracting endpoint, the
+// same way it passes a summary. The stability policy is the link's rather than
+// the capability's, so a second capability does not need a second one.
+func TestExtractionPassesADegradedEndpointToTheNext(t *testing.T) {
+	failing := &extractor{err: errTransient}
+	answering := &extractor{facts: []llm.Fact{{Kind: "instruction", Body: "never force push", Priority: llm.High}}}
+
+	extracted, err := chain(t, failing, answering).AsFactExtractor().Extract(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if len(extracted) != 1 || extracted[0].Kind != "instruction" {
+		t.Errorf("Extract = %+v, want the second endpoint's fact", extracted)
+	}
+	if failing.calls != 1 || answering.calls != 1 {
+		t.Errorf("calls = %d then %d, want one each", failing.calls, answering.calls)
+	}
+}
+
+// A chain that extracts and does not summarise says so. What a build serves is
+// what its endpoints serve between them, and an operator reading the banner is
+// asking which stages of the pipeline this process can actually run.
+func TestTheChainNamesTheCapabilitiesItsProvidersServe(t *testing.T) {
+	served := chain(t, &extractor{}).Capabilities()
+	if len(served) != 1 || served[0] != "extract" {
+		t.Errorf("Capabilities = %v, want extract alone", served)
+	}
+	if verb := chain(t, &extractor{}).AsSummariser(); verb != nil {
+		t.Errorf("AsSummariser = %v, want nil: the chain only extracts", verb)
 	}
 }

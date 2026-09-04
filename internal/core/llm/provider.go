@@ -37,6 +37,9 @@ type Provider interface {
 	// AsEmbedder returns the endpoint's embedding verb, or nil when it does
 	// not embed.
 	AsEmbedder() Embedder
+	// AsFactExtractor returns the endpoint's extraction verb, or nil when it
+	// does not extract.
+	AsFactExtractor() FactExtractor
 }
 
 // NoAccessors is the default a provider embeds so that implementing one
@@ -49,6 +52,9 @@ func (NoAccessors) AsSummariser() Summariser { return nil }
 
 // AsEmbedder reports that the provider does not embed.
 func (NoAccessors) AsEmbedder() Embedder { return nil }
+
+// AsFactExtractor reports that the provider does not extract facts.
+func (NoAccessors) AsFactExtractor() FactExtractor { return nil }
 
 // Summariser says what a document is about in at most the sentences it is
 // given.
@@ -74,4 +80,56 @@ type Summariser interface {
 // vectors from neither.
 type Embedder interface {
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
+}
+
+// Turn is one thing said in a conversation, as an extractor is handed it. It
+// carries the speaker because what a transcript is worth extracting from turns
+// on who said it: a preference the user stated is a fact about the user, and
+// the same sentence in the assistant's own output is a fact about nothing.
+type Turn struct {
+	// Role is who said it, in the caller's vocabulary.
+	Role string
+	// Body is what was said.
+	Body string
+}
+
+// Priority is how much a fact is worth keeping, on the three-step scale an
+// extractor answers on. It is ordered, so a caller with room for some of what
+// it was given keeps the larger values.
+type Priority int
+
+// The scale. Zero is not on it, so a fact that named no priority is refused
+// rather than silently ranked lowest.
+const (
+	// Low is worth keeping and worth dropping first — something said in
+	// passing, or hedged enough that it may not hold tomorrow.
+	Low Priority = iota + 1
+	// Normal is the ordinary fact: stated plainly, expected to hold.
+	Normal
+	// High is what a caller keeps when it keeps one thing — who the user is,
+	// and what they told you to always or never do.
+	High
+)
+
+// Fact is one thing an extractor found in a transcript: what sort of thing it
+// is, what it says, and how much it is worth keeping.
+//
+// Kind is the extractor's vocabulary and this package reads none of it, for the
+// reason a session's metadata keys are the caller's: what sorts of fact there
+// are is a question the endpoint answers, and a port that understood one kind
+// would have to be changed to understand a second.
+type Fact struct {
+	Kind     string
+	Body     string
+	Priority Priority
+}
+
+// FactExtractor reads a conversation and answers with what is worth remembering
+// from it.
+//
+// A transcript with nothing worth keeping extracts to no facts, which is an
+// answer and not a failure. The turns arrive in the order they were said,
+// because what a later turn means often depends on an earlier one.
+type FactExtractor interface {
+	Extract(ctx context.Context, turns []Turn) ([]Fact, error)
 }
