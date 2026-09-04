@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -86,9 +87,15 @@ type Result struct {
 // A manifest is validated first, so a materialiser given one that was built
 // rather than decoded refuses it here instead of writing half a projection.
 //
+// It converges rather than accumulates. Running it again over records nothing
+// has touched leaves the same files holding the same bytes, and running it over
+// records that have changed leaves what those records say and nothing an
+// earlier run said.
+//
 // Nothing is written for a projection whose source holds no records, the rollup
-// included. That is the honest answer: an empty projection is no slices, and a
-// single empty file would be a slice under a key no record ever had.
+// included, and whatever an earlier run wrote for it is taken away. That is the
+// honest answer: an empty projection is no slices, and a single empty file
+// would be a slice under a key no record ever had.
 func (m *Materialiser) Materialise(ctx context.Context, manifest Manifest) (Result, error) {
 	if err := manifest.Valid(); err != nil {
 		return Result{}, fmt.Errorf("materialise: %w", err)
@@ -160,13 +167,18 @@ func (m *Materialiser) record(ctx context.Context, manifest Manifest, entry vfs.
 	return Record{Name: entry.Name, Doc: doc}, true, nil
 }
 
-// write encodes each slice and then the table they combine into, and puts them
-// on the tree.
+// write converges the projection on what its records now say: one file per
+// slice, the table they combine into beside them, and nothing left over from a
+// run whose records cut a slice these do not.
+//
+// Converging is the whole of it rather than writing being. A materialise that
+// only wrote would leave a tree whose tables depend on which runs came before,
+// so running it twice would not mean what running it once does.
 func (m *Materialiser) write(ctx context.Context, manifest Manifest, cut []Slice) (Result, error) {
-	if len(cut) == 0 {
-		return Result{}, nil
-	}
 	dir := path.Join(m.root, manifest.Name)
+	if len(cut) == 0 {
+		return Result{}, m.clear(ctx, manifest, dir)
+	}
 	if err := m.fsys.Mkdir(ctx, dir); err != nil {
 		return Result{}, fmt.Errorf("materialise %q: %w", manifest.Name, err)
 	}
@@ -184,12 +196,51 @@ func (m *Materialiser) write(ctx context.Context, manifest Manifest, cut []Slice
 		}
 		written = append(written, at)
 	}
+	if err := m.prune(ctx, manifest, dir, written); err != nil {
+		return Result{}, err
+	}
 
 	rollup, err := m.writeRollup(ctx, manifest, cut)
 	if err != nil {
 		return Result{}, err
 	}
 	return Result{Slices: written, Rollup: rollup}, nil
+}
+
+// prune takes away everything in dir this run did not write. The directory
+// holds a projection's slices and nothing else, so an entry no slice claims is
+// one some earlier records cut and these records do not.
+//
+// It matches on what was written rather than on what a slice is called, so a
+// build that changes encoder finds the files the old one wrote stale too.
+func (m *Materialiser) prune(ctx context.Context, manifest Manifest, dir string, written []string) error {
+	entries, err := m.fsys.ReadDir(ctx, dir)
+	if err != nil {
+		return fmt.Errorf("materialise %q: read %s: %w", manifest.Name, dir, err)
+	}
+	for _, entry := range entries {
+		at := path.Join(dir, entry.Name)
+		if slices.Contains(written, at) {
+			continue
+		}
+		if err := m.fsys.RemoveAll(ctx, at); err != nil {
+			return fmt.Errorf("materialise %q: remove %s: %w", manifest.Name, at, err)
+		}
+	}
+	return nil
+}
+
+// clear takes away what a projection whose source now holds no records was left
+// holding. Nothing is written for an empty projection, so the tables of one
+// that has emptied have to go rather than stand as an answer no record gives
+// any more.
+func (m *Materialiser) clear(ctx context.Context, manifest Manifest, dir string) error {
+	for _, at := range []string{dir, m.rollupAt(manifest)} {
+		if err := m.fsys.RemoveAll(ctx, at); err != nil {
+			return fmt.Errorf("materialise %q: remove %s: %w", manifest.Name, at, err)
+		}
+	}
+	return nil
 }
 
 // writeRollup encodes the combined table and puts it beside the directory the
@@ -201,11 +252,16 @@ func (m *Materialiser) writeRollup(ctx context.Context, manifest Manifest, cut [
 	if err != nil {
 		return "", fmt.Errorf("materialise %q: rollup: %w", manifest.Name, err)
 	}
-	at := path.Join(m.root, manifest.Name+"."+m.encoder.Extension())
+	at := m.rollupAt(manifest)
 	if err := m.fsys.Write(ctx, at, data); err != nil {
 		return "", fmt.Errorf("materialise %q: write %s: %w", manifest.Name, at, err)
 	}
 	return at, nil
+}
+
+// rollupAt is where a projection's combined table goes.
+func (m *Materialiser) rollupAt(manifest Manifest) string {
+	return path.Join(m.root, manifest.Name+"."+m.encoder.Extension())
 }
 
 // encode is one slice through the encoder, bounded, so an engine that never
