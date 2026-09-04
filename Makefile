@@ -76,7 +76,7 @@ test: ## Run tests fast, no race detector (go vet runs as part of this)
 .PHONY: test-store
 test-store: ## Run the object-store tests against the running MinIO
 	@$(RUN_ENV) NERVE_OBJECTFS_ENDPOINT=$${NERVE_OBJECTFS_ENDPOINT:-http://127.0.0.1:$${NERVE_MINIO_PORT:-9000}} \
-		$(GO) test ./internal/adapters/outbound/objectfs/ ./internal/adapters/outbound/kvfs/ ./cmd/nerved/
+		$(GO) test ./internal/adapters/outbound/objectfs/ ./internal/adapters/outbound/kvfs/ ./internal/adapters/outbound/vectorfs/ ./cmd/nerved/
 
 .PHONY: test-queue
 test-queue: ## Run the queue tests against the running Postgres and RabbitMQ

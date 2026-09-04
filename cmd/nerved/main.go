@@ -82,9 +82,10 @@ func main() {
 	// of a caller its streaming reads are fetched: a mount may be remote, and no
 	// caller of the tree can tell.
 	//
-	// The keyspace every kvfs mount is a part of is built before the table that
-	// mounts over it, because a store two mounts share is the composition
-	// root's to own rather than a mount's to build.
+	// The keyspace every kvfs mount is a part of and the corpus every vectorfs
+	// mount keeps its documents in are built before the table that mounts over
+	// them, because a store two mounts share is the composition root's to own
+	// rather than a mount's to build.
 	//
 	// The tally counts what every mount is asked for and is read back through
 	// the tree, so per-mount accounting is answerable on a laptop with no
@@ -94,6 +95,10 @@ func main() {
 	retry := cfg.RetryPolicy()
 	breaker := cfg.BreakerPolicy()
 	store, err := keyspace(cfg.KVStoreURL)
+	if err != nil {
+		fail(err)
+	}
+	documents, err := corpus(cfg.DocStoreURL)
 	if err != nil {
 		fail(err)
 	}
@@ -126,7 +131,7 @@ func main() {
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), retry, breaker)
 	registry.Record(vfs.Recorders(signals.Recorder, traffic))
 	registry.ReadAhead(cfg.ReadaheadBytes())
-	if err := registerKinds(registry, version, store, traffic, gateway.AsEmbedder()); err != nil {
+	if err := registerKinds(registry, version, store, traffic, gateway.AsEmbedder(), documents); err != nil {
 		fail(err)
 	}
 
@@ -173,7 +178,8 @@ func main() {
 		"provider-timeout", cfg.ProviderTimeoutDuration(),
 		"readahead-window", cfg.ReadaheadBytes(),
 		"telemetry-endpoint", cfg.TelemetryEndpoint,
-		"kv-store-url", config.Redact(cfg.KVStoreURL))
+		"kv-store-url", config.Redact(cfg.KVStoreURL),
+		"doc-store-url", config.Redact(cfg.DocStoreURL))
 	for _, spec := range mounts {
 		slog.Info("mount", "prefix", spec.Prefix, "kind", spec.Kind, "caps", table.Capabilities(spec.Prefix))
 	}

@@ -74,8 +74,8 @@ func TestPgvectorAnswersAQuestionWithTheCorpusRanked(t *testing.T) {
 }
 
 // A document that was removed is gone from the ranking as well as from the
-// corpus. The vector is a column of the row, so nothing has to remember to
-// delete it separately.
+// corpus. The two are separate stores now, so this is the case that holds the
+// order Remove goes in: the vector first, the document second.
 func TestPgvectorForgetsARemovedDocument(t *testing.T) {
 	fsys := stackIndex(t)
 	ctx := t.Context()
@@ -116,7 +116,7 @@ func stackIndex(t *testing.T) vfs.FileSystem {
 		drop(t, url, "vector_"+name)
 		index.Close()
 	})
-	return vectorfs.New(name, width, neighbours, index, bagEmbedder{width: width})
+	return vectorfs.New(name, width, neighbours, newLocalDocs(t), index, bagEmbedder{width: width})
 }
 
 // drop takes a case's table away again, so a run leaves the database as it

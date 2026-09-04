@@ -27,13 +27,17 @@ func (f *FS) Mkdir(_ context.Context, name string) error {
 	return nil
 }
 
-// Write puts a document at name and the vector made from it beside it.
+// Write puts a document at name and files the vector made from it beside it.
 //
-// The embedding happens before the store and both land in one call, so a
-// document is never in the corpus without the vector that makes it findable.
-// A model that will not answer is a write that did not happen, which is the
-// right way round: the alternative is a corpus that quietly stops growing while
-// every write reports success.
+// The embedding happens before either store is touched, so a model that will
+// not answer is a write that did not happen. The alternative is a corpus that
+// quietly stops being findable while every write reports success.
+//
+// The document is stored and then indexed, which is the order the two ports'
+// standing decides: the corpus is the record, so a failure between them leaves
+// a document that is there and not yet findable, and writing it again is what
+// repairs that. The other order would leave the ranking naming a document
+// nobody can read.
 //
 // The mode survives the write, so a mode Chmod set is a mode a later write does
 // not silently reset.
@@ -51,7 +55,10 @@ func (f *FS) Write(ctx context.Context, name string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("write %q: %w", name, err)
 	}
-	if err := f.index.Put(ctx, key, data, vector, mode); err != nil {
+	if err := f.docs.Put(ctx, f.doc(key), data, mode); err != nil {
+		return fmt.Errorf("write %q: %w", name, err)
+	}
+	if err := f.index.Put(ctx, key, vector); err != nil {
 		return fmt.Errorf("write %q: %w", name, err)
 	}
 	return nil
@@ -69,7 +76,7 @@ func (f *FS) Read(ctx context.Context, name string) ([]byte, error) {
 	case atConfig:
 		return f.description(), nil
 	case atDoc:
-		body, err := f.index.Get(ctx, rest)
+		body, err := f.docs.Get(ctx, f.doc(rest))
 		if err != nil {
 			return nil, fmt.Errorf("read %q: %w", name, err)
 		}
@@ -90,7 +97,7 @@ func (f *FS) Read(ctx context.Context, name string) ([]byte, error) {
 // modeOf is the mode a write to key stores under: the one the document already
 // carries, or the default when nothing is stored there yet.
 func (f *FS) modeOf(ctx context.Context, key string) (fs.FileMode, error) {
-	entry, err := f.index.Peek(ctx, key)
+	entry, err := f.docs.Head(ctx, f.doc(key))
 	switch {
 	case err == nil:
 		return entry.Mode.Perm(), nil

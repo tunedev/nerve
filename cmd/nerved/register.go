@@ -62,20 +62,23 @@ import (
 // about the two URLs beside them makes the journal's and the broker's
 // credentials read back as redacted.
 //
-// vectorfs is given the chain's routed Embedder, because a document is stored
-// with the vector made from it and nothing but the composition root knows which
-// endpoints make one. A build whose chain embeds nothing hands over a nil, and
-// the kind refuses a mount rather than booting an index that could answer
-// nothing. It names its index, its dimension and how many documents a question
-// is answered with, and by saying nothing about the URL beside them makes the
-// database's credentials read back as redacted.
+// vectorfs is given the chain's routed Embedder and the corpus, because a
+// document is stored with the vector made from it and nothing but the
+// composition root knows which endpoints make one or where the documents go. A
+// build whose chain embeds nothing, or that names no corpus, hands over a nil,
+// and the kind refuses a mount rather than booting an index that could answer
+// nothing. The corpus arrives here already built for the reason the keyspace
+// does: whether it is a directory or a bucket is what config says, and this
+// table does not read config. It names its index, its dimension and how many
+// documents a question is answered with, and by saying nothing about the URL
+// beside them makes the database's credentials read back as redacted.
 //
 // proxyfs is given the registry's bare build, so the kind behind a proxy comes
 // out of the same table of kinds as any other mount and is wrapped exactly
 // once — by the Build that puts the proxy itself into the table. exportfs is
 // given it for the same reason: the kind holding an export's inputs is a kind
 // like any other, and the export mount over it is what goes into the table.
-func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store, traffic *vfs.Traffic, embed llm.Embedder) error {
+func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store, traffic *vfs.Traffic, embed llm.Embedder, corpus vectorfs.DocStore) error {
 	return errors.Join(
 		registry.Register(memfs.Kind, memfs.Factory),
 		registry.Register(localfs.Kind, localfs.Factory, localfs.RootSetting),
@@ -83,7 +86,7 @@ func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store, 
 		registry.Register(objectfs.Kind, objectfs.Factory, objectfs.Public...),
 		registry.Register(queuefs.Kind, queuefs.Factory, queuefs.Public...),
 		registry.Register(sqlfs.Kind, sqlfs.Factory, sqlfs.PathSetting),
-		registry.Register(vectorfs.Kind, vectorfs.Factory(embed), vectorfs.Public...),
+		registry.Register(vectorfs.Kind, vectorfs.Factory(embed, corpus), vectorfs.Public...),
 		registry.Register(streamfs.Kind, streamfs.Factory, streamfs.Public...),
 		registry.Register(streamrotatefs.Kind, streamrotatefs.Factory, streamrotatefs.Public...),
 		registry.Register(hellofs.Kind, hellofs.Factory, hellofs.MessageSetting),

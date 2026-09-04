@@ -183,6 +183,14 @@ secret is redacted everywhere the setting is read back. It is empty by default a
 means the keyspace is in memory, which is the laptop with no bucket; a value written
 through a mount over one survives the process that wrote it.
 
+`doc-store-url` is the same setting for documents: the corpus every `vectorfs` mount keeps
+its documents in, scoped per mount by the index's name. A `vectorfs` mount is two stores —
+the documents on one side and the vectors that rank them on the other — so a corpus can be
+a bucket while its ranking is a database, and the scheme is which: `file:///var/lib/nerve/corpus`
+is a directory on this host and a bucket URL is the same path-style spelling `kv-store-url`
+takes, redacted the same way. It is empty by default, and empty means the build keeps no
+documents, so a `vectorfs` mount is refused at boot rather than mounted over nowhere.
+
 `telemetry-endpoint` is where that goes: an OTLP collector URL, `http://` for plaintext and
 `https://` for TLS, as the OTLP exporters read the standard variable. It is empty by
 default and empty means nothing is exported — the recorder still runs, into providers that

@@ -40,6 +40,7 @@ func (c Config) Validate() error {
 		reachable("rabbitmq-url", c.RabbitMQURL, "amqp", "amqps"),
 		reachable("ollama-url", c.OllamaURL, "http", "https"),
 		optional("kv-store-url", c.KVStoreURL, bucketURL),
+		optional("doc-store-url", c.DocStoreURL, corpusURL),
 		listenable("admin-addr", c.AdminAddr),
 	)
 }
@@ -167,6 +168,27 @@ func bucketURL(name, value string, _ ...string) error {
 	secret, given := parsed.User.Password()
 	if parsed.User.Username() == "" || !given || secret == "" {
 		return fmt.Errorf("%s carries no credentials; write them as key:secret@ before the host", name)
+	}
+	return nil
+}
+
+// corpusURL accepts where a corpus of documents is kept: a file:// URL naming an
+// absolute directory on this host, or the bucket URL bucketURL already spells.
+// The two are one setting because they are one decision — where the documents
+// live — and which of them it is, is the scheme.
+func corpusURL(name, value string, _ ...string) error {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("%s is not a URL: %w", name, err)
+	}
+	if parsed.Scheme != "file" {
+		return bucketURL(name, value)
+	}
+	if parsed.Host != "" {
+		return fmt.Errorf("%s has host %q; a file URL names a path on this host, so write file:///path", name, parsed.Host)
+	}
+	if !strings.HasPrefix(parsed.Path, "/") {
+		return fmt.Errorf("%s has path %q, want an absolute directory", name, parsed.Path)
 	}
 	return nil
 }

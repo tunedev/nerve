@@ -220,3 +220,21 @@ func TestEffectiveRedactsTheStoreSecret(t *testing.T) {
 		}
 	}
 }
+
+// The corpus's URL carries the same secret when it is a bucket, and reads back
+// the same way. A corpus on this host has no secret to hide and reads back
+// whole, which is what makes the directory an operator is looking at findable.
+func TestEffectiveRedactsTheCorpusSecret(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.DocStoreURL = "https://AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMI@objects.example.com/nerve?region=eu-west-1"
+
+	got := settingValue(t, cfg.Effective(nil, nil), "doc-store-url")
+	if strings.Contains(got, "wJalrXUtnFEMI") {
+		t.Errorf("doc-store-url = %q, still carries the secret", got)
+	}
+
+	cfg.DocStoreURL = "file:///var/lib/nerve/corpus"
+	if got := settingValue(t, cfg.Effective(nil, nil), "doc-store-url"); got != cfg.DocStoreURL {
+		t.Errorf("doc-store-url = %q, want the directory %q read back whole", got, cfg.DocStoreURL)
+	}
+}

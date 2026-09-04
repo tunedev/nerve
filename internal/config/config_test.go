@@ -187,6 +187,52 @@ func TestKVStoreURLIsUnsetByDefault(t *testing.T) {
 	}
 }
 
+// The corpus vectorfs mounts share is one URL for the reason the keyspace is,
+// and it is optional because a build with no vectorfs mount needs nowhere to
+// put a document. What refuses the mount is the kind, at boot, not this.
+func TestDocStoreURLIsUnsetByDefault(t *testing.T) {
+	cfg, err := config.Load(config.Sources{})
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	if cfg.DocStoreURL != "" {
+		t.Errorf("doc-store-url = %q, want it unset", cfg.DocStoreURL)
+	}
+}
+
+// The corpus is a directory on this host or a bucket, and the scheme is which.
+// Both spellings are accepted, and a file URL that names a host or a relative
+// path is not: those are the two ways of writing one that reaches a directory
+// nobody meant.
+func TestValidateReadsTheCorpusURLByScheme(t *testing.T) {
+	accepted := []string{
+		"file:///var/lib/nerve/corpus",
+		"http://nerve:nervenerve@127.0.0.1:9000/nerve",
+		"https://AKIA:wJalrXUt@objects.example.com/nerve?region=eu-west-1",
+	}
+	for _, url := range accepted {
+		cfg := config.Defaults()
+		cfg.DocStoreURL = url
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate(%q) = %v", url, err)
+		}
+	}
+
+	refused := map[string]string{
+		"a host on a file URL":      "file://elsewhere/corpus",
+		"a relative path":           "file:corpus",
+		"a bucket with no path":     "http://nerve:nervenerve@127.0.0.1:9000",
+		"a bucket with no password": "http://nerve@127.0.0.1:9000/nerve",
+	}
+	for what, url := range refused {
+		cfg := config.Defaults()
+		cfg.DocStoreURL = url
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("Validate(%q) with %s = nil, want an error", url, what)
+		}
+	}
+}
+
 // The URL is the bucket's own address path-style, so what makes it usable is
 // what the boot refuses: a store nothing can be signed for, a path that is not
 // one bucket, and no bucket at all.

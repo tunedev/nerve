@@ -2,7 +2,6 @@ package vectorfs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"regexp"
@@ -10,17 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Postgres is the corpus the platform ships: documents and their vectors in one
-// row of one table, with pgvector doing the comparing.
-//
-// The document and its vector are columns of the same row, written by the same
-// statement. That is what makes "in the corpus" and "findable" the same fact:
-// no failure exists that leaves a document stored and unsearchable, or a vector
-// pointing at text that is no longer there.
+// Postgres is the ranking the platform ships: a vector per key, with pgvector
+// doing the comparing. The documents those keys name are the DocStore's, and
+// nothing here reads one.
 //
 // One table holds one index, named after it, because the width of a vector is
 // part of the column's type. Two indexes over two models have two widths and
@@ -51,7 +45,7 @@ const vectorLimit = 16000
 // from it.
 var naming = regexp.MustCompile(`^[a-z][a-z0-9_]{0,40}$`)
 
-// OpenPostgres returns the corpus named name, held in the database at url with
+// OpenPostgres returns the ranking named name, held in the database at url with
 // vectors of dimension, creating the table and its index when they are not
 // there yet.
 //
@@ -84,22 +78,28 @@ func OpenPostgres(url, name string, dimension int) (*Postgres, error) {
 	return &Postgres{pool: pool, table: table}, nil
 }
 
-// schema is what a database with this index not in it becomes.
+// schema is the table this index needs, stated rather than stepped through: a
+// row is a key and the vector made from the document filed under it, and the
+// document itself is somewhere else. That is what lets a corpus be a bucket
+// while its ranking is a database.
 //
-// The embedding is nullable because a document with no text has no vector, and
-// a zero vector in its place would be a document equally close to every
-// question. The index skips the nulls, so an empty document costs a row and
-// never an answer.
+// A table this index left behind when it also held the documents converges to
+// the same shape: the three columns that were the document go, the rows with no
+// vector go with them, and what is left is what the create above would have
+// made. Every statement is a no-op on a table already in that shape, so running
+// this a second time proves the first.
 func schema(table string, dimension int) string {
 	ddl := []string{
 		`CREATE EXTENSION IF NOT EXISTS vector`,
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-	key        TEXT PRIMARY KEY,
-	body       BYTEA       NOT NULL,
-	mode       INTEGER     NOT NULL,
-	embedding  vector(%d),
-	written_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	key       TEXT PRIMARY KEY,
+	embedding vector(%d) NOT NULL
 )`, table, dimension),
+		fmt.Sprintf(`ALTER TABLE %s DROP COLUMN IF EXISTS body`, table),
+		fmt.Sprintf(`ALTER TABLE %s DROP COLUMN IF EXISTS mode`, table),
+		fmt.Sprintf(`ALTER TABLE %s DROP COLUMN IF EXISTS written_at`, table),
+		fmt.Sprintf(`DELETE FROM %s WHERE embedding IS NULL`, table),
+		fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN embedding SET NOT NULL`, table),
 	}
 	if dimension <= hnswLimit {
 		ddl = append(ddl, fmt.Sprintf(
@@ -110,98 +110,41 @@ func schema(table string, dimension int) string {
 }
 
 // Close gives back the connections. Nothing in the port closes a plugin, so
-// this is for a caller that owns the corpus's lifetime and not for the tree.
+// this is for a caller that owns the index's lifetime and not for the tree.
 func (p *Postgres) Close() { p.pool.Close() }
 
-// Put stores body at key with the vector made from it, replacing what was
-// there. Both columns are written by the one statement, so a document is never
-// stored beside the vector of an older version of itself.
-func (p *Postgres) Put(ctx context.Context, key string, body []byte, vector []float32, mode fs.FileMode) error {
+// Put files vector under key, replacing what was there. A nil vector is a
+// document with nothing to compare, and it is taken out of the table rather
+// than stored as a null: a row that can never be an answer is a row a query has
+// to keep skipping.
+func (p *Postgres) Put(ctx context.Context, key string, vector []float32) error {
+	if vector == nil {
+		return p.Drop(ctx, key)
+	}
+
 	put := fmt.Sprintf(`
-INSERT INTO %s (key, body, mode, embedding, written_at)
-VALUES ($1, $2, $3, $4::vector, now())
-ON CONFLICT (key) DO UPDATE
-SET body = EXCLUDED.body, mode = EXCLUDED.mode, embedding = EXCLUDED.embedding, written_at = now()
+INSERT INTO %s (key, embedding) VALUES ($1, $2::vector)
+ON CONFLICT (key) DO UPDATE SET embedding = EXCLUDED.embedding
 `, p.table)
 
-	// A nil slice is empty content, and the driver would send it as NULL: an
-	// empty document and no document are the same value in Go and different
-	// rows in Postgres. Translating here is the same move as turning the
-	// driver's empty result into fs.ErrNotExist.
-	if body == nil {
-		body = []byte{}
-	}
-	if _, err := p.pool.Exec(ctx, put, key, body, int32(mode.Perm()), literal(vector)); err != nil {
+	if _, err := p.pool.Exec(ctx, put, key, literal(vector)); err != nil {
 		return fmt.Errorf("put %q: %w", key, err)
 	}
 	return nil
 }
 
-// Get returns the document stored at key.
-func (p *Postgres) Get(ctx context.Context, key string) ([]byte, error) {
-	get := fmt.Sprintf(`SELECT body FROM %s WHERE key = $1`, p.table)
-
-	var body []byte
-	if err := p.pool.QueryRow(ctx, get, key).Scan(&body); err != nil {
-		return nil, p.missing("get", key, err)
-	}
-	return body, nil
-}
-
-// Peek describes the document at key without hauling its body back.
-func (p *Postgres) Peek(ctx context.Context, key string) (Entry, error) {
-	peek := fmt.Sprintf(`SELECT key, octet_length(body), mode, written_at FROM %s WHERE key = $1`, p.table)
-
-	entry, err := scan(p.pool.QueryRow(ctx, peek, key))
-	if err != nil {
-		return Entry{}, p.missing("peek", key, err)
-	}
-	return entry, nil
-}
-
-// List describes every document under prefix, however deep.
-func (p *Postgres) List(ctx context.Context, prefix string) ([]Entry, error) {
-	list := fmt.Sprintf(`
-SELECT key, octet_length(body), mode, written_at FROM %s
-WHERE starts_with(key, $1)
-ORDER BY key
-`, p.table)
-
-	rows, err := p.pool.Query(ctx, list, prefix)
-	if err != nil {
-		return nil, fmt.Errorf("list %q: %w", prefix, err)
-	}
-	defer rows.Close()
-
-	var found []Entry
-	for rows.Next() {
-		entry, err := scan(rows)
-		if err != nil {
-			return nil, fmt.Errorf("list %q: %w", prefix, err)
-		}
-		found = append(found, entry)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list %q: %w", prefix, err)
-	}
-	return found, nil
-}
-
-// Drop removes the document at key, and its vector with it.
+// Drop takes key out of the ranking. A key with no vector is not an error: the
+// store is what says whether a document is there.
 func (p *Postgres) Drop(ctx context.Context, key string) error {
 	drop := fmt.Sprintf(`DELETE FROM %s WHERE key = $1`, p.table)
 
-	tag, err := p.pool.Exec(ctx, drop, key)
-	if err != nil {
+	if _, err := p.pool.Exec(ctx, drop, key); err != nil {
 		return fmt.Errorf("drop %q: %w", key, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("drop %q: %w", key, fs.ErrNotExist)
 	}
 	return nil
 }
 
-// DropAll removes every document under prefix.
+// DropAll takes every key under prefix out of the ranking.
 func (p *Postgres) DropAll(ctx context.Context, prefix string) error {
 	dropAll := fmt.Sprintf(`DELETE FROM %s WHERE starts_with(key, $1)`, p.table)
 
@@ -211,11 +154,11 @@ func (p *Postgres) DropAll(ctx context.Context, prefix string) error {
 	return nil
 }
 
-// Move puts the document at from at to, vector and all.
+// Move files the vector at from under to instead.
 //
 // Both statements are one transaction, because the landing has to be gone
 // before the move lands on it and a move that failed in between would leave the
-// corpus with neither document where the caller asked for it.
+// ranking with neither key.
 func (p *Postgres) Move(ctx context.Context, from, to string) error {
 	clear := fmt.Sprintf(`DELETE FROM %s WHERE key = $1`, p.table)
 	move := fmt.Sprintf(`UPDATE %s SET key = $2 WHERE key = $1`, p.table)
@@ -229,12 +172,8 @@ func (p *Postgres) Move(ctx context.Context, from, to string) error {
 	if _, err := tx.Exec(ctx, clear, to); err != nil {
 		return fmt.Errorf("move %q to %q: %w", from, to, err)
 	}
-	tag, err := tx.Exec(ctx, move, from, to)
-	if err != nil {
+	if _, err := tx.Exec(ctx, move, from, to); err != nil {
 		return fmt.Errorf("move %q to %q: %w", from, to, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("move %q: %w", from, fs.ErrNotExist)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -243,22 +182,7 @@ func (p *Postgres) Move(ctx context.Context, from, to string) error {
 	return nil
 }
 
-// Chmod sets the permission bits the document at key carries.
-func (p *Postgres) Chmod(ctx context.Context, key string, mode fs.FileMode) error {
-	chmod := fmt.Sprintf(`UPDATE %s SET mode = $2 WHERE key = $1`, p.table)
-
-	tag, err := p.pool.Exec(ctx, chmod, key, int32(mode.Perm()))
-	if err != nil {
-		return fmt.Errorf("chmod %q: %w", key, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("chmod %q: %w", key, fs.ErrNotExist)
-	}
-	return nil
-}
-
-// Nearest returns the documents closest to vector by cosine distance, closest
-// first.
+// Nearest returns the keys closest to vector by cosine distance, closest first.
 //
 // The distance operator appears in the ordering as well as in the projection,
 // because that is what an HNSW index answers: a query that ordered by anything
@@ -268,7 +192,6 @@ func (p *Postgres) Chmod(ctx context.Context, key string, mode fs.FileMode) erro
 func (p *Postgres) Nearest(ctx context.Context, vector []float32, limit int) ([]Hit, error) {
 	nearest := fmt.Sprintf(`
 SELECT key, 1 - (embedding <=> $1::vector) FROM %s
-WHERE embedding IS NOT NULL
 ORDER BY embedding <=> $1::vector
 LIMIT $2
 `, p.table)
@@ -293,31 +216,10 @@ LIMIT $2
 	return hits, nil
 }
 
-// row is what a describing query hands back, so one scan serves both the single
-// lookup and the listing.
-type row interface {
-	Scan(dest ...any) error
-}
-
-func scan(from row) (Entry, error) {
-	var entry Entry
-	var mode int32
-	if err := from.Scan(&entry.Key, &entry.Size, &mode, &entry.Written); err != nil {
-		return Entry{}, err
-	}
-	entry.Mode = fs.FileMode(mode) //nolint:gosec // the column holds what fs.FileMode.Perm was written as
-	return entry, nil
-}
-
-// literal spells a vector the way pgvector reads one, or nil for a document
-// with nothing to compare. It is text with a cast rather than a registered
-// type, so nothing in the build depends on a driver extension to store a
-// vector.
-func literal(vector []float32) *string {
-	if vector == nil {
-		return nil
-	}
-
+// literal spells a vector the way pgvector reads one. It is text with a cast
+// rather than a registered type, so nothing in the build depends on a driver
+// extension to store a vector.
+func literal(vector []float32) string {
 	spelled := strings.Builder{}
 	spelled.WriteByte('[')
 	for i, part := range vector {
@@ -327,17 +229,5 @@ func literal(vector []float32) *string {
 		spelled.WriteString(strconv.FormatFloat(float64(part), 'f', -1, 32))
 	}
 	spelled.WriteByte(']')
-
-	text := spelled.String()
-	return &text
-}
-
-// missing turns the driver's empty result into the sentinel the port promises.
-// Classifying at the plugin's edge is what keeps io/fs out of the driver and
-// the driver out of everything above.
-func (p *Postgres) missing(verb, key string, err error) error {
-	if errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("%s %q: %w", verb, key, fs.ErrNotExist)
-	}
-	return fmt.Errorf("%s %q: %w", verb, key, err)
+	return spelled.String()
 }

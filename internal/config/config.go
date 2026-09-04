@@ -72,6 +72,15 @@ type Config struct {
 	// wants.
 	KVStoreURL string `json:"kv-store-url"`
 
+	// DocStoreURL is the corpus every vectorfs mount keeps its documents in. It
+	// is one URL for the reason KVStoreURL is one: the corpus is shared, and a
+	// mount names which part of it it holds by its index name. A file:// URL is
+	// a directory on this host, which is the laptop with no bucket; a bucket
+	// URL is the same path-style spelling KVStoreURL takes, so the same
+	// redaction covers the secret. Empty means this build keeps no documents,
+	// and a vectorfs mount is refused rather than booted over nowhere.
+	DocStoreURL string `json:"doc-store-url"`
+
 	// AdminAddr is where the operator surface listens. It defaults to the
 	// loopback interface because what it answers with — endpoints, hosts, the
 	// shape of the mount table — is for whoever is on the box.
@@ -242,6 +251,7 @@ var fields = []field{
 	{"rabbitmq-url", "RabbitMQ connection URL", func(c *Config) *string { return &c.RabbitMQURL }},
 	{"ollama-url", "Ollama base URL", func(c *Config) *string { return &c.OllamaURL }},
 	{"kv-store-url", "bucket URL holding the keyspace kvfs mounts share; empty keeps it in memory", func(c *Config) *string { return &c.KVStoreURL }},
+	{"doc-store-url", "file:// directory or bucket URL holding the corpus vectorfs mounts share; empty refuses them", func(c *Config) *string { return &c.DocStoreURL }},
 	{"admin-addr", "host:port for the operator surface", func(c *Config) *string { return &c.AdminAddr }},
 }
 

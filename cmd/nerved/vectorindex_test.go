@@ -95,8 +95,13 @@ func TestAVectorMountAnswersThroughTheChainTheConfigNames(t *testing.T) {
 func mountIndex(t *testing.T, index string, embed llm.Embedder) *vfs.MountTable {
 	t.Helper()
 
+	documents, err := corpus("file://" + t.TempDir())
+	if err != nil {
+		t.Fatalf("corpus() = %v", err)
+	}
+
 	registry := vfs.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", nil, vfs.NewTraffic(time.Now), embed); err != nil {
+	if err := registerKinds(registry, "test", nil, vfs.NewTraffic(time.Now), embed, documents); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
