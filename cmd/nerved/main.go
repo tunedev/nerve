@@ -97,10 +97,36 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+
+	// The model endpoints this build has register here for the reason storage
+	// kinds do: this is the only place that knows a concrete provider. The
+	// chain comes from config in the order it is asked, so putting a hosted
+	// model in front of the laptop's is moving a line, and nothing downstream
+	// of the gateway ever holds a client.
+	//
+	// Its deadline is its own rather than the one every mount is bounded by,
+	// because a model is slow in a way a filesystem is not. The retry and
+	// breaker policies are shared: a transient failure and a far end that has
+	// stopped answering mean the same thing on either side of the process.
+	//
+	// The chain is built before the mount table because a mount may be over a
+	// model: an index stores the vector of every document written to it, and
+	// the routed Embedder is what makes one. Nothing points back the other way,
+	// so this is the whole of the ordering.
+	providers := llm.NewRegistry(cfg.ProviderTimeoutDuration(), retry, breaker)
+	if err := registerProviders(providers); err != nil {
+		fail(err)
+	}
+
+	gateway, err := providers.Gateway(cfg.ProviderSpecs())
+	if err != nil {
+		fail(err)
+	}
+
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), retry, breaker)
 	registry.Record(vfs.Recorders(signals.Recorder, traffic))
 	registry.ReadAhead(cfg.ReadaheadBytes())
-	if err := registerKinds(registry, version, store, traffic); err != nil {
+	if err := registerKinds(registry, version, store, traffic, gateway.AsEmbedder()); err != nil {
 		fail(err)
 	}
 
@@ -128,26 +154,6 @@ func main() {
 	// banner.
 	processors := ingest.NewRegistry()
 	if err := registerProcessors(processors); err != nil {
-		fail(err)
-	}
-
-	// The model endpoints this build has register here for the reason storage
-	// kinds do: this is the only place that knows a concrete provider. The
-	// chain comes from config in the order it is asked, so putting a hosted
-	// model in front of the laptop's is moving a line, and nothing downstream
-	// of the gateway ever holds a client.
-	//
-	// Its deadline is its own rather than the one every mount is bounded by,
-	// because a model is slow in a way a filesystem is not. The retry and
-	// breaker policies are shared: a transient failure and a far end that has
-	// stopped answering mean the same thing on either side of the process.
-	providers := llm.NewRegistry(cfg.ProviderTimeoutDuration(), retry, breaker)
-	if err := registerProviders(providers); err != nil {
-		fail(err)
-	}
-
-	gateway, err := providers.Gateway(cfg.ProviderSpecs())
-	if err != nil {
 		fail(err)
 	}
 

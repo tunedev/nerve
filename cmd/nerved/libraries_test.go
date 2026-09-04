@@ -33,7 +33,7 @@ func wire(t *testing.T, body string) *library.Catalog {
 	}
 
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), cfg.RetryPolicy(), cfg.BreakerPolicy())
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds: %v", err)
 	}
 	table, err := registry.Table(cfg.MountSpecs())

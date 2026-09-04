@@ -84,6 +84,12 @@ test-queue: ## Run the queue tests against the running Postgres and RabbitMQ
 		NERVE_QUEUEFS_BROKER=$${NERVE_QUEUEFS_BROKER:-$${NERVE_RABBITMQ_URL:-amqp://nerve:nerve@127.0.0.1:$${NERVE_RABBITMQ_PORT:-5672}/}} \
 		$(GO) test ./internal/adapters/outbound/queuefs/
 
+.PHONY: test-index
+test-index: ## Run the vector index tests against the running Postgres and Ollama
+	@$(RUN_ENV) NERVE_VECTORFS_INDEX=$${NERVE_VECTORFS_INDEX:-$${NERVE_POSTGRES_DSN:-postgres://nerve:nerve@127.0.0.1:$${NERVE_POSTGRES_PORT:-5432}/nerve?sslmode=disable}} \
+		NERVE_OLLAMA_ENDPOINT=$${NERVE_OLLAMA_ENDPOINT:-$${NERVE_OLLAMA_URL:-http://127.0.0.1:$${NERVE_OLLAMA_PORT:-11434}}} \
+		$(GO) test ./internal/adapters/outbound/vectorfs/ ./cmd/nerved/
+
 .PHONY: test-projection
 test-projection: ## Run the projection engine tests against a DuckDB binary
 	@$(RUN_ENV) NERVE_DUCKDB_BIN=$${NERVE_DUCKDB_BIN:-duckdb} \
@@ -106,10 +112,11 @@ lint: ## Verify the lint config, then run golangci-lint
 	$(LINT) config verify
 	$(LINT) run
 
-# `test-store`, `test-queue` and `test-projection` are deliberately not here.
-# Everything check runs has to run with nothing started and no network, which is
-# what keeps the plane test true; the first two are the same suite against the
-# started stack and need `make up` first, and the third needs a DuckDB binary,
-# which is not a Go dependency and cannot be one without cgo.
+# `test-store`, `test-queue`, `test-index` and `test-projection` are
+# deliberately not here. Everything check runs has to run with nothing started
+# and no network, which is what keeps the plane test true; the first three are
+# the same suites against the started stack and need `make up` first, and the
+# last needs a DuckDB binary, which is not a Go dependency and cannot be one
+# without cgo.
 .PHONY: check
 check: fmt-check lint race repro ## Everything CI runs
