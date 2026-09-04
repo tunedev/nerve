@@ -208,6 +208,18 @@ func (m Manifest) column(name string) (Column, bool) {
 	return Column{}, false
 }
 
+// columnAt is where the named column sits in a row. A validated manifest
+// declares every column it slices by, groups by or measures, so there is always
+// one.
+func (m Manifest) columnAt(name string) int {
+	for i, column := range m.Columns {
+		if column.Name == name {
+			return i
+		}
+	}
+	return 0
+}
+
 // validName returns fs.ErrInvalid for a projection name that cannot stand as
 // one path segment.
 func validName(name string) error {

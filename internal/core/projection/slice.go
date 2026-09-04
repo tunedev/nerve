@@ -46,16 +46,8 @@ func (m Manifest) slices(rows []Row) ([]Slice, error) {
 	return cut, nil
 }
 
-// sliceColumn is where the column the slices are cut by sits in a row. A
-// validated manifest declares it, so there is always one.
-func (m Manifest) sliceColumn() int {
-	for i, column := range m.Columns {
-		if column.Name == m.SliceBy {
-			return i
-		}
-	}
-	return 0
-}
+// sliceColumn is where the column the slices are cut by sits in a row.
+func (m Manifest) sliceColumn() int { return m.columnAt(m.SliceBy) }
 
 // sliceKey is what value is called as a slice, refusing what cannot name one.
 //

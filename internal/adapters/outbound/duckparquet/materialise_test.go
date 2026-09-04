@@ -27,7 +27,14 @@ const applications = `{
     {"name": "applied_at", "type": "timestamp", "from": "field", "field": "applied_at"}
   ],
   "slice_by": "stage",
-  "rollup": {"group_by": ["stage"], "measures": [{"name": "roles", "op": "count"}]}
+  "rollup": {
+    "group_by": ["stage"],
+    "measures": [
+      {"name": "roles", "op": "count"},
+      {"name": "payroll", "op": "sum", "column": "salary"},
+      {"name": "latest", "op": "max", "column": "applied_at"}
+    ]
+  }
 }`
 
 // records are the workspace this projects: three applications at two stages,
@@ -39,12 +46,13 @@ var records = map[string]string{
 }
 
 // TestMaterialiseWritesParquetSlices is the ticket: a manifest, the records it
-// names on the tree, and one Parquet file per slice that DuckDB reads back as
-// the table the manifest declared.
+// names on the tree, one Parquet file per slice, and the one combined file
+// those slices roll up into, all read back by DuckDB as the tables the manifest
+// declared.
 //
 // It runs the real engine over the real materialiser because that seam is the
-// whole delivery. The core tests prove the slicing with an encoder that writes
-// nothing; this one proves the files are Parquet.
+// whole delivery. The core tests prove the slicing and the rolling up with an
+// encoder that writes nothing; this one proves the files are Parquet.
 func TestMaterialiseWritesParquetSlices(t *testing.T) {
 	t.Parallel()
 
@@ -72,17 +80,20 @@ func TestMaterialiseWritesParquetSlices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMaterialiser: %v", err)
 	}
-	written, err := mat.Materialise(t.Context(), manifest)
+	got, err := mat.Materialise(t.Context(), manifest)
 	if err != nil {
 		t.Fatalf("Materialise: %v", err)
 	}
 
 	want := []string{"/projections/applications/applied.parquet", "/projections/applications/offer.parquet"}
-	if !slices.Equal(written, want) {
-		t.Fatalf("Materialise wrote %v, want %v", written, want)
+	if !slices.Equal(got.Slices, want) {
+		t.Fatalf("Materialise wrote %v, want %v", got.Slices, want)
+	}
+	if want := "/projections/applications.parquet"; got.Rollup != want {
+		t.Fatalf("Materialise rolled up into %q, want %q", got.Rollup, want)
 	}
 
-	applied := read(t, table, written[0])
+	applied := read(t, table, got.Slices[0])
 	if got, want := query(t, binary, applied, "SELECT * FROM TABLE ORDER BY company"), strings.Join([]string{
 		"acme|applied|90000|true|2026-01-02 09:00:00+00",
 		"cog|applied|NULL|true|2026-01-04 07:00:00+00",
@@ -90,7 +101,7 @@ func TestMaterialiseWritesParquetSlices(t *testing.T) {
 		t.Fatalf("the applied slice reads back as\n%s\nwant\n%s", got, want)
 	}
 
-	offer := read(t, table, written[1])
+	offer := read(t, table, got.Slices[1])
 	if got, want := query(t, binary, offer, "SELECT company, salary FROM TABLE"), "bolt|120000"; got != want {
 		t.Fatalf("the offer slice reads back as %q, want %q", got, want)
 	}
@@ -98,6 +109,17 @@ func TestMaterialiseWritesParquetSlices(t *testing.T) {
 	// not one that only makes sense beside its own name.
 	if got, want := query(t, binary, offer, "SELECT DISTINCT stage FROM TABLE"), "offer"; got != want {
 		t.Fatalf("the offer slice holds stage %q, want %q", got, want)
+	}
+
+	// One combined file for the whole workspace: a row per stage, the roles
+	// counted, the salaries added up with the one nobody stated passed over,
+	// and the latest application at that stage.
+	rollup := read(t, table, got.Rollup)
+	if got, want := query(t, binary, rollup, "SELECT * FROM TABLE"), strings.Join([]string{
+		"applied|2|90000|2026-01-04 07:00:00+00",
+		"offer|1|120000|2026-01-03 09:00:00+00",
+	}, "\n"); got != want {
+		t.Fatalf("the rollup reads back as\n%s\nwant\n%s", got, want)
 	}
 }
 

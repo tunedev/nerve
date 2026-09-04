@@ -73,26 +73,33 @@ func NewMaterialiser(fsys vfs.FileSystem, encoder Encoder, root string, timeout 
 	return &Materialiser{fsys: fsys, encoder: encoder, root: root, timeout: timeout}, nil
 }
 
-// Materialise writes one file per slice of m and returns where they were
-// written, in the order the slices are cut.
+// Result is where one materialise put a projection: the slice files, in the
+// order the slices are cut, and the one combined table they roll up into.
+type Result struct {
+	Slices []string
+	Rollup string
+}
+
+// Materialise writes one file per slice of m and one combined file the slices
+// roll up into, and returns where they went.
 //
 // A manifest is validated first, so a materialiser given one that was built
 // rather than decoded refuses it here instead of writing half a projection.
 //
-// Nothing is written for a projection whose source holds no records. That is
-// the honest answer: an empty projection is no slices, and a single empty file
-// would be a slice under a key no record ever had.
-func (m *Materialiser) Materialise(ctx context.Context, manifest Manifest) ([]string, error) {
+// Nothing is written for a projection whose source holds no records, the rollup
+// included. That is the honest answer: an empty projection is no slices, and a
+// single empty file would be a slice under a key no record ever had.
+func (m *Materialiser) Materialise(ctx context.Context, manifest Manifest) (Result, error) {
 	if err := manifest.Valid(); err != nil {
-		return nil, fmt.Errorf("materialise: %w", err)
+		return Result{}, fmt.Errorf("materialise: %w", err)
 	}
 	rows, err := m.read(ctx, manifest)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	cut, err := manifest.slices(rows)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	return m.write(ctx, manifest, cut)
 }
@@ -153,15 +160,15 @@ func (m *Materialiser) record(ctx context.Context, manifest Manifest, entry vfs.
 	return Record{Name: entry.Name, Doc: doc}, true, nil
 }
 
-// write encodes each slice and puts it on the tree, returning the paths in the
-// order the slices were cut.
-func (m *Materialiser) write(ctx context.Context, manifest Manifest, cut []Slice) ([]string, error) {
+// write encodes each slice and then the table they combine into, and puts them
+// on the tree.
+func (m *Materialiser) write(ctx context.Context, manifest Manifest, cut []Slice) (Result, error) {
 	if len(cut) == 0 {
-		return nil, nil
+		return Result{}, nil
 	}
 	dir := path.Join(m.root, manifest.Name)
 	if err := m.fsys.Mkdir(ctx, dir); err != nil {
-		return nil, fmt.Errorf("materialise %q: %w", manifest.Name, err)
+		return Result{}, fmt.Errorf("materialise %q: %w", manifest.Name, err)
 	}
 
 	schema := manifest.SliceSchema()
@@ -169,15 +176,36 @@ func (m *Materialiser) write(ctx context.Context, manifest Manifest, cut []Slice
 	for _, slice := range cut {
 		data, err := m.encode(ctx, schema, slice.Rows)
 		if err != nil {
-			return nil, fmt.Errorf("materialise %q: slice %q: %w", manifest.Name, slice.Key, err)
+			return Result{}, fmt.Errorf("materialise %q: slice %q: %w", manifest.Name, slice.Key, err)
 		}
 		at := path.Join(dir, slice.Key+"."+m.encoder.Extension())
 		if err := m.fsys.Write(ctx, at, data); err != nil {
-			return nil, fmt.Errorf("materialise %q: write %s: %w", manifest.Name, at, err)
+			return Result{}, fmt.Errorf("materialise %q: write %s: %w", manifest.Name, at, err)
 		}
 		written = append(written, at)
 	}
-	return written, nil
+
+	rollup, err := m.writeRollup(ctx, manifest, cut)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Slices: written, Rollup: rollup}, nil
+}
+
+// writeRollup encodes the combined table and puts it beside the directory the
+// slices are in, so a projection has one of them whatever its slices are
+// called. Inside that directory it would collide with a slice whose key is the
+// projection's own name.
+func (m *Materialiser) writeRollup(ctx context.Context, manifest Manifest, cut []Slice) (string, error) {
+	data, err := m.encode(ctx, manifest.RollupSchema(), manifest.combine(cut))
+	if err != nil {
+		return "", fmt.Errorf("materialise %q: rollup: %w", manifest.Name, err)
+	}
+	at := path.Join(m.root, manifest.Name+"."+m.encoder.Extension())
+	if err := m.fsys.Write(ctx, at, data); err != nil {
+		return "", fmt.Errorf("materialise %q: write %s: %w", manifest.Name, at, err)
+	}
+	return at, nil
 }
 
 // encode is one slice through the encoder, bounded, so an engine that never

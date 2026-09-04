@@ -36,12 +36,12 @@ func TestSliceIsNamedByTheValueThatCutIt(t *testing.T) {
 
 			mat, _, fsys := materialiser(t)
 			writeRecord(t, fsys, "acme", want.doc)
-			written, err := mat.Materialise(t.Context(), slicedBy(want.by))
+			got, err := mat.Materialise(t.Context(), slicedBy(want.by))
 			if err != nil {
 				t.Fatalf("Materialise: %v", err)
 			}
-			if got := []string{"/projections/records/" + want.file}; !slices.Equal(written, got) {
-				t.Fatalf("Materialise wrote %v, want %v", written, got)
+			if files := []string{"/projections/records/" + want.file}; !slices.Equal(got.Slices, files) {
+				t.Fatalf("Materialise wrote %v, want %v", got.Slices, files)
 			}
 		})
 	}
@@ -79,7 +79,7 @@ func TestSlicesComeBackSortedByKey(t *testing.T) {
 	writeRecord(t, fsys, "a-record", `{"title":"screen"}`)
 	writeRecord(t, fsys, "c-record", `{"title":"applied"}`)
 
-	written, err := mat.Materialise(t.Context(), slicedBy("title"))
+	got, err := mat.Materialise(t.Context(), slicedBy("title"))
 	if err != nil {
 		t.Fatalf("Materialise: %v", err)
 	}
@@ -89,8 +89,8 @@ func TestSlicesComeBackSortedByKey(t *testing.T) {
 		"/projections/records/offer.table",
 		"/projections/records/screen.table",
 	}
-	if !slices.Equal(written, want) {
-		t.Fatalf("Materialise wrote %v, want %v", written, want)
+	if !slices.Equal(got.Slices, want) {
+		t.Fatalf("Materialise wrote %v, want %v", got.Slices, want)
 	}
 	// The rows follow the same order, so the nth table is the nth slice.
 	assertTable(t, encoder.tables[0], [][]projection.Value{{"c-record", "applied", nil, nil, nil, nil}})
@@ -108,16 +108,16 @@ func TestSlicesAreTheSameOnEveryRun(t *testing.T) {
 		for _, stage := range []string{"applied", "screen", "offer", "rejected", "hired"} {
 			writeRecord(t, fsys, stage+"-record", `{"title":"`+stage+`"}`)
 		}
-		written, err := mat.Materialise(t.Context(), slicedBy("title"))
+		got, err := mat.Materialise(t.Context(), slicedBy("title"))
 		if err != nil {
 			t.Fatalf("Materialise: %v", err)
 		}
 		if first == nil {
-			first = written
+			first = got.Slices
 			continue
 		}
-		if !slices.Equal(written, first) {
-			t.Fatalf("Materialise wrote %v, want %v on every run", written, first)
+		if !slices.Equal(got.Slices, first) {
+			t.Fatalf("Materialise wrote %v, want %v on every run", got.Slices, first)
 		}
 	}
 }
