@@ -1,5 +1,5 @@
 // Package duckparquet writes a projection's table as Parquet by handing it to
-// DuckDB.
+// DuckDB, and answers a statement about one by handing it back.
 //
 // DuckDB runs as a process rather than as a library. The repo's build is
 // CGO_ENABLED=0 and asserts that two clean checkouts produce identical
@@ -8,11 +8,14 @@
 // processes this talks to, so an engine that is one too is the shape the repo
 // already has — it is invoked rather than dialled, which is the only difference.
 //
-// The conversation is a temporary directory and one statement. Rows go out as
-// newline-delimited JSON, the schema becomes the column types read_json is
-// given rather than ones it guessed, and COPY writes the Parquet that comes
-// back as bytes. Nothing persists: the directory is removed and the database is
-// in memory, so two encodes cannot see each other.
+// The conversation is a temporary directory and a handful of statements. Rows
+// go out as newline-delimited JSON, the schema becomes the column types
+// read_json is given rather than ones it guessed, and COPY writes the Parquet
+// that comes back as bytes. A question goes the other way: the table is written
+// into the directory, the statement reads it under the projection's own name,
+// and DESCRIBE beside it is what gives the answer its columns and their types.
+// Nothing persists: the directory is removed and the database is in memory, so
+// two calls cannot see each other.
 package duckparquet
 
 import (
@@ -79,8 +82,8 @@ func (e Encoder) Encode(ctx context.Context, schema projection.Schema, rows []pr
 	if err := os.WriteFile(filepath.Join(dir, rowsFile), ndjson, 0o600); err != nil {
 		return nil, fmt.Errorf("encode parquet: %w", err)
 	}
-	if err := e.run(ctx, dir, copyStatement(schema)); err != nil {
-		return nil, err
+	if _, err := run(ctx, e.binary, dir, copyStatement(schema)); err != nil {
+		return nil, fmt.Errorf("encode parquet: %w", err)
 	}
 
 	parquet, err := os.ReadFile(filepath.Join(dir, outFile))
@@ -90,22 +93,32 @@ func (e Encoder) Encode(ctx context.Context, schema projection.Schema, rows []pr
 	return parquet, nil
 }
 
-// run executes statement in dir with a DuckDB that reads no init file, keeps no
-// database and stops at the first error.
+// run executes the commands in dir with a DuckDB that reads no init file, keeps
+// no database and stops at the first error, and returns what it said on stdout.
 //
 // The deadline is the caller's. A materialiser bounds an encode the way the
 // model gateway bounds a provider call, so an engine that hangs is the caller's
 // timeout rather than a second one invented here.
-func (e Encoder) run(ctx context.Context, dir, statement string) error {
-	command := exec.CommandContext(ctx, e.binary, "-no-init", "-bail", "-batch", "-c", statement)
+//
+// stdout is kept apart from stderr because a caller reading the answer is
+// parsing it: a warning printed beside the rows would be read as one of them.
+// A failure names both, since which of the two carries the reason is DuckDB's
+// business.
+func run(ctx context.Context, binary, dir string, commands ...string) ([]byte, error) {
+	args := []string{"-no-init", "-bail", "-batch"}
+	for _, command := range commands {
+		args = append(args, "-c", command)
+	}
+
+	command := exec.CommandContext(ctx, binary, args...)
 	command.Dir = dir
-	var said bytes.Buffer
-	command.Stdout = &said
+	var out, said bytes.Buffer
+	command.Stdout = &out
 	command.Stderr = &said
 	if err := command.Run(); err != nil {
-		return fmt.Errorf("encode parquet: %s: %v: %s", e.binary, err, strings.TrimSpace(said.String()))
+		return nil, fmt.Errorf("%s: %v: %s", binary, err, strings.TrimSpace(said.String()+out.String()))
 	}
-	return nil
+	return out.Bytes(), nil
 }
 
 // encodeRows is rows as newline-delimited JSON, one object per row keyed by the

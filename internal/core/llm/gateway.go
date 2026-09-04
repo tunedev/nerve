@@ -80,6 +80,9 @@ func (g *Gateway) Capabilities() []string {
 	if g.AsFactExtractor() != nil {
 		served = append(served, "extract")
 	}
+	if g.AsSQLWriter() != nil {
+		served = append(served, "write-sql")
+	}
 	return served
 }
 
@@ -151,6 +154,28 @@ type extracting struct{ chain []served[FactExtractor] }
 func (e extracting) Extract(ctx context.Context, turns []Turn) ([]Fact, error) {
 	return route(ctx, e.chain, func(ctx context.Context, provider FactExtractor) ([]Fact, error) {
 		return provider.Extract(ctx, turns)
+	})
+}
+
+// AsSQLWriter returns an SQLWriter routed across every provider that has one,
+// or nil when no provider in the chain writes SQL. It is nil for the reason
+// AsSummariser is: a build with no endpoint that writes SQL finds that out
+// where it wires the query path rather than on the first question asked.
+func (g *Gateway) AsSQLWriter() SQLWriter {
+	chain := serving(g, Provider.AsSQLWriter)
+	if len(chain) == 0 {
+		return nil
+	}
+	return writing{chain: chain}
+}
+
+// writing is the routed SQL-writing verb over the providers that serve it,
+// resolved once when the accessor answered rather than per call.
+type writing struct{ chain []served[SQLWriter] }
+
+func (w writing) WriteSQL(ctx context.Context, question string, table Table) (string, error) {
+	return route(ctx, w.chain, func(ctx context.Context, provider SQLWriter) (string, error) {
+		return provider.WriteSQL(ctx, question, table)
 	})
 }
 

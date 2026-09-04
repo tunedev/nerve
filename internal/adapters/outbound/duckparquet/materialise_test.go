@@ -37,6 +37,9 @@ const applications = `{
   }
 }`
 
+// projections is where the materialised tables are put.
+const projections = "/projections"
+
 // records are the workspace this projects: three applications at two stages,
 // one of them without a salary because the posting did not say.
 var records = map[string]string{
@@ -57,33 +60,7 @@ func TestMaterialiseWritesParquetSlices(t *testing.T) {
 	t.Parallel()
 
 	binary := duckdb(t)
-	manifest, err := projection.Decode([]byte(applications))
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
-
-	table := vfs.NewMountTable()
-	if err := table.Mount("/", memfs.New()); err != nil {
-		t.Fatalf("Mount: %v", err)
-	}
-	for name, doc := range records {
-		at := path.Join(manifest.Source.Root, name)
-		if err := table.Mkdir(t.Context(), at); err != nil {
-			t.Fatalf("Mkdir(%q): %v", at, err)
-		}
-		if err := table.Write(t.Context(), path.Join(at, "meta.json"), []byte(doc)); err != nil {
-			t.Fatalf("Write(%q): %v", at, err)
-		}
-	}
-
-	mat, err := projection.NewMaterialiser(table, duckparquet.New(binary), "/projections", time.Minute)
-	if err != nil {
-		t.Fatalf("NewMaterialiser: %v", err)
-	}
-	got, err := mat.Materialise(t.Context(), manifest)
-	if err != nil {
-		t.Fatalf("Materialise: %v", err)
-	}
+	table, _, got := materialised(t, binary)
 
 	want := []string{"/projections/applications/applied.parquet", "/projections/applications/offer.parquet"}
 	if !slices.Equal(got.Slices, want) {
@@ -121,6 +98,41 @@ func TestMaterialiseWritesParquetSlices(t *testing.T) {
 	}, "\n"); got != want {
 		t.Fatalf("the rollup reads back as\n%s\nwant\n%s", got, want)
 	}
+}
+
+// materialised is the applications projection written onto a tree by the real
+// engine: the tree, the manifest it came from, and where the files went.
+func materialised(t *testing.T, binary string) (vfs.FileSystem, projection.Manifest, projection.Result) {
+	t.Helper()
+
+	manifest, err := projection.Decode([]byte(applications))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+
+	table := vfs.NewMountTable()
+	if err := table.Mount("/", memfs.New()); err != nil {
+		t.Fatalf("Mount: %v", err)
+	}
+	for name, doc := range records {
+		at := path.Join(manifest.Source.Root, name)
+		if err := table.Mkdir(t.Context(), at); err != nil {
+			t.Fatalf("Mkdir(%q): %v", at, err)
+		}
+		if err := table.Write(t.Context(), path.Join(at, "meta.json"), []byte(doc)); err != nil {
+			t.Fatalf("Write(%q): %v", at, err)
+		}
+	}
+
+	mat, err := projection.NewMaterialiser(table, duckparquet.New(binary), projections, time.Minute)
+	if err != nil {
+		t.Fatalf("NewMaterialiser: %v", err)
+	}
+	written, err := mat.Materialise(t.Context(), manifest)
+	if err != nil {
+		t.Fatalf("Materialise: %v", err)
+	}
+	return table, manifest, written
 }
 
 // read is what the tree holds at a path a materialise wrote.

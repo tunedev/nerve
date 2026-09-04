@@ -40,6 +40,10 @@ type Provider interface {
 	// AsFactExtractor returns the endpoint's extraction verb, or nil when it
 	// does not extract.
 	AsFactExtractor() FactExtractor
+
+	// AsSQLWriter returns the endpoint's SQL-writing verb, or nil when it does
+	// not write SQL.
+	AsSQLWriter() SQLWriter
 }
 
 // NoAccessors is the default a provider embeds so that implementing one
@@ -55,6 +59,9 @@ func (NoAccessors) AsEmbedder() Embedder { return nil }
 
 // AsFactExtractor reports that the provider does not extract facts.
 func (NoAccessors) AsFactExtractor() FactExtractor { return nil }
+
+// AsSQLWriter reports that the provider does not write SQL.
+func (NoAccessors) AsSQLWriter() SQLWriter { return nil }
 
 // Summariser says what a document is about in at most the sentences it is
 // given.
@@ -132,4 +139,42 @@ type Fact struct {
 // because what a later turn means often depends on an earlier one.
 type FactExtractor interface {
 	Extract(ctx context.Context, turns []Turn) ([]Fact, error)
+}
+
+// Column is one column of the table a question is asked over: what it is
+// called, and what it holds spelled in whatever vocabulary the caller declares
+// its tables in.
+//
+// The type is text and this package reads none of it, for the reason a fact's
+// kind is the extractor's: what types a table has is a question the caller's
+// own schema answers, and a port that understood one vocabulary would have to
+// be changed to understand a second.
+type Column struct {
+	Name string
+	Type string
+}
+
+// Table is the one table a question may be answered from: its name and its
+// columns, in the order the caller declares them.
+//
+// One table and not a database, because what a writer is given has to be what
+// the answer will be run against. A schema listing tables the caller cannot
+// produce is an invitation to write a join that fails.
+type Table struct {
+	Name    string
+	Columns []Column
+}
+
+// SQLWriter turns a question asked in the caller's own words into the SQL that
+// answers it over one table.
+//
+// It answers with a statement and never with rows: nothing is run here, and a
+// writer has no access to the data it is describing. That separation is what
+// lets the caller refuse a statement before an engine ever sees it.
+//
+// A question the table cannot answer is still a statement — the writer is not
+// the judge of whether the columns hold what was asked about — but a writer
+// that cannot produce SQL at all fails rather than answering with prose.
+type SQLWriter interface {
+	WriteSQL(ctx context.Context, question string, table Table) (string, error)
 }
