@@ -447,3 +447,177 @@ func TestAStoreIsWhereAMountWasPut(t *testing.T) {
 		}
 	}
 }
+
+// TestACompressedSessionIsADigestAndTheTurnsItDoesNotReach: the reduced
+// transcript. What the digest covers is read as a summary and the rest is read
+// as it was said.
+func TestACompressedSessionIsADigestAndTheTurnsItDoesNotReach(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		for _, body := range []string{"first", "second", "third", "fourth"} {
+			mustAppend(t, store, here, "monday", "user", body)
+		}
+
+		written, err := store.Compress(t.Context(), here, "monday", "they talked about the pumps", 2)
+		if err != nil {
+			t.Fatalf("Compress: %v", err)
+		}
+		if written.Summary != "they talked about the pumps" || written.Through != 2 {
+			t.Fatalf("Compress wrote %+v, want the summary through message 2", written)
+		}
+
+		read, err := store.Get(t.Context(), here, "monday")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if read.Digest != written {
+			t.Errorf("the session carries %+v, want %+v", read.Digest, written)
+		}
+		if len(read.Messages) != 4 {
+			t.Errorf("Get = %d messages, want all 4: compression reduces nothing away", len(read.Messages))
+		}
+		hot := read.Hot()
+		if len(hot) != 2 || hot[0].Body != "third" || hot[1].Body != "fourth" {
+			t.Errorf("Hot = %+v, want the two turns the digest does not cover", hot)
+		}
+	})
+}
+
+// TestAnUncompressedSessionIsHotThroughout: nothing about it has been reduced,
+// which is what the zero digest says.
+func TestAnUncompressedSessionIsHotThroughout(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		mustAppend(t, store, here, "monday", "user", "first")
+
+		read, err := store.Get(t.Context(), here, "monday")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if (read.Digest != session.Digest{}) {
+			t.Errorf("an uncompressed session carries %+v, want no digest", read.Digest)
+		}
+		if len(read.Hot()) != 1 {
+			t.Errorf("Hot = %+v, want the whole conversation", read.Hot())
+		}
+	})
+}
+
+// TestCompressingAgainCarriesTheDigestForward: a digest that covered less than
+// it did would leave the messages behind it read as cold, summarised and hot at
+// once.
+func TestCompressingAgainCarriesTheDigestForward(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		for _, body := range []string{"first", "second", "third"} {
+			mustAppend(t, store, here, "monday", "user", body)
+		}
+		if _, err := store.Compress(t.Context(), here, "monday", "the pumps", 2); err != nil {
+			t.Fatalf("Compress: %v", err)
+		}
+
+		if _, err := store.Compress(t.Context(), here, "monday", "the pumps and the gate", 3); err != nil {
+			t.Fatalf("Compress further: %v", err)
+		}
+		if _, err := store.Compress(t.Context(), here, "monday", "the pumps", 1); !errors.Is(err, fs.ErrInvalid) {
+			t.Errorf("Compress behind the standing digest = %v, want fs.ErrInvalid", err)
+		}
+
+		read, err := store.Get(t.Context(), here, "monday")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if read.Digest.Through != 3 || read.Digest.Summary != "the pumps and the gate" {
+			t.Errorf("the session carries %+v, want the summary through message 3", read.Digest)
+		}
+	})
+}
+
+// TestADigestCannotCoverATurnNobodyTook: a summary of a conversation that has
+// not happened.
+func TestADigestCannotCoverATurnNobodyTook(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		mustAppend(t, store, here, "monday", "user", "first")
+
+		for _, through := range []int{0, 2} {
+			if _, err := store.Compress(t.Context(), here, "monday", "the pumps", through); !errors.Is(err, fs.ErrInvalid) {
+				t.Errorf("Compress through %d = %v, want fs.ErrInvalid", through, err)
+			}
+		}
+		if _, err := store.Compress(t.Context(), here, "monday", "", 1); !errors.Is(err, fs.ErrInvalid) {
+			t.Errorf("Compress to no summary = %v, want fs.ErrInvalid", err)
+		}
+		if _, err := store.Compress(t.Context(), here, "never-happened", "the pumps", 1); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("Compress of a session nobody had = %v, want fs.ErrNotExist", err)
+		}
+	})
+}
+
+// TestABrokenDigestFailsTheRead: a caller told a compressed session has no
+// digest reads the cold half twice, once as messages and once as nothing.
+func TestABrokenDigestFailsTheRead(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, fsys vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		mustAppend(t, store, here, "monday", "user", "first")
+		base, err := here.Path(root, "")
+		if err != nil {
+			t.Fatalf("Path: %v", err)
+		}
+		if err := fsys.Write(t.Context(), path.Join(base, "monday", "DIGEST"), []byte(`{"through":1}`)); err != nil {
+			t.Fatalf("Write broken digest: %v", err)
+		}
+		if _, err := store.Get(t.Context(), here, "monday"); !errors.Is(err, fs.ErrInvalid) {
+			t.Fatalf("Get over a digest with no summary = %v, want fs.ErrInvalid", err)
+		}
+	})
+}
+
+// TestADigestIsNotAMessage: the file stands beside the log rather than in it,
+// so nothing counts it as a turn or appends over it.
+func TestADigestIsNotAMessage(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		mustAppend(t, store, here, "monday", "user", "first")
+		if _, err := store.Compress(t.Context(), here, "monday", "the pumps", 1); err != nil {
+			t.Fatalf("Compress: %v", err)
+		}
+		mustAppend(t, store, here, "monday", "assistant", "second")
+
+		read, err := store.Get(t.Context(), here, "monday")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(read.Messages) != 2 || read.Messages[1].Seq != 2 || read.Messages[1].Body != "second" {
+			t.Fatalf("Get = %+v, want two messages numbered 1 and 2", read.Messages)
+		}
+		if read.Digest.Through != 1 {
+			t.Errorf("the digest is now %+v, want it unchanged by the append", read.Digest)
+		}
+	})
+}
+
+// TestDeletingASessionTakesItsDigest: the summary is a claim about the
+// transcript, and there is no transcript left for it to be about.
+func TestDeletingASessionTakesItsDigest(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		mustAppend(t, store, here, "monday", "user", "first")
+		if _, err := store.Compress(t.Context(), here, "monday", "the pumps", 1); err != nil {
+			t.Fatalf("Compress: %v", err)
+		}
+		if err := store.Delete(t.Context(), here, "monday"); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+
+		mustCreate(t, store, here, "monday", nil)
+		mustAppend(t, store, here, "monday", "user", "again")
+		read, err := store.Get(t.Context(), here, "monday")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if (read.Digest != session.Digest{}) {
+			t.Errorf("the new session carries %+v, want no digest", read.Digest)
+		}
+	})
+}

@@ -128,6 +128,11 @@ func (st *Store) Get(ctx context.Context, s workspace.Scope, name string) (Trans
 		return Transcript{}, fmt.Errorf("get session %q: %w", name, err)
 	}
 
+	digest, err := st.readDigest(ctx, dir)
+	if err != nil {
+		return Transcript{}, fmt.Errorf("get session %q: %w", name, err)
+	}
+
 	messages := make([]Message, 0, len(seqs))
 	for _, seq := range seqs {
 		data, err := st.fsys.Read(ctx, path.Join(dir, messageName(seq)))
@@ -140,7 +145,71 @@ func (st *Store) Get(ctx context.Context, s workspace.Scope, name string) (Trans
 		}
 		messages = append(messages, Message{Seq: seq, Role: said.Role, Body: said.Body, At: said.At})
 	}
-	return Transcript{Session: sessionOf(name, held), Messages: messages}, nil
+	return Transcript{Session: sessionOf(name, held), Digest: digest, Messages: messages}, nil
+}
+
+// Compress records that everything said in the session named name in s up to
+// and including through has been reduced to summary, and answers with the
+// digest it wrote. A session nobody created reports fs.ErrNotExist.
+//
+// It writes no message and removes none. The transcript is what the summary is
+// a claim about, so a verb that reduced the log while reducing it would leave
+// the claim standing over something that is no longer there.
+//
+// A through past the last thing said is refused: a summary cannot cover a turn
+// nobody has taken. So is one below the digest already standing, because a
+// digest that covers less than it did has lost the half it already reduced, and
+// the messages behind it would be read as cold, summarised and hot at once.
+//
+// Compressing through what is already covered rewrites the digest with the new
+// summary. That is the caller's business — it asked — and the stamp is what
+// says which of the two is being read.
+func (st *Store) Compress(ctx context.Context, s workspace.Scope, name, summary string, through int) (Digest, error) {
+	dir, err := st.dir(s, name)
+	if err != nil {
+		return Digest{}, fmt.Errorf("compress session: %w", err)
+	}
+	if err := validDigest(summary, through); err != nil {
+		return Digest{}, fmt.Errorf("compress session %q: %w", name, err)
+	}
+	_, seqs, err := st.readDir(ctx, dir)
+	if err != nil {
+		return Digest{}, fmt.Errorf("compress session %q: %w", name, err)
+	}
+	if len(seqs) == 0 || through > seqs[len(seqs)-1] {
+		return Digest{}, fmt.Errorf("compress session %q through message %d, which nobody said: %w", name, through, fs.ErrInvalid)
+	}
+	standing, err := st.readDigest(ctx, dir)
+	if err != nil {
+		return Digest{}, fmt.Errorf("compress session %q: %w", name, err)
+	}
+	if through < standing.Through {
+		return Digest{}, fmt.Errorf("compress session %q through message %d, behind the digest through %d: %w", name, through, standing.Through, fs.ErrInvalid)
+	}
+
+	digest := Digest{Summary: summary, Through: through, At: st.now().UTC()}
+	data, err := encodeDigest(digest)
+	if err != nil {
+		return Digest{}, fmt.Errorf("compress session %q: %w", name, err)
+	}
+	if err := st.fsys.Write(ctx, path.Join(dir, digestName), data); err != nil {
+		return Digest{}, fmt.Errorf("compress session %q: %w", name, err)
+	}
+	return digest, nil
+}
+
+// readDigest returns the digest standing in dir, and the zero digest when
+// nothing has compressed the session. Not being compressed is the ordinary
+// state of a conversation, not a session missing a file it should have.
+func (st *Store) readDigest(ctx context.Context, dir string) (Digest, error) {
+	data, err := st.fsys.Read(ctx, path.Join(dir, digestName))
+	if errors.Is(err, fs.ErrNotExist) {
+		return Digest{}, nil
+	}
+	if err != nil {
+		return Digest{}, err
+	}
+	return decodeDigest(data)
 }
 
 // Delete removes the session named name in s, record and transcript together. A

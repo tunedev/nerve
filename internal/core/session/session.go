@@ -13,6 +13,13 @@
 // half — is derived from the transcript, and a transcript that can be edited
 // underneath a derivation makes the derivation a claim about nothing.
 //
+// A session's digest is the one thing beside the log that is written more than
+// once, and it is not part of the log: it is a summary of the cold half, held
+// in a file of its own, refreshed as the conversation grows and never covering
+// less than it did. Compressing a session leaves every message where it was
+// said. What a reduced transcript is, is the digest plus the messages it does
+// not reach.
+//
 // Reading a session answers with its metadata and its messages in one value,
 // and never with the messages alone. A caller holding messages with no idea
 // which session they came from is one mix-up away from attributing a user's
@@ -67,18 +74,60 @@ type Message struct {
 	At time.Time
 }
 
-// Transcript is a session and everything said in it. It is what Get answers
-// with, and the two fields arrive together on purpose — see the package
-// comment.
+// Transcript is a session, what it has been reduced to, and everything said in
+// it. It is what Get answers with, and the fields arrive together on purpose —
+// see the package comment.
+//
+// Messages is the whole conversation whether or not it has been compressed.
+// Compression writes a summary, it does not remove a turn, so a caller that
+// wants the record still has it.
 type Transcript struct {
 	Session  Session
+	Digest   Digest
 	Messages []Message
+}
+
+// Hot returns the messages the digest does not cover: the tail of the
+// conversation still held as it was said.
+//
+// With the digest and Hot together a caller has the reduced transcript — the
+// cold half as a summary, the recent half verbatim — without reading what the
+// summary already stands for. A session nothing has compressed is hot
+// throughout, which is the truthful answer: nothing about it has been reduced.
+func (t Transcript) Hot() []Message {
+	for i, message := range t.Messages {
+		if message.Seq > t.Digest.Through {
+			return t.Messages[i:]
+		}
+	}
+	return nil
+}
+
+// Digest is what a session's cold transcript was reduced to: a summary of
+// everything said up to and including Through, and when it was made.
+//
+// The zero Digest is a session nobody has compressed. Sequences count from one,
+// so a Through of zero covers no message, which keeps "not compressed" and
+// "compressed through the first turn" different answers.
+type Digest struct {
+	// Summary is what the cold half says.
+	Summary string `json:"summary"`
+	// Through is the last message sequence the summary covers.
+	Through int `json:"through"`
+	// At is when it was written.
+	At time.Time `json:"at"`
 }
 
 // The record a session is written in, beside the messages rather than in one of
 // them: metadata is written once at creation and messages arrive forever after,
 // so a file holding both would be rewritten by every append.
 const recordName = "SESSION"
+
+// The digest a compressed session is written in, beside the record and the
+// messages rather than inside either. It is derived from the transcript and is
+// rewritten whenever the cold half grows, which is the one thing the log itself
+// never is.
+const digestName = "DIGEST"
 
 // record is a Session as a file holds it. The name is not in it, because the
 // name is the directory's own: a record carrying one would be a second answer
@@ -132,6 +181,40 @@ func decodeMessage(data []byte) (message, error) {
 		return message{}, fmt.Errorf("message names no role: %w", fs.ErrInvalid)
 	}
 	return held, nil
+}
+
+// encodeDigest renders a digest as the bytes of its file.
+func encodeDigest(held Digest) ([]byte, error) {
+	return json.Marshal(held)
+}
+
+// decodeDigest reads a file back into the digest it holds, refusing anything
+// that is not one with fs.ErrInvalid. A digest that would not decode fails the
+// read of the session rather than being passed over as an uncompressed one: a
+// caller told a compressed session has no digest reads the cold half twice,
+// once as messages and once as nothing.
+func decodeDigest(data []byte) (Digest, error) {
+	var held Digest
+	if err := json.Unmarshal(data, &held); err != nil {
+		return Digest{}, fmt.Errorf("session digest does not decode: %w: %w", err, fs.ErrInvalid)
+	}
+	if err := validDigest(held.Summary, held.Through); err != nil {
+		return Digest{}, err
+	}
+	return held, nil
+}
+
+// validDigest returns fs.ErrInvalid for a digest that is not a reduction. A
+// digest with no summary marks a cold half reduced to nothing, and one covering
+// no message marks a session compressed that was not.
+func validDigest(summary string, through int) error {
+	switch {
+	case summary == "":
+		return fmt.Errorf("session digest has no summary: %w", fs.ErrInvalid)
+	case through < 1:
+		return fmt.Errorf("session digest covers through message %d, which is no message: %w", through, fs.ErrInvalid)
+	}
+	return nil
 }
 
 // validName returns fs.ErrInvalid for a name no session can have. The rule is
