@@ -74,6 +74,9 @@ func (g *Gateway) Capabilities() []string {
 	if g.AsSummariser() != nil {
 		served = append(served, "summarise")
 	}
+	if g.AsEmbedder() != nil {
+		served = append(served, "embed")
+	}
 	return served
 }
 
@@ -100,6 +103,29 @@ type summarising struct{ chain []served[Summariser] }
 func (s summarising) Summarise(ctx context.Context, text string, sentences int) (string, error) {
 	return route(ctx, s.chain, func(ctx context.Context, provider Summariser) (string, error) {
 		return provider.Summarise(ctx, text, sentences)
+	})
+}
+
+// AsEmbedder returns an Embedder routed across every provider that has one, or
+// nil when no provider in the chain embeds.
+//
+// The nil is what a build with no embedding endpoint reads back where it wires
+// an index, rather than on the first document it tries to index.
+func (g *Gateway) AsEmbedder() Embedder {
+	chain := serving(g, Provider.AsEmbedder)
+	if len(chain) == 0 {
+		return nil
+	}
+	return embedding{chain: chain}
+}
+
+// embedding is the routed embedding verb over the providers that serve it,
+// resolved once when the accessor answered rather than per call.
+type embedding struct{ chain []served[Embedder] }
+
+func (e embedding) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	return route(ctx, e.chain, func(ctx context.Context, provider Embedder) ([][]float32, error) {
+		return provider.Embed(ctx, texts)
 	})
 }
 

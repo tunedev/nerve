@@ -12,6 +12,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/localfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/objectfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/ollama"
 	"github.com/tunedev/nerve/internal/adapters/outbound/pdfproc"
 	"github.com/tunedev/nerve/internal/adapters/outbound/proxyfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/queuefs"
@@ -105,11 +106,17 @@ func registerProcessors(registry *ingest.Registry) error {
 // concrete provider, and a second endpoint is a package plus a line here rather
 // than an edit to whatever routes.
 //
-// termsum takes no settings, so it names none. A kind that reached a hosted
-// model would name its endpoint and its model and say nothing about the key
-// beside them, which is what makes the key read back as redacted.
+// termsum takes no settings, so it names none. ollama names its endpoint and
+// its model, and has no credential beside them to say nothing about; a kind
+// that reached a hosted model would, and that silence is what makes the key
+// read back as redacted.
+//
+// The two serve different capabilities, so which one a call reaches is the
+// accessor it asked for rather than the order they are listed in here. A chain
+// naming both summarises through termsum and embeds through ollama.
 func registerProviders(registry *llm.Registry) error {
 	return errors.Join(
 		registry.Register(termsum.Kind, termsum.Factory),
+		registry.Register(ollama.Kind, ollama.Factory, ollama.Public...),
 	)
 }
