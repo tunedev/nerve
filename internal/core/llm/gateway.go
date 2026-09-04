@@ -83,6 +83,9 @@ func (g *Gateway) Capabilities() []string {
 	if g.AsSQLWriter() != nil {
 		served = append(served, "write-sql")
 	}
+	if g.AsEntityExtractor() != nil {
+		served = append(served, "entities")
+	}
 	return served
 }
 
@@ -176,6 +179,29 @@ type writing struct{ chain []served[SQLWriter] }
 func (w writing) WriteSQL(ctx context.Context, question string, table Table) (string, error) {
 	return route(ctx, w.chain, func(ctx context.Context, provider SQLWriter) (string, error) {
 		return provider.WriteSQL(ctx, question, table)
+	})
+}
+
+// AsEntityExtractor returns an EntityExtractor routed across every provider
+// that has one, or nil when no provider in the chain reads entities. It is nil
+// for the reason AsFactExtractor is: a build with no endpoint that reads
+// entities finds that out where it wires the graph rather than on the first
+// document it indexes.
+func (g *Gateway) AsEntityExtractor() EntityExtractor {
+	chain := serving(g, Provider.AsEntityExtractor)
+	if len(chain) == 0 {
+		return nil
+	}
+	return reading{chain: chain}
+}
+
+// reading is the routed entity extraction verb over the providers that serve
+// it, resolved once when the accessor answered rather than per call.
+type reading struct{ chain []served[EntityExtractor] }
+
+func (r reading) ExtractEntities(ctx context.Context, text string) (Extraction, error) {
+	return route(ctx, r.chain, func(ctx context.Context, provider EntityExtractor) (Extraction, error) {
+		return provider.ExtractEntities(ctx, text)
 	})
 }
 

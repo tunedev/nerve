@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/cuefact"
+	"github.com/tunedev/nerve/internal/adapters/outbound/nounlink"
 	"github.com/tunedev/nerve/internal/adapters/outbound/ollama"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termsum"
 	"github.com/tunedev/nerve/internal/core/llm"
@@ -85,6 +86,40 @@ func TestTheLaptopChainSummarisesAndExtracts(t *testing.T) {
 	}
 	if len(facts) != 1 || facts[0].Kind != "instruction" || facts[0].Priority != llm.High {
 		t.Errorf("Extract = %+v, want one high-priority instruction", facts)
+	}
+}
+
+// Entity extraction runs through the gateway and nowhere else. The chain a
+// config document names is what a graph holds, so putting a model in front of
+// the laptop's reader is a line of config and nothing that reads entities
+// learns of it.
+func TestTheLaptopChainReadsEntities(t *testing.T) {
+	gateway, err := providerRegistry(t).Gateway([]llm.ProviderSpec{
+		{Name: "summaries", Kind: termsum.Kind},
+		{Name: "entities", Kind: nounlink.Kind},
+	})
+	if err != nil {
+		t.Fatalf("Gateway(laptop) = %v", err)
+	}
+
+	if served := gateway.Capabilities(); !slices.Contains(served, "entities") {
+		t.Fatalf("the gateway serves %v, want entity extraction", served)
+	}
+
+	found, err := gateway.AsEntityExtractor().ExtractEntities(context.Background(), "Nerve uses Postgres.")
+	if err != nil {
+		t.Fatalf("ExtractEntities = %v", err)
+	}
+	if len(found.Entities) != 2 {
+		t.Fatalf("ExtractEntities = %+v, want both names", found)
+	}
+	want := llm.Relation{
+		From:      llm.Entity{Kind: nounlink.Mention, Name: "Nerve"},
+		Predicate: "uses",
+		To:        llm.Entity{Kind: nounlink.Mention, Name: "Postgres"},
+	}
+	if len(found.Relations) != 1 || found.Relations[0] != want {
+		t.Errorf("relations = %+v, want %+v", found.Relations, want)
 	}
 }
 

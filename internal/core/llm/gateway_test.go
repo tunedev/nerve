@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -73,6 +74,34 @@ func (v *vectors) Embed(_ context.Context, texts []string) ([][]float32, error) 
 		answer[i] = []float32{float32(len(text))}
 	}
 	return answer, nil
+}
+
+// named answers ExtractEntities with one entity per capitalised word and the
+// relation between the first two, counting the calls that reached it. It reads
+// entities and neither summarises nor embeds, which is what a chain holding a
+// summariser and an entity reader looks like.
+type named struct {
+	llm.NoAccessors
+	err   error
+	calls int
+}
+
+func (n *named) AsEntityExtractor() llm.EntityExtractor { return n }
+
+func (n *named) ExtractEntities(_ context.Context, text string) (llm.Extraction, error) {
+	n.calls++
+	if n.err != nil {
+		return llm.Extraction{}, n.err
+	}
+
+	var found llm.Extraction
+	for _, word := range strings.Fields(text) {
+		found.Entities = append(found.Entities, llm.Entity{Kind: "thing", Name: word})
+	}
+	if len(found.Entities) >= 2 {
+		found.Relations = []llm.Relation{{From: found.Entities[0], Predicate: "beside", To: found.Entities[1]}}
+	}
+	return found, nil
 }
 
 // chain builds a gateway over the providers given, in order, under the policies
@@ -244,6 +273,9 @@ func TestAnEmptyChainServesNothing(t *testing.T) {
 	}
 	if verb := gateway.AsFactExtractor(); verb != nil {
 		t.Errorf("AsFactExtractor = %v, want nil", verb)
+	}
+	if verb := gateway.AsEntityExtractor(); verb != nil {
+		t.Errorf("AsEntityExtractor = %v, want nil", verb)
 	}
 	if served := gateway.Capabilities(); len(served) != 0 {
 		t.Errorf("Capabilities = %v, want none", served)
@@ -467,5 +499,48 @@ func TestAChainWithNoSQLWritingEndpointAnswersNil(t *testing.T) {
 	}
 	if served := chain(t, &writer{}).Capabilities(); len(served) != 1 || served[0] != "write-sql" {
 		t.Errorf("Capabilities = %v, want write-sql alone", served)
+	}
+}
+
+// Entity extraction is routed like every other capability: it reaches the
+// endpoints whose accessor answered and no others, so a chain holding a
+// summariser and an entity reader asks each for what it has.
+func TestEntityExtractionReachesTheProviderThatReadsIt(t *testing.T) {
+	said := &endpoint{answer: "the pumps had not run"}
+	reader := &named{}
+	gateway := chain(t, said, reader)
+
+	if served := gateway.Capabilities(); !slices.Contains(served, "entities") {
+		t.Fatalf("the gateway serves %v, want entity extraction", served)
+	}
+
+	found, err := gateway.AsEntityExtractor().ExtractEntities(context.Background(), "Nerve Postgres")
+	if err != nil {
+		t.Fatalf("ExtractEntities = %v", err)
+	}
+	if len(found.Entities) != 2 || len(found.Relations) != 1 {
+		t.Fatalf("ExtractEntities = %+v, want two entities and one relation", found)
+	}
+	if said.calls != 0 {
+		t.Errorf("the summarising provider saw %d calls, want 0: it reads no entities", said.calls)
+	}
+}
+
+// A chain of two endpoints reading entities fails over exactly as every other
+// capability does, because the failover rule is written once and the accessor
+// is what varies.
+func TestATransientEntityFailurePassesToTheNextProvider(t *testing.T) {
+	first := &named{err: errTransient}
+	second := &named{}
+
+	found, err := chain(t, first, second).AsEntityExtractor().ExtractEntities(context.Background(), "Nerve")
+	if err != nil {
+		t.Fatalf("ExtractEntities = %v", err)
+	}
+	if len(found.Entities) != 1 {
+		t.Fatalf("ExtractEntities = %+v, want the second endpoint's answer", found)
+	}
+	if second.calls != 1 {
+		t.Errorf("the second endpoint saw %d calls, want 1", second.calls)
 	}
 }
