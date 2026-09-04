@@ -12,7 +12,10 @@ import (
 	"github.com/tunedev/nerve/internal/core/workspace"
 )
 
-const root = "/schedule"
+const (
+	root      = "/schedule"
+	materials = "/projections"
+)
 
 // here is the workspace the jobs derive from, and began is the moment the log's
 // clock reads, so a note is compared against when it was written rather than
@@ -23,15 +26,42 @@ var (
 )
 
 // tree is the storage two processes share: the second one only recovers what
-// the first one left because both are looking at the same mount.
+// the first one left because both are looking at the same mount. The log and
+// what a run writes are separate areas, so a slice standing under the log's
+// root is never read back as a note.
 func tree(t *testing.T) vfs.FileSystem {
 	t.Helper()
 
 	table := vfs.NewMountTable()
-	if err := table.Mount(root, memfs.New()); err != nil {
-		t.Fatalf("Mount(%q): %v", root, err)
+	for _, at := range []string{root, materials} {
+		if err := table.Mount(at, memfs.New()); err != nil {
+			t.Fatalf("Mount(%q): %v", at, err)
+		}
 	}
 	return table
+}
+
+// read is what fsys holds at at.
+func read(t *testing.T, fsys vfs.FileSystem, at string) string {
+	t.Helper()
+
+	data, err := fsys.Read(t.Context(), at)
+	if err != nil {
+		t.Fatalf("Read(%q): %v", at, err)
+	}
+	return string(data)
+}
+
+// newScheduler returns the scheduler holder is, doing run over log and claiming
+// its jobs from held.
+func newScheduler(t *testing.T, log *schedule.Log, held schedule.Lease, holder string, run schedule.Run) *schedule.Scheduler {
+	t.Helper()
+
+	runner, err := schedule.New(log, held, run, holder, ttl)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return runner
 }
 
 // newLog returns a log over fsys whose clock reads at.
@@ -55,7 +85,7 @@ func TestAnInterruptedJobIsRecoveredByTheProcessAfterIt(t *testing.T) {
 	fsys := tree(t)
 	job := schedule.Job{Scope: here, Name: "sales"}
 
-	dying := schedule.New(newLog(t, fsys, began), func(context.Context, schedule.Job) error {
+	dying := newScheduler(t, newLog(t, fsys, began), newGrants(stopped), "node-one", func(context.Context, schedule.Job) error {
 		panic("the host went away")
 	})
 	died := func() (killed bool) {
@@ -67,7 +97,7 @@ func TestAnInterruptedJobIsRecoveredByTheProcessAfterIt(t *testing.T) {
 	}
 
 	var ran []schedule.Job
-	after := schedule.New(newLog(t, fsys, began), func(_ context.Context, job schedule.Job) error {
+	after := newScheduler(t, newLog(t, fsys, began), newGrants(stopped), "node-two", func(_ context.Context, job schedule.Job) error {
 		ran = append(ran, job)
 		return nil
 	})
@@ -86,13 +116,13 @@ func TestAnInterruptedJobIsRecoveredByTheProcessAfterIt(t *testing.T) {
 func TestAJobThatFinishedIsNotRunAgain(t *testing.T) {
 	fsys := tree(t)
 
-	done := schedule.New(newLog(t, fsys, began), func(context.Context, schedule.Job) error { return nil })
+	done := newScheduler(t, newLog(t, fsys, began), newGrants(stopped), "node-one", func(context.Context, schedule.Job) error { return nil })
 	if err := done.Do(t.Context(), schedule.Job{Scope: here, Name: "sales"}); err != nil {
 		t.Fatalf("Do: %v", err)
 	}
 
 	var ran []schedule.Job
-	after := schedule.New(newLog(t, fsys, began), func(_ context.Context, job schedule.Job) error {
+	after := newScheduler(t, newLog(t, fsys, began), newGrants(stopped), "node-two", func(_ context.Context, job schedule.Job) error {
 		ran = append(ran, job)
 		return nil
 	})
@@ -114,7 +144,7 @@ func TestAJobIsWrittenDownBeforeItRuns(t *testing.T) {
 	job := schedule.Job{Scope: here, Name: "sales"}
 
 	var owedDuring []schedule.Job
-	runner := schedule.New(log, func(ctx context.Context, _ schedule.Job) error {
+	runner := newScheduler(t, log, newGrants(stopped), "node-one", func(ctx context.Context, _ schedule.Job) error {
 		var err error
 		owedDuring, err = log.Unfinished(ctx)
 		return err
@@ -136,7 +166,7 @@ func TestAFailedRunStaysOwed(t *testing.T) {
 	job := schedule.Job{Scope: here, Name: "sales"}
 
 	broken := errors.New("duckdb is not answering")
-	runner := schedule.New(log, func(context.Context, schedule.Job) error { return broken })
+	runner := newScheduler(t, log, newGrants(stopped), "node-one", func(context.Context, schedule.Job) error { return broken })
 	if err := runner.Do(t.Context(), job); !errors.Is(err, broken) {
 		t.Fatalf("Do of a failing run = %v, want %v", err, broken)
 	}
@@ -167,7 +197,7 @@ func TestRecoverRunsEveryJobAndReportsAllThatFailed(t *testing.T) {
 	}
 
 	var ran []string
-	after := schedule.New(log, func(_ context.Context, job schedule.Job) error {
+	after := newScheduler(t, log, newGrants(stopped), "node-one", func(_ context.Context, job schedule.Job) error {
 		ran = append(ran, job.Name)
 		if job == stuck {
 			return broken
