@@ -7,11 +7,18 @@
 // ever grows. Keeping them apart is what lets a caller ask which sessions exist
 // without reading a conversation's worth of messages to find out.
 //
-// The log is append-only and the package offers no verb that is not. There is
-// no way to rewrite a message or to drop one, because everything downstream of
-// a session — the facts extracted from it, the summary that replaces its cold
-// half — is derived from the transcript, and a transcript that can be edited
-// underneath a derivation makes the derivation a claim about nothing.
+// The log is append-only and the package offers no verb that rewrites a message
+// or drops one, because everything downstream of a session — the facts
+// extracted from it, the summary that replaces its cold half — is derived from
+// the transcript, and a transcript that can be edited underneath a derivation
+// makes the derivation a claim about nothing.
+//
+// A conversation that has gone cold is archived rather than trimmed: its older
+// messages move to a directory beside the ones still in it, and the session
+// keeps a summary of what they said. Moved aside is not deleted — the archived
+// half is read back by the verb that names it — and a sequence number, once
+// assigned, is never handed out again, so the archive and the transcript can
+// never disagree about which message is which.
 //
 // Reading a session answers with its metadata and its messages in one value,
 // and never with the messages alone. A caller holding messages with no idea
@@ -50,6 +57,13 @@ type Session struct {
 	Meta Meta
 	// Created is when it was created.
 	Created time.Time
+	// Summary is what the archived half of the transcript said, and is empty on
+	// a session nothing has been archived from. It is what a reader has instead
+	// of the messages that were moved aside.
+	Summary string
+	// Archived is the highest sequence moved into the archive, and zero on a
+	// session nothing has been archived from.
+	Archived int
 }
 
 // Message is one thing said in a session, with its position in the
@@ -80,12 +94,19 @@ type Transcript struct {
 // so a file holding both would be rewritten by every append.
 const recordName = "SESSION"
 
+// The directory a session's archived messages stand in, inside the session's
+// own. The name is not a sequence, so the listing that finds messages passes
+// over it, and it is not the record's, so an archive cannot be mistaken for one.
+const archiveName = "ARCHIVE"
+
 // record is a Session as a file holds it. The name is not in it, because the
 // name is the directory's own: a record carrying one would be a second answer
 // to which session it is.
 type record struct {
-	Meta    Meta      `json:"meta,omitempty"`
-	Created time.Time `json:"created"`
+	Meta     Meta      `json:"meta,omitempty"`
+	Created  time.Time `json:"created"`
+	Summary  string    `json:"summary,omitempty"`
+	Archived int       `json:"archived,omitempty"`
 }
 
 // message is a Message as a file holds it. The sequence is not in it, because
@@ -166,6 +187,20 @@ func validMeta(meta Meta) error {
 func validRole(role string) error {
 	if role == "" {
 		return fmt.Errorf("message names no role: %w", fs.ErrInvalid)
+	}
+	return nil
+}
+
+// validArchive returns fs.ErrInvalid for an archival a session cannot record.
+// A summary is the whole point of moving a transcript aside: an archive without
+// one is a conversation whose cold half is unreachable to every reader that
+// only ever asks for the session.
+func validArchive(through int, summary string) error {
+	switch {
+	case through < 1:
+		return fmt.Errorf("archiving through sequence %d, which is not a message: %w", through, fs.ErrInvalid)
+	case summary == "":
+		return fmt.Errorf("archiving through sequence %d retains no summary: %w", through, fs.ErrInvalid)
 	}
 	return nil
 }
