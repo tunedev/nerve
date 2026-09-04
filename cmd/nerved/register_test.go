@@ -16,6 +16,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamrotatefs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/vectorfs"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -24,7 +25,7 @@ import (
 // the whole point of the registry.
 func TestRegisterKindsMakesMemfsMountable(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -52,7 +53,7 @@ func TestRegisterKindsMakesMemfsMountable(t *testing.T) {
 // while an operator is still watching. None of that opens a file.
 func TestRegisterKindsDeclaresSqlfsAndItsDatabaseFile(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -70,7 +71,7 @@ func TestRegisterKindsDeclaresSqlfsAndItsDatabaseFile(t *testing.T) {
 // effective-config surface has nothing of its to show.
 func TestMemfsDeclaresNoPublicSettings(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -84,7 +85,7 @@ func TestMemfsDeclaresNoPublicSettings(t *testing.T) {
 func TestRegisterKindsMakesLocalfsMountable(t *testing.T) {
 	root := t.TempDir()
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -109,7 +110,7 @@ func TestRegisterKindsMakesLocalfsMountable(t *testing.T) {
 // config has to be able to see which disk a mount is on.
 func TestLocalfsDeclaresItsRootPublic(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -122,7 +123,7 @@ func TestLocalfsDeclaresItsRootPublic(t *testing.T) {
 // owns, so two mounts the config names do not answer each other's keys.
 func TestRegisterKindsMakesKvfsMountable(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -155,7 +156,7 @@ func TestRegisterKindsMakesKvfsMountable(t *testing.T) {
 // over, so it is declared public where a credential would not be.
 func TestKvfsDeclaresItsNamespacePublic(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -169,7 +170,7 @@ func TestKvfsDeclaresItsNamespacePublic(t *testing.T) {
 // redacted everywhere the effective config is read back.
 func TestObjectfsDeclaresOnlyWhatIsNotACredential(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -188,7 +189,7 @@ func TestObjectfsDeclaresOnlyWhatIsNotACredential(t *testing.T) {
 // a missing credential is a boot failure an operator can still act on.
 func TestObjectfsMountRefusesSettingsItCannotHonour(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -218,7 +219,7 @@ func TestEveryUtilityKindMountsAndAnswersStat(t *testing.T) {
 	}
 
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -261,7 +262,7 @@ func TestEveryUtilityKindMountsAndAnswersStat(t *testing.T) {
 // build was one it is not.
 func TestServerinfofsReportsTheBuildVersion(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "v9.9.9", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "v9.9.9", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -287,7 +288,7 @@ func TestTrafficCountsWhatWentThroughTheTable(t *testing.T) {
 	traffic := vfs.NewTraffic(time.Now)
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
 	registry.Record(traffic)
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), traffic); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), traffic, stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -334,7 +335,7 @@ func TestProxyfsForwardsToAKindTheConfigNames(t *testing.T) {
 	}
 
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -362,7 +363,7 @@ func TestProxyfsForwardsToAKindTheConfigNames(t *testing.T) {
 // behalf which of them is a credential, so they read back redacted.
 func TestProxyfsDeclaresOnlyItsOwnSettings(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -378,7 +379,7 @@ func TestProxyfsDeclaresOnlyItsOwnSettings(t *testing.T) {
 // what the follower receives.
 func TestRegisterKindsMakesStreamfsMountable(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -420,7 +421,7 @@ func TestRegisterKindsMakesStreamfsMountable(t *testing.T) {
 // reads back, and neither is a credential.
 func TestStreamfsDeclaresItsCapacityAndFollowPublic(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -435,7 +436,7 @@ func TestStreamfsDeclaresItsCapacityAndFollowPublic(t *testing.T) {
 // told what the mount discarded.
 func TestRegisterKindsMakesStreamrotatefsMountable(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -478,7 +479,7 @@ func TestRegisterKindsMakesStreamrotatefsMountable(t *testing.T) {
 // back, and neither is a credential.
 func TestStreamrotatefsDeclaresItsSizeAndKeepPublic(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -492,7 +493,7 @@ func TestStreamrotatefsDeclaresItsSizeAndKeepPublic(t *testing.T) {
 // redacted everywhere the effective config is read back.
 func TestQueuefsDeclaresOnlyWhatIsNotACredential(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -511,7 +512,7 @@ func TestQueuefsDeclaresOnlyWhatIsNotACredential(t *testing.T) {
 // anything is dialled.
 func TestQueuefsMountRefusesSettingsItCannotHonour(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -520,6 +521,65 @@ func TestQueuefsMountRefusesSettingsItCannotHonour(t *testing.T) {
 		t.Errorf("a queuefs mount with no journal = %v, want fs.ErrInvalid", err)
 	}
 }
+
+// vectorfs reaches a database an operator names, and its URL carries a
+// password. Declaring only the index, its dimension and how many documents a
+// question is answered with is what makes the URL redacted everywhere the
+// effective config is read back.
+func TestVectorfsDeclaresOnlyWhatIsNotACredential(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	want := []string{"name", "dimension", "neighbours"}
+	if public := registry.Public(vectorfs.Kind); !slices.Equal(public, want) {
+		t.Errorf("Public(vectorfs) = %v, want %v", public, want)
+	}
+	if slices.Contains(registry.Public(vectorfs.Kind), "index_url") {
+		t.Error("Public(vectorfs) names index_url, want it redacted")
+	}
+}
+
+// An index with no dimension named is a boot failure, and it is one before
+// anything is dialled: the column a document's vector goes in is declared from
+// that number and nothing can infer it.
+func TestVectorfsMountRefusesSettingsItCannotHonour(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	_, err := registry.Table([]vfs.MountSpec{{Prefix: "/index", Kind: vectorfs.Kind, Settings: map[string]string{"name": "memories"}}})
+	if !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("a vectorfs mount with no dimension = %v, want fs.ErrInvalid", err)
+	}
+}
+
+// A build whose chain embeds nothing has no index to offer, and the refusal
+// lands where an operator is still watching rather than on the first document.
+func TestVectorfsMountRefusesAChainThatEmbedsNothing(t *testing.T) {
+	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), nil); err != nil {
+		t.Fatalf("registerKinds() = %v", err)
+	}
+
+	_, err := registry.Table([]vfs.MountSpec{{
+		Prefix:   "/index",
+		Kind:     vectorfs.Kind,
+		Settings: map[string]string{"name": "memories", "index_url": "postgres://nowhere", "dimension": "8"},
+	}})
+	if !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("a vectorfs mount with no embedding endpoint = %v, want fs.ErrInvalid", err)
+	}
+}
+
+// stubEmbedder stands where the gateway's routed Embedder does. Nothing in this
+// file embeds anything: what the composition root is answerable for is that the
+// kind is there and takes what it says it takes.
+type stubEmbedder struct{}
+
+func (stubEmbedder) Embed(context.Context, []string) ([][]float32, error) { return nil, nil }
 
 // An export mount over a kind the config names is the whole path this ticket
 // is about: a derived name is served through the table, and a change to what
@@ -532,7 +592,7 @@ func TestExportfsRefreshesAfterAnInputOnDiskChanges(t *testing.T) {
 	}
 
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
@@ -573,7 +633,7 @@ func TestExportfsRefreshesAfterAnInputOnDiskChanges(t *testing.T) {
 // The source kind's settings are its own and read back redacted.
 func TestExportfsDeclaresOnlyItsOwnSettings(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now)); err != nil {
+	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
