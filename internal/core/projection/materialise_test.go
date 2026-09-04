@@ -38,13 +38,16 @@ func applications() projection.Manifest {
 	}
 }
 
-// recorder is an encoder that writes nothing real and remembers what it was
-// asked to write, so a core test asserts the rows a slice carried without an
-// engine anywhere near it.
+// recorder is an encoder that writes nothing real and remembers every table it
+// was asked to write, so a core test asserts the rows a slice carried without
+// an engine anywhere near it.
+//
+// A materialise encodes the slices in order and the rollup last, so the tables
+// line up with the slices and the last one is the combined table.
 type recorder struct {
-	schema projection.Schema
-	tables [][]projection.Row
-	fail   error
+	schemas []projection.Schema
+	tables  [][]projection.Row
+	fail    error
 }
 
 func (*recorder) Extension() string { return "table" }
@@ -53,10 +56,13 @@ func (r *recorder) Encode(_ context.Context, schema projection.Schema, rows []pr
 	if r.fail != nil {
 		return nil, r.fail
 	}
-	r.schema = schema
+	r.schemas = append(r.schemas, schema)
 	r.tables = append(r.tables, rows)
 	return fmt.Appendf(nil, "table of %d", len(rows)), nil
 }
+
+// rollup is the last table the recorder was given, which is the combined one.
+func (r *recorder) rollup() []projection.Row { return r.tables[len(r.tables)-1] }
 
 // materialiser is a projection writer over an empty tree, with the recorder it
 // encodes through and the filesystem both ends sit on.
@@ -67,7 +73,7 @@ func materialiser(t *testing.T) (*projection.Materialiser, *recorder, vfs.FileSy
 	if err := table.Mount("/", memfs.New()); err != nil {
 		t.Fatalf("Mount: %v", err)
 	}
-	encoder := &recorder{schema: nil, tables: nil, fail: nil}
+	encoder := &recorder{schemas: nil, tables: nil, fail: nil}
 	mat, err := projection.NewMaterialiser(table, encoder, target, time.Minute)
 	if err != nil {
 		t.Fatalf("NewMaterialiser: %v", err)
@@ -97,16 +103,16 @@ func TestMaterialiseWritesOneFilePerSlice(t *testing.T) {
 	writeRecord(t, fsys, "bolt", `{"stage":"offer","salary":120000,"remote":false}`)
 	writeRecord(t, fsys, "cog", `{"stage":"applied","salary":85000,"remote":true}`)
 
-	written, err := mat.Materialise(t.Context(), applications())
+	got, err := mat.Materialise(t.Context(), applications())
 	if err != nil {
 		t.Fatalf("Materialise: %v", err)
 	}
 
 	want := []string{"/projections/applications/applied.table", "/projections/applications/offer.table"}
-	if !slices.Equal(written, want) {
-		t.Fatalf("Materialise wrote %v, want %v", written, want)
+	if !slices.Equal(got.Slices, want) {
+		t.Fatalf("Materialise wrote %v, want %v", got.Slices, want)
 	}
-	for _, at := range written {
+	for _, at := range append(got.Slices, got.Rollup) {
 		if _, err := fsys.Stat(t.Context(), at); err != nil {
 			t.Errorf("Stat(%q): %v", at, err)
 		}
@@ -131,8 +137,8 @@ func TestMaterialiseEncodesTheSliceSchema(t *testing.T) {
 	if _, err := mat.Materialise(t.Context(), applications()); err != nil {
 		t.Fatalf("Materialise: %v", err)
 	}
-	if want := applications().SliceSchema(); !slices.Equal(encoder.schema, want) {
-		t.Fatalf("encoded schema %v, want %v", encoder.schema, want)
+	if want := applications().SliceSchema(); !slices.Equal(encoder.schemas[0], want) {
+		t.Fatalf("encoded schema %v, want %v", encoder.schemas[0], want)
 	}
 }
 
@@ -142,13 +148,13 @@ func TestMaterialiseWritesWhatTheEncoderReturned(t *testing.T) {
 	mat, _, fsys := materialiser(t)
 	writeRecord(t, fsys, "acme", `{"stage":"applied","salary":90000,"remote":true}`)
 
-	written, err := mat.Materialise(t.Context(), applications())
+	got, err := mat.Materialise(t.Context(), applications())
 	if err != nil {
 		t.Fatalf("Materialise: %v", err)
 	}
-	data, err := fsys.Read(t.Context(), written[0])
+	data, err := fsys.Read(t.Context(), got.Slices[0])
 	if err != nil {
-		t.Fatalf("Read(%q): %v", written[0], err)
+		t.Fatalf("Read(%q): %v", got.Slices[0], err)
 	}
 	if string(data) != "table of 1" {
 		t.Fatalf("slice holds %q, want the encoder's bytes", data)
@@ -184,12 +190,12 @@ func TestMaterialiseWritesNothingForNoRecords(t *testing.T) {
 		t.Fatalf("Mkdir: %v", err)
 	}
 
-	written, err := mat.Materialise(t.Context(), applications())
+	got, err := mat.Materialise(t.Context(), applications())
 	if err != nil {
 		t.Fatalf("Materialise: %v", err)
 	}
-	if len(written) != 0 {
-		t.Fatalf("Materialise wrote %v, want nothing", written)
+	if len(got.Slices) != 0 || got.Rollup != "" {
+		t.Fatalf("Materialise wrote %v, want nothing", got)
 	}
 	if len(encoder.tables) != 0 {
 		t.Fatalf("encoder wrote %d tables, want none", len(encoder.tables))
@@ -238,7 +244,7 @@ func TestNewMaterialiserRefusesWhatCannotWrite(t *testing.T) {
 	t.Parallel()
 
 	table := vfs.NewMountTable()
-	encoder := &recorder{schema: nil, tables: nil, fail: nil}
+	encoder := &recorder{schemas: nil, tables: nil, fail: nil}
 	for _, root := range []string{"", "projections", "/projections/", "/projections/../elsewhere"} {
 		if _, err := projection.NewMaterialiser(table, encoder, root, time.Minute); !errors.Is(err, fs.ErrInvalid) {
 			t.Errorf("NewMaterialiser(%q): %v, want fs.ErrInvalid", root, err)

@@ -38,8 +38,10 @@ func materialiseOne(t *testing.T, manifest projection.Manifest, name, doc string
 	if _, err := mat.Materialise(t.Context(), manifest); err != nil {
 		t.Fatalf("Materialise: %v", err)
 	}
-	if len(encoder.tables) != 1 || len(encoder.tables[0]) != 1 {
-		t.Fatalf("encoder saw %d tables, want one holding one row", len(encoder.tables))
+	// The slice and the rollup it combines into, the slice holding the one row
+	// the record was read as.
+	if len(encoder.tables) != 2 || len(encoder.tables[0]) != 1 {
+		t.Fatalf("encoder saw %d tables, want a slice holding one row and a rollup", len(encoder.tables))
 	}
 	return encoder.tables[0][0]
 }
