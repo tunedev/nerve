@@ -31,6 +31,7 @@ var (
 	_ vfs.Symlinker  = deaf{}
 	_ vfs.Streamer   = deaf{}
 	_ vfs.Truncater  = deaf{}
+	_ vfs.Subber     = deaf{}
 )
 
 func (deaf) wait(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
@@ -73,6 +74,11 @@ func (deaf) Capabilities(string) vfs.Caps { return vfs.Caps{} }
 func (d deaf) AsSymlinker() vfs.Symlinker { return d }
 func (d deaf) AsStreamer() vfs.Streamer   { return d }
 func (d deaf) AsTruncater() vfs.Truncater { return d }
+func (d deaf) AsSubber() vfs.Subber       { return d }
+
+// Sub answers rather than waiting, because it is not a call: it narrows the
+// address space and reaches nothing.
+func (d deaf) Sub(string) vfs.FileSystem { return d }
 
 // outbound is every verb a caller can send out through a mount, spelled as the
 // call a caller makes rather than as the method the plugin implements — the
@@ -128,12 +134,12 @@ func outbound() map[string]func(context.Context, vfs.FileSystem) error {
 }
 
 // quiet is the port's methods that send nothing. Capabilities answers from the
-// shape a mount already knows and the accessors hand back a verb set; none of
-// them can reach a remote, which is why none takes a context and why none needs
-// a bound.
-var quiet = []string{"AsStreamer", "AsSymlinker", "AsTruncater", "Capabilities"}
+// shape a mount already knows, the accessors hand back a verb set, and Sub
+// narrows the address space; none of them can reach a remote, which is why none
+// takes a context and why none needs a bound.
+var quiet = []string{"AsStreamer", "AsSubber", "AsSymlinker", "AsTruncater", "Capabilities", "Sub"}
 
-// portVerbs splits the port and its three optional verb sets by whether a
+// portVerbs splits the port and its four optional verb sets by whether a
 // method takes a context, which is the port's own statement of what can reach
 // something remote.
 func portVerbs() (sending, silent []string) {
@@ -144,6 +150,7 @@ func portVerbs() (sending, silent []string) {
 		reflect.TypeOf((*vfs.Symlinker)(nil)).Elem(),
 		reflect.TypeOf((*vfs.Streamer)(nil)).Elem(),
 		reflect.TypeOf((*vfs.Truncater)(nil)).Elem(),
+		reflect.TypeOf((*vfs.Subber)(nil)).Elem(),
 	} {
 		for i := range iface.NumMethod() {
 			method := iface.Method(i)

@@ -67,6 +67,7 @@ func (f *flaky) Capabilities(string) vfs.Caps { return f.caps }
 func (f *flaky) AsSymlinker() vfs.Symlinker { return f }
 func (f *flaky) AsStreamer() vfs.Streamer   { return f }
 func (f *flaky) AsTruncater() vfs.Truncater { return f }
+func (f *flaky) AsSubber() vfs.Subber       { return nil }
 
 func (f *flaky) Symlink(context.Context, string, string) error { return f.answer() }
 func (f *flaky) Readlink(context.Context, string) (string, error) {

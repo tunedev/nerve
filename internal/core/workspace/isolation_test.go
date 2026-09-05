@@ -413,6 +413,40 @@ func TestTheMountTableAloneDoesNotHoldTheScopeBoundary(t *testing.T) {
 	}
 }
 
+// The other half of the same statement: a link the table planted is not one a
+// view follows. A caller holding the table can spell a target under bob's
+// subtree, as the case above does; a caller holding a view of alice's scope is
+// served nothing through it.
+//
+// Every verb is asserted rather than only Readlink, because Readlink is the one
+// place a view sees a link at all — Read, Stat and ReadDir are answered by
+// whatever resolved the name, and over a host disk that is a kernel resolving
+// the link inside the syscall.
+func TestALinkPlantedBehindAViewIsNotFollowedOutOfTheScope(t *testing.T) {
+	_, table := newIsolated(t)
+	links := table.AsSymlinker()
+	if links == nil {
+		t.Fatal("AsSymlinker = nil, want the host-backed area to answer")
+	}
+	if err := links.Symlink(t.Context(), mustPath(t, bob, files, ""), mustPath(t, alice, files, "peek")); err != nil {
+		t.Fatalf("planting the link behind the view: %v", err)
+	}
+
+	view := mustView(t, alice, table, files)
+	if content, err := view.Read(t.Context(), "/peek/secret"); err == nil {
+		t.Errorf("Read through the planted link = %q, want it refused", content)
+	}
+	if found, err := view.Stat(t.Context(), "/peek"); err == nil {
+		t.Errorf("Stat through the planted link = %+v, want it refused", found)
+	}
+	if entries, err := view.ReadDir(t.Context(), "/peek"); err == nil {
+		t.Errorf("ReadDir through the planted link = %v, want it refused", entries)
+	}
+	if target, err := view.AsSymlinker().Readlink(t.Context(), "/peek"); err == nil {
+		t.Errorf("Readlink of the planted link = %q, want it refused", target)
+	}
+}
+
 // mustView is what a caller holding one scope is given instead of the table:
 // the area as it is seen from inside the scope.
 func mustView(t *testing.T, s workspace.Scope, fsys vfs.FileSystem, area string) vfs.FileSystem {

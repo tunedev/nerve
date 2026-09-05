@@ -77,6 +77,10 @@ type FileSystem interface {
 
 	// AsTruncater returns the plugin's truncate verb, or nil if it has none.
 	AsTruncater() Truncater
+
+	// AsSubber returns the plugin's ability to hand out a subtree as a root of
+	// its own, or nil if it has none.
+	AsSubber() Subber
 }
 
 // FileInfo describes one entry. It is a struct rather than an interface so that

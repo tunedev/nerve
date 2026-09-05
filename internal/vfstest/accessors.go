@@ -30,6 +30,8 @@ func accessorCases() []testCase {
 		{name: "Symlink to a target that is not there is allowed", when: writable, run: symlinkToAMissingTarget},
 		{name: "Readlink of an entry that is not a link is invalid", when: writable, run: readlinkOfAnEntry},
 		{name: "Readlink of a missing path does not exist", run: readlinkOfAMissingPath},
+		{name: "Sub serves the subtree at its own root", when: needs(writable, tree), run: subServesTheSubtree},
+		{name: "Sub serves nothing above the subtree", when: needs(writable, tree), run: subServesNothingAbove},
 	}
 }
 
@@ -45,6 +47,7 @@ func accessorsAreStable(t *testing.T, w world) {
 		{name: "AsSymlinker", first: w.fsys.AsSymlinker() == nil, again: w.fsys.AsSymlinker() == nil},
 		{name: "AsStreamer", first: w.fsys.AsStreamer() == nil, again: w.fsys.AsStreamer() == nil},
 		{name: "AsTruncater", first: w.fsys.AsTruncater() == nil, again: w.fsys.AsTruncater() == nil},
+		{name: "AsSubber", first: w.fsys.AsSubber() == nil, again: w.fsys.AsSubber() == nil},
 	}
 
 	for _, answer := range answers {
@@ -73,6 +76,22 @@ func streamer(t *testing.T, w world) vfs.Streamer {
 		t.Skip("the plugin answers no streaming verbs")
 	}
 	return stream
+}
+
+// subtree is the kind's own subtree as a filesystem rooted there, or a skip. A
+// kind may answer the accessor and still hand out nothing at a path, which is
+// the per-path half of the same answer.
+func subtree(t *testing.T, w world, name string) vfs.FileSystem {
+	t.Helper()
+	sub := w.fsys.AsSubber()
+	if sub == nil {
+		t.Skip("the plugin hands out no subtree")
+	}
+	beneath := sub.Sub(w.at(name))
+	if beneath == nil {
+		t.Skipf("the plugin hands out no subtree at %q", w.at(name))
+	}
+	return beneath
 }
 
 func symlinker(t *testing.T, w world) vfs.Symlinker {
@@ -281,5 +300,37 @@ func readlinkOfAMissingPath(t *testing.T, w world) {
 
 	if _, err := link.Readlink(t.Context(), w.at("absent")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("Readlink of a missing path = %v, want fs.ErrNotExist", err)
+	}
+}
+
+// A subtree is the same entries under shorter names: what stood at jobs/notes
+// stands at /notes, because the subtree's root is jobs.
+func subServesTheSubtree(t *testing.T, w world) {
+	mustMkdir(t, w, "jobs")
+	mustWrite(t, w, "jobs/notes", "text")
+	beneath := subtree(t, w, "jobs")
+
+	content, err := beneath.Read(t.Context(), "/notes")
+	if err != nil {
+		t.Fatalf("Read(%q) through the subtree at %q = %v", "/notes", w.at("jobs"), err)
+	}
+	if string(content) != "text" {
+		t.Errorf("Read through the subtree = %q, want %q", content, "text")
+	}
+}
+
+// The point of handing out a subtree rather than a prefix: what is above it is
+// not reachable from inside it, however the path is spelled. A kind that
+// resolves names itself contains a climb lexically; one that resolves through
+// something else has to have been opened on the subtree for this to hold.
+func subServesNothingAbove(t *testing.T, w world) {
+	mustMkdir(t, w, "jobs")
+	mustWrite(t, w, "above", withheld)
+	beneath := subtree(t, w, "jobs")
+
+	for _, climb := range []string{"/../above", "../above", "/jobs/../../above"} {
+		if content, err := beneath.Read(t.Context(), climb); err == nil && string(content) == withheld {
+			t.Errorf("Read(%q) through the subtree = %q, want nothing above it reachable", climb, content)
+		}
 	}
 }

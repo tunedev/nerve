@@ -19,6 +19,7 @@ type stalling struct {
 }
 
 func (s stalling) AsStreamer() vfs.Streamer { return s }
+func (s stalling) AsSubber() vfs.Subber     { return nil }
 
 func (stalling) OpenRead(ctx context.Context, _ string) (io.ReadCloser, error) {
 	return mute{ctx: ctx}, nil
@@ -48,6 +49,7 @@ type trickling struct {
 }
 
 func (t trickling) AsStreamer() vfs.Streamer { return t }
+func (t trickling) AsSubber() vfs.Subber     { return nil }
 
 func (t trickling) OpenRead(context.Context, string) (io.ReadCloser, error) {
 	return &trickle{left: t.bytes, gap: t.gap}, nil

@@ -60,6 +60,7 @@ func (r *noting) Capabilities(string) vfs.Caps { return vfs.Caps{ReadOnly: true}
 func (r *noting) AsSymlinker() vfs.Symlinker { return r }
 func (r *noting) AsStreamer() vfs.Streamer   { return r }
 func (r *noting) AsTruncater() vfs.Truncater { return r }
+func (r *noting) AsSubber() vfs.Subber       { return nil }
 
 func (r *noting) Symlink(ctx context.Context, _, _ string) error { r.at(ctx); return nil }
 func (r *noting) Readlink(ctx context.Context, _ string) (string, error) {
@@ -193,6 +194,7 @@ type hanging struct {
 }
 
 func (h hanging) AsStreamer() vfs.Streamer { return h }
+func (h hanging) AsSubber() vfs.Subber     { return nil }
 
 func (hanging) OpenRead(ctx context.Context, _ string) (io.ReadCloser, error) {
 	<-ctx.Done()

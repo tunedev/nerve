@@ -157,6 +157,13 @@ func (o observed) AsTruncater() Truncater {
 	return observedTruncater{cut: cut, observed: o}
 }
 
+// AsSubber returns the plugin's subtrees with their writes reported, or nil if
+// it has none. A caller that narrowed onto a subtree is still writing to the
+// tree the observer watches.
+func (o observed) AsSubber() Subber {
+	return SubOf(o.fsys, func(beneath FileSystem) FileSystem { return observed{fsys: beneath, observer: o.observer} })
+}
+
 type observedSymlinker struct {
 	link Symlinker
 	observed

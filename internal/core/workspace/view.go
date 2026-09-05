@@ -12,16 +12,21 @@ import (
 )
 
 // View returns fsys as a caller inside s sees it under root: a FileSystem whose
-// own root is the scope root, and whose every path — both ends of Rename and
-// Symlink included — is derived by Path.
+// own root is the scope root, and which has no spelling at all for a path
+// outside it.
 //
-// This is what makes the scope a boundary rather than a convention. A caller
-// handed the tree derives its own paths and is contained only while it does;
-// Symlink takes a target nothing dispatches, so a target under another user's
-// subtree in the same mount is clean, is inside one mount, and is inside the
-// plugin's root, and every layer beneath permits it. A caller handed a view has
-// no spelling for that target: the derivation is the view's, and a path that
-// climbs lands on the scope root.
+// This is what makes the scope a boundary rather than a convention, and it is
+// two boundaries rather than one. The name is contained by derivation: every
+// path — both ends of Rename and Symlink included — is resolved against the
+// scope root, so a spelling that climbs lands on that root and a target under
+// another user's subtree cannot be named. What the tree beneath resolves that
+// name to is contained by the tree beneath, and only it can be: a host disk
+// follows a symlink inside the syscall, long after any name was derived.
+//
+// So a tree that hands out a subtree as a root of its own is asked for one, and
+// the view is over that rather than over the whole area. A tree that hands out
+// none is contained by the derivation alone, which is the whole containment a
+// kind that resolves nothing but the name it was given needs.
 //
 // root is the area the view is over — the files mount, the key space — and must
 // be a rooted, clean path, the mount table's rule for a prefix.
@@ -29,26 +34,38 @@ func (s Scope) View(fsys vfs.FileSystem, root string) (vfs.FileSystem, error) {
 	if !strings.HasPrefix(root, "/") || path.Clean(root) != root {
 		return nil, fmt.Errorf("view root %q is not a rooted clean path: %w", root, fs.ErrInvalid)
 	}
-	if _, err := s.Path(root, ""); err != nil {
+	base, err := s.Path(root, "")
+	if err != nil {
 		return nil, fmt.Errorf("view: %w", err)
 	}
-	return view{fsys: fsys, scope: s, root: root}, nil
+
+	if sub := fsys.AsSubber(); sub != nil {
+		if beneath := sub.Sub(base); beneath != nil {
+			return view{fsys: beneath, scope: s}, nil
+		}
+	}
+	return view{fsys: fsys, scope: s, base: base}, nil
 }
 
 // view is one area of one scope, seen from inside it. It stores nothing and
-// resolves nothing: every verb derives the path the scope stands for and hands
-// it on.
+// resolves nothing: every verb puts the path under base and hands it on.
+//
+// base is where the scope stands in fsys, and is empty when fsys is already
+// rooted there — the tree beneath handed out the subtree, so there is nothing
+// left to prepend.
 type view struct {
 	fsys  vfs.FileSystem
 	scope Scope
-	root  string
+	base  string
 }
 
-// at is the path name stands for beneath the view. It is Path and nothing else,
-// which is the whole property: a second way to spell the layout here is a way
-// to spell it differently.
-func (v view) at(name string) (string, error) {
-	return v.scope.Path(v.root, name)
+// at is the path name stands for beneath the view. Joining under base is what
+// contains name: a spelling that climbs lands on base rather than above it.
+//
+// base itself came from Scope.Path, which is the whole property — a second way
+// to spell the layout here is a way to spell it differently.
+func (v view) at(name string) string {
+	return path.Join("/", v.base, path.Join("/", name))
 }
 
 // from maps a path the tree beneath spelled back into the view's vocabulary,
@@ -56,15 +73,16 @@ func (v view) at(name string) (string, error) {
 // rather than handed back: a path is observable even when what stands at it is
 // not.
 func (v view) from(name string) (string, error) {
-	base, err := v.at("")
-	if err != nil {
-		return "", err
-	}
+	base := v.at("")
 	clean := path.Clean(name)
 	if clean == base {
 		return "/", nil
 	}
-	if inside, found := strings.CutPrefix(clean, base+"/"); found {
+	prefix := base
+	if prefix != "/" {
+		prefix += "/"
+	}
+	if inside, found := strings.CutPrefix(clean, prefix); found {
 		return "/" + inside, nil
 	}
 	return "", fmt.Errorf("readlink %q: it stands for a path outside the scope: %w", name, fs.ErrInvalid)
@@ -80,19 +98,11 @@ func (v view) refuseRoot(verb string) error {
 }
 
 func (v view) Create(ctx context.Context, name string) error {
-	inside, err := v.at(name)
-	if err != nil {
-		return err
-	}
-	return v.fsys.Create(ctx, inside)
+	return v.fsys.Create(ctx, v.at(name))
 }
 
 func (v view) Mkdir(ctx context.Context, name string) error {
-	inside, err := v.at(name)
-	if err != nil {
-		return err
-	}
-	return v.fsys.Mkdir(ctx, inside)
+	return v.fsys.Mkdir(ctx, v.at(name))
 }
 
 // Remove refuses the root: a view that deleted the scope it stands for would
@@ -101,20 +111,13 @@ func (v view) Remove(ctx context.Context, name string) error {
 	if isRoot(name) {
 		return v.refuseRoot("remove")
 	}
-	inside, err := v.at(name)
-	if err != nil {
-		return err
-	}
-	return v.fsys.Remove(ctx, inside)
+	return v.fsys.Remove(ctx, v.at(name))
 }
 
 // RemoveAll empties the root rather than deleting it, for the reason Remove
 // refuses one.
 func (v view) RemoveAll(ctx context.Context, name string) error {
-	inside, err := v.at(name)
-	if err != nil {
-		return err
-	}
+	inside := v.at(name)
 	if !isRoot(name) {
 		return v.fsys.RemoveAll(ctx, inside)
 	}
@@ -132,39 +135,23 @@ func (v view) RemoveAll(ctx context.Context, name string) error {
 }
 
 func (v view) Read(ctx context.Context, name string) ([]byte, error) {
-	inside, err := v.at(name)
-	if err != nil {
-		return nil, err
-	}
-	return v.fsys.Read(ctx, inside)
+	return v.fsys.Read(ctx, v.at(name))
 }
 
 func (v view) Write(ctx context.Context, name string, data []byte) error {
-	inside, err := v.at(name)
-	if err != nil {
-		return err
-	}
-	return v.fsys.Write(ctx, inside, data)
+	return v.fsys.Write(ctx, v.at(name), data)
 }
 
 // ReadDir names the children as the tree beneath named them: a name is the
 // final element of a path, and deriving the path did not change that.
 func (v view) ReadDir(ctx context.Context, name string) ([]vfs.FileInfo, error) {
-	inside, err := v.at(name)
-	if err != nil {
-		return nil, err
-	}
-	return v.fsys.ReadDir(ctx, inside)
+	return v.fsys.ReadDir(ctx, v.at(name))
 }
 
 // Stat names the root "/" rather than the workspace: what the scope is called
 // is the layout speaking, and a caller inside a view is not told the layout.
 func (v view) Stat(ctx context.Context, name string) (vfs.FileInfo, error) {
-	inside, err := v.at(name)
-	if err != nil {
-		return vfs.FileInfo{}, err
-	}
-	info, err := v.fsys.Stat(ctx, inside)
+	info, err := v.fsys.Stat(ctx, v.at(name))
 	if err == nil && isRoot(name) {
 		info.Name = "/"
 	}
@@ -177,33 +164,17 @@ func (v view) Rename(ctx context.Context, oldPath, newPath string) error {
 	if isRoot(oldPath) || isRoot(newPath) {
 		return v.refuseRoot("rename")
 	}
-	oldInside, err := v.at(oldPath)
-	if err != nil {
-		return err
-	}
-	newInside, err := v.at(newPath)
-	if err != nil {
-		return err
-	}
-	return v.fsys.Rename(ctx, oldInside, newInside)
+	return v.fsys.Rename(ctx, v.at(oldPath), v.at(newPath))
 }
 
 func (v view) Chmod(ctx context.Context, name string, mode fs.FileMode) error {
-	inside, err := v.at(name)
-	if err != nil {
-		return err
-	}
-	return v.fsys.Chmod(ctx, inside, mode)
+	return v.fsys.Chmod(ctx, v.at(name), mode)
 }
 
 // Capabilities forwards, per path: what a view is depends entirely on what
 // stands behind it at the path the scope derives.
 func (v view) Capabilities(name string) vfs.Caps {
-	inside, err := v.at(name)
-	if err != nil {
-		return vfs.Caps{}
-	}
-	return v.fsys.Capabilities(inside)
+	return v.fsys.Capabilities(v.at(name))
 }
 
 // AsSymlinker returns the link verbs of the tree beneath, with both of their
@@ -234,6 +205,23 @@ func (v view) AsTruncater() vfs.Truncater {
 	return nil
 }
 
+// AsSubber returns the subtrees of the tree beneath, or nil when it hands out
+// none. What comes back is a root of its own and is not wrapped again: the
+// scope is already spent on the path that named it.
+func (v view) AsSubber() vfs.Subber {
+	if sub := v.fsys.AsSubber(); sub != nil {
+		return viewSubber{view: v, sub: sub}
+	}
+	return nil
+}
+
+type viewSubber struct {
+	view view
+	sub  vfs.Subber
+}
+
+func (s viewSubber) Sub(name string) vfs.FileSystem { return s.sub.Sub(s.view.at(name)) }
+
 type viewSymlinker struct {
 	view view
 	link vfs.Symlinker
@@ -243,25 +231,13 @@ type viewSymlinker struct {
 // spelling that climbs lands on the scope root and one naming another scope
 // lands inside this one.
 func (s viewSymlinker) Symlink(ctx context.Context, oldPath, newPath string) error {
-	target, err := s.view.at(oldPath)
-	if err != nil {
-		return err
-	}
-	link, err := s.view.at(newPath)
-	if err != nil {
-		return err
-	}
-	return s.link.Symlink(ctx, target, link)
+	return s.link.Symlink(ctx, s.view.at(oldPath), s.view.at(newPath))
 }
 
 // Readlink answers in the view's vocabulary. A link planted behind the view
 // that stands for a path outside the scope has no name here and is refused.
 func (s viewSymlinker) Readlink(ctx context.Context, name string) (string, error) {
-	inside, err := s.view.at(name)
-	if err != nil {
-		return "", err
-	}
-	target, err := s.link.Readlink(ctx, inside)
+	target, err := s.link.Readlink(ctx, s.view.at(name))
 	if err != nil {
 		return "", err
 	}
@@ -274,19 +250,11 @@ type viewStreamer struct {
 }
 
 func (s viewStreamer) OpenRead(ctx context.Context, name string) (io.ReadCloser, error) {
-	inside, err := s.view.at(name)
-	if err != nil {
-		return nil, err
-	}
-	return s.stream.OpenRead(ctx, inside)
+	return s.stream.OpenRead(ctx, s.view.at(name))
 }
 
 func (s viewStreamer) OpenWrite(ctx context.Context, name string) (io.WriteCloser, error) {
-	inside, err := s.view.at(name)
-	if err != nil {
-		return nil, err
-	}
-	return s.stream.OpenWrite(ctx, inside)
+	return s.stream.OpenWrite(ctx, s.view.at(name))
 }
 
 type viewTruncater struct {
@@ -295,9 +263,5 @@ type viewTruncater struct {
 }
 
 func (c viewTruncater) Truncate(ctx context.Context, name string, size int64) error {
-	inside, err := c.view.at(name)
-	if err != nil {
-		return err
-	}
-	return c.cut.Truncate(ctx, inside, size)
+	return c.cut.Truncate(ctx, c.view.at(name), size)
 }

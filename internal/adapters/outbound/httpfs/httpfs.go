@@ -119,6 +119,10 @@ func (f *FS) AsSymlinker() vfs.Symlinker { return nil }
 // AsTruncater reports that an origin has no truncate verb.
 func (f *FS) AsTruncater() vfs.Truncater { return nil }
 
+// AsSubber reports that an origin hands out no subtree: a URL prefix is a name
+// and not a root, and the origin resolves what is under it however it likes.
+func (f *FS) AsSubber() vfs.Subber { return nil }
+
 // OpenRead returns what the origin serves at path as a stream, bounded the same
 // way a whole read is. The caller closes it.
 func (f *FS) OpenRead(ctx context.Context, name string) (io.ReadCloser, error) {

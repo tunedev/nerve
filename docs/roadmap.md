@@ -17,6 +17,7 @@ type FileSystem interface {
     AsSymlinker() Symlinker          // extra verbs: narrow interface, or nil
     AsStreamer()  Streamer
     AsTruncater() Truncater
+    AsSubber()    Subber             // Sub(path) FileSystem: a subtree as a root of its own
 }
 ```
 
@@ -37,7 +38,7 @@ what it supports.
 |---|---|---|
 | E1.1 | `FileSystem` interface: create, mkdir, remove, remove_all, read, write, read_dir, stat, rename, chmod | All ten verbs defined in the core, no driver imported |
 | E1.2 | `Caps` descriptors: append-only, read-destructive, read-only, broadcast, object-store; resolved per path | A queue mount reports read-destructive on its job path and not on its config path |
-| E1.3 | Accessor set: `AsSymlinker`, `AsStreamer`, `AsTruncater`, with a `NoAccessors` embeddable default | A plugin supporting nothing optional compiles with zero accessor code |
+| E1.3 | Accessor set: `AsSymlinker`, `AsStreamer`, `AsTruncater`, `AsSubber`, with a `NoAccessors` embeddable default | A plugin supporting nothing optional compiles with zero accessor code |
 | E1.4 | Mount table: longest-prefix resolution, itself implementing `FileSystem` | Dispatcher forwards both descriptors and accessors to the resolved plugin |
 | E1.5 | Plugin registry: a mount is added by config, not by editing a switch or factory | A new mount appears from a config file with no recompile |
 | E1.6 | Architecture boundary declared with `depguard`: `internal/core/...` may not import an adapter or a driver | A driver import added to a core package fails lint, with the tenet named in the `desc` message |

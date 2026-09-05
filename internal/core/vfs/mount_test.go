@@ -327,6 +327,7 @@ type streamingMount struct {
 }
 
 func (s *streamingMount) AsStreamer() vfs.Streamer { return s }
+func (s *streamingMount) AsSubber() vfs.Subber     { return nil }
 
 func (s *streamingMount) OpenRead(_ context.Context, path string) (io.ReadCloser, error) {
 	s.opened = path
@@ -344,6 +345,7 @@ type truncatingMount struct {
 }
 
 func (c *truncatingMount) AsTruncater() vfs.Truncater { return c }
+func (c *truncatingMount) AsSubber() vfs.Subber       { return nil }
 
 func (c *truncatingMount) Truncate(_ context.Context, path string, size int64) error {
 	c.path, c.cutTo = path, size

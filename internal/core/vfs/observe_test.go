@@ -75,6 +75,7 @@ func (w writable) OpenWrite(context.Context, string) (io.WriteCloser, error) {
 func (w writable) Capabilities(string) vfs.Caps { return w.caps }
 func (w writable) AsSymlinker() vfs.Symlinker   { return w }
 func (w writable) AsStreamer() vfs.Streamer     { return w }
+func (w writable) AsSubber() vfs.Subber         { return nil }
 func (w writable) AsTruncater() vfs.Truncater   { return w }
 
 // told is what the observer was told, in the order it was told, and what it

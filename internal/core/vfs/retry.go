@@ -252,6 +252,12 @@ func (r retrying) AsTruncater() Truncater {
 	return retryingTruncater{cut: cut, policy: r.policy}
 }
 
+// AsSubber returns the plugin's subtrees behind the same policy, or nil if it
+// has none.
+func (r retrying) AsSubber() Subber {
+	return SubOf(r.fsys, func(beneath FileSystem) FileSystem { return retrying{fsys: beneath, policy: r.policy} })
+}
+
 type retryingSymlinker struct {
 	link   Symlinker
 	policy Retry
