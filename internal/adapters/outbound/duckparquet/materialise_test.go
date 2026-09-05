@@ -100,9 +100,9 @@ func TestMaterialiseWritesParquetSlices(t *testing.T) {
 	}
 }
 
-// materialised is the applications projection written onto a tree by the real
-// engine: the tree, the manifest it came from, and where the files went.
-func materialised(t *testing.T, binary string) (vfs.FileSystem, projection.Manifest, projection.Result) {
+// workspace is the records above on a tree, and the materialiser that projects
+// them into /projections through the real engine.
+func workspace(t *testing.T, binary string) (vfs.FileSystem, *projection.Materialiser, projection.Manifest) {
 	t.Helper()
 
 	manifest, err := projection.Decode([]byte(applications))
@@ -128,6 +128,15 @@ func materialised(t *testing.T, binary string) (vfs.FileSystem, projection.Manif
 	if err != nil {
 		t.Fatalf("NewMaterialiser: %v", err)
 	}
+	return table, mat, manifest
+}
+
+// materialised is the applications projection written onto a tree by the real
+// engine: the tree, the manifest it came from, and where the files went.
+func materialised(t *testing.T, binary string) (vfs.FileSystem, projection.Manifest, projection.Result) {
+	t.Helper()
+
+	table, mat, manifest := workspace(t, binary)
 	written, err := mat.Materialise(t.Context(), manifest)
 	if err != nil {
 		t.Fatalf("Materialise: %v", err)
