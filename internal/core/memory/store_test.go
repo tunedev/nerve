@@ -1,9 +1,11 @@
 package memory_test
 
 import (
+	"bytes"
 	"errors"
 	"io/fs"
 	"path"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -296,6 +298,204 @@ func TestAPriorityIsStoredByName(t *testing.T) {
 		}
 		if _, err := store.List(t.Context(), here); !errors.Is(err, fs.ErrInvalid) {
 			t.Errorf("List over a priority off the scale = %v, want fs.ErrInvalid", err)
+		}
+	})
+}
+
+var berlin = memory.Fact{Kind: "identity", Body: "lives in Berlin", Priority: memory.Low}
+
+func mustSupersede(t *testing.T, store *memory.Store, s workspace.Scope, source string, replaced []int, facts ...memory.Fact) []memory.Memory {
+	t.Helper()
+	written, err := store.Supersede(t.Context(), s, source, replaced, facts)
+	if err != nil {
+		t.Fatalf("Supersede(%q, %v): %v", source, replaced, err)
+	}
+	return written
+}
+
+func bodies(memories []memory.Memory) []string {
+	said := make([]string, len(memories))
+	for i, m := range memories {
+		said[i] = m.Fact.Body
+	}
+	return said
+}
+
+// The acceptance: a fact that stopped being true is replaced rather than
+// edited, so the workspace answers with what it believes now, and a question
+// about a past moment answers with what it believed then.
+func TestAPastMomentIsReconstructedFromWhatReplacedIt(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *memory.Store, _ vfs.FileSystem) {
+		mustAdd(t, store, here, "monday", dublin, never)
+		written := mustSupersede(t, store, here, "tuesday", []int{1}, berlin)
+
+		if len(written) != 1 || written[0].Seq != 3 || !slices.Equal(written[0].Supersedes, []int{1}) {
+			t.Fatalf("Supersede wrote %+v, want one memory at 3 replacing 1", written)
+		}
+
+		current, err := store.Current(t.Context(), here)
+		if err != nil {
+			t.Fatalf("Current: %v", err)
+		}
+		if want := []string{never.Body, berlin.Body}; !slices.Equal(bodies(current), want) {
+			t.Errorf("Current = %v, want %v", bodies(current), want)
+		}
+
+		then, err := store.AsOf(t.Context(), here, at(1))
+		if err != nil {
+			t.Fatalf("AsOf: %v", err)
+		}
+		if want := []string{dublin.Body, never.Body}; !slices.Equal(bodies(then), want) {
+			t.Errorf("AsOf(%v) = %v, want %v", at(1), bodies(then), want)
+		}
+	})
+}
+
+// The interval is half-open, and it is closed by the stamp of the memory that
+// replaced the one it belongs to. At the instant of the replacement the new
+// memory is believed and the old one is not.
+func TestTheReplacementIsBelievedTheInstantTheReplacedOneIsNot(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *memory.Store, _ vfs.FileSystem) {
+		mustAdd(t, store, here, "monday", dublin)
+		mustSupersede(t, store, here, "tuesday", []int{1}, berlin)
+
+		memories := mustList(t, store, here)
+		if len(memories) != 2 {
+			t.Fatalf("List = %d memories, want 2", len(memories))
+		}
+		if memories[0].Until != at(1) {
+			t.Errorf("the replaced memory ran until %v, want %v", memories[0].Until, at(1))
+		}
+		if !memories[1].Until.IsZero() {
+			t.Errorf("the replacing memory ran until %v, want nothing to have replaced it", memories[1].Until)
+		}
+
+		for _, when := range []struct {
+			t    time.Time
+			want []string
+		}{
+			{at(0).Add(-time.Second), nil},
+			{at(0), []string{dublin.Body}},
+			{at(1), []string{berlin.Body}},
+		} {
+			believed, err := store.AsOf(t.Context(), here, when.t)
+			if err != nil {
+				t.Fatalf("AsOf(%v): %v", when.t, err)
+			}
+			if !slices.Equal(bodies(believed), when.want) {
+				t.Errorf("AsOf(%v) = %v, want %v", when.t, bodies(believed), when.want)
+			}
+		}
+	})
+}
+
+// Superseding writes; it does not rewrite. The memory that stopped being
+// believed is the bytes it always was, which is what makes a question about a
+// past moment answerable at all.
+func TestSupersedingLeavesTheReplacedMemoryAsItWas(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *memory.Store, fsys vfs.FileSystem) {
+		mustAdd(t, store, here, "monday", dublin)
+		file := path.Join(root, here.User, here.Workspace, "1")
+		before, err := fsys.Read(t.Context(), file)
+		if err != nil {
+			t.Fatalf("Read: %v", err)
+		}
+
+		mustSupersede(t, store, here, "tuesday", []int{1}, berlin)
+
+		after, err := fsys.Read(t.Context(), file)
+		if err != nil {
+			t.Fatalf("Read: %v", err)
+		}
+		if !bytes.Equal(before, after) {
+			t.Errorf("the replaced memory now reads %s, want %s", after, before)
+		}
+	})
+}
+
+// A memory already replaced stops being believed once, at the first replacement.
+// A later memory naming it again does not move the moment it stopped.
+func TestTheIntervalEndsAtTheFirstReplacement(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *memory.Store, _ vfs.FileSystem) {
+		mustAdd(t, store, here, "monday", dublin)
+		mustSupersede(t, store, here, "tuesday", []int{1}, berlin)
+		mustSupersede(t, store, here, "wednesday", []int{1}, tabs)
+
+		memories := mustList(t, store, here)
+		if memories[0].Until != at(1) {
+			t.Errorf("the replaced memory ran until %v, want %v", memories[0].Until, at(1))
+		}
+	})
+}
+
+// A supersession naming a memory nobody wrote is a claim about nothing, and the
+// caller finds out rather than closing an interval on a sequence from somewhere
+// else.
+func TestSupersedingAMemoryThatIsNotThereIsRefused(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *memory.Store, _ vfs.FileSystem) {
+		mustAdd(t, store, here, "monday", dublin)
+
+		_, err := store.Supersede(t.Context(), here, "tuesday", []int{2}, []memory.Fact{berlin})
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("Supersede(2) = %v, want fs.ErrNotExist", err)
+		}
+		if memories := mustList(t, store, here); len(memories) != 1 {
+			t.Errorf("List = %+v, want only what the first commit wrote", memories)
+		}
+	})
+}
+
+// Superseding with nothing to replace them with, or naming no memory, is
+// refused. Either would write a memory that reads as a retraction and is not
+// one, or none at all while looking like it recorded something.
+func TestASupersessionThatRecordsNothingIsRefused(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *memory.Store, _ vfs.FileSystem) {
+		mustAdd(t, store, here, "monday", dublin)
+
+		if _, err := store.Supersede(t.Context(), here, "tuesday", []int{1}, nil); !errors.Is(err, fs.ErrInvalid) {
+			t.Errorf("Supersede(no facts) = %v, want fs.ErrInvalid", err)
+		}
+		if _, err := store.Supersede(t.Context(), here, "tuesday", nil, []memory.Fact{berlin}); !errors.Is(err, fs.ErrInvalid) {
+			t.Errorf("Supersede(no memory named) = %v, want fs.ErrInvalid", err)
+		}
+	})
+}
+
+// A stored supersession that cannot describe an interval fails the listing. A
+// memory naming one that is not in the log, or one it does not follow, would be
+// read as still believed when something replaced it.
+func TestAnImpossibleSupersessionFailsTheListing(t *testing.T) {
+	broken := map[string]string{
+		"not in the log":  `{"fact":{"kind":"identity","body":"lives in Berlin","priority":"low"},"source":"tuesday","at":"2026-09-03T09:00:01Z","supersedes":[9]}`,
+		"does not follow": `{"fact":{"kind":"identity","body":"lives in Berlin","priority":"low"},"source":"tuesday","at":"2026-09-03T09:00:01Z","supersedes":[2]}`,
+		"not a sequence":  `{"fact":{"kind":"identity","body":"lives in Berlin","priority":"low"},"source":"tuesday","at":"2026-09-03T09:00:01Z","supersedes":[0]}`,
+	}
+	for name, held := range broken {
+		t.Run(name, func(t *testing.T) {
+			onBoth(t, func(t *testing.T, store *memory.Store, fsys vfs.FileSystem) {
+				mustAdd(t, store, here, "monday", dublin)
+
+				if err := fsys.Write(t.Context(), path.Join(root, here.User, here.Workspace, "2"), []byte(held)); err != nil {
+					t.Fatalf("Write: %v", err)
+				}
+				if _, err := store.List(t.Context(), here); !errors.Is(err, fs.ErrInvalid) {
+					t.Errorf("List = %v, want fs.ErrInvalid", err)
+				}
+			})
+		})
+	}
+}
+
+// An as-of question about a workspace nobody has committed a conversation into
+// answers with nothing, which is what it believed then.
+func TestAsOfAnEmptyLogIsEmpty(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *memory.Store, _ vfs.FileSystem) {
+		believed, err := store.AsOf(t.Context(), here, at(0))
+		if err != nil {
+			t.Fatalf("AsOf: %v", err)
+		}
+		if len(believed) != 0 {
+			t.Errorf("AsOf = %+v, want nothing", believed)
 		}
 	})
 }
