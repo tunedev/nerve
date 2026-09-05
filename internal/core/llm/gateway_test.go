@@ -398,3 +398,74 @@ func TestTheChainNamesTheCapabilitiesItsProvidersServe(t *testing.T) {
 		t.Errorf("AsSummariser = %v, want nil: the chain only extracts", verb)
 	}
 }
+
+// writer answers WriteSQL with whatever a test set. It serves nothing else,
+// which is what makes it the control for the routing below.
+type writer struct {
+	llm.NoAccessors
+	sql   string
+	err   error
+	calls int
+	table llm.Table
+}
+
+func (w *writer) AsSQLWriter() llm.SQLWriter { return w }
+
+func (w *writer) WriteSQL(_ context.Context, _ string, table llm.Table) (string, error) {
+	w.calls++
+	w.table = table
+	return w.sql, w.err
+}
+
+// SQL writing is routed over the endpoints that write SQL and over no others,
+// and the table the caller described reaches the endpoint that answered.
+func TestTheSQLWritingEndpointIsTheOneAskedForAStatement(t *testing.T) {
+	summariser := &endpoint{answer: "a summary"}
+	sql := &writer{sql: "SELECT stage FROM applications"}
+	table := llm.Table{Name: "applications", Columns: []llm.Column{{Name: "stage", Type: "string"}}}
+
+	statement, err := chain(t, summariser, sql).AsSQLWriter().WriteSQL(t.Context(), "which stages are there", table)
+	if err != nil {
+		t.Fatalf("WriteSQL: %v", err)
+	}
+	if statement != "SELECT stage FROM applications" {
+		t.Errorf("WriteSQL = %q, want the writing endpoint's statement", statement)
+	}
+	if sql.table.Name != "applications" || len(sql.table.Columns) != 1 {
+		t.Errorf("the endpoint was given table %+v, want the one the caller described", sql.table)
+	}
+	if summariser.calls != 0 {
+		t.Errorf("the summarising endpoint saw %d calls, want 0: it writes no SQL", summariser.calls)
+	}
+}
+
+// A degraded endpoint passes the question to the next one that writes SQL, the
+// same way it passes a summary.
+func TestSQLWritingPassesADegradedEndpointToTheNext(t *testing.T) {
+	failing := &writer{err: errTransient}
+	answering := &writer{sql: "SELECT count(*) FROM applications"}
+
+	statement, err := chain(t, failing, answering).AsSQLWriter().WriteSQL(t.Context(), "how many", llm.Table{Name: "applications"})
+	if err != nil {
+		t.Fatalf("WriteSQL: %v", err)
+	}
+	if statement != "SELECT count(*) FROM applications" {
+		t.Errorf("WriteSQL = %q, want the second endpoint's statement", statement)
+	}
+	if failing.calls != 1 || answering.calls != 1 {
+		t.Errorf("calls = %d then %d, want one each", failing.calls, answering.calls)
+	}
+}
+
+// A chain with no endpoint that writes SQL says so where a build wires the
+// query path, rather than on the first question somebody asks.
+func TestAChainWithNoSQLWritingEndpointAnswersNil(t *testing.T) {
+	gateway := chain(t, &endpoint{})
+
+	if verb := gateway.AsSQLWriter(); verb != nil {
+		t.Errorf("AsSQLWriter = %v, want nil: no provider in the chain writes SQL", verb)
+	}
+	if served := chain(t, &writer{}).Capabilities(); len(served) != 1 || served[0] != "write-sql" {
+		t.Errorf("Capabilities = %v, want write-sql alone", served)
+	}
+}
