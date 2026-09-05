@@ -13,6 +13,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/nounlink"
 	"github.com/tunedev/nerve/internal/adapters/outbound/ollama"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termsum"
+	"github.com/tunedev/nerve/internal/adapters/outbound/termvec"
 	"github.com/tunedev/nerve/internal/core/llm"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -53,13 +54,52 @@ func TestRegisterProvidersMakesTermsumRoutable(t *testing.T) {
 
 // termsum reads no settings, so it declares none safe to read back and the
 // effective-config surface has nothing of its to show. cuefact has one and it
-// is not a credential, so an operator can read back whose turns are extracted.
+// is not a credential, so an operator can read back whose turns are extracted,
+// and termvec has the width its vectors are, which is the number a mount
+// holding them was sized by.
 func TestAKindDeclaresWhatIsSafeToReadBack(t *testing.T) {
 	if public := providerRegistry(t).Public(termsum.Kind); len(public) != 0 {
 		t.Errorf("Public(%q) = %v, want none", termsum.Kind, public)
 	}
 	if public := providerRegistry(t).Public(cuefact.Kind); !slices.Contains(public, cuefact.RoleSetting) {
 		t.Errorf("Public(%q) = %v, want the role", cuefact.Kind, public)
+	}
+	if public := providerRegistry(t).Public(termvec.Kind); !slices.Contains(public, termvec.DimensionSetting) {
+		t.Errorf("Public(%q) = %v, want the dimension", termvec.Kind, public)
+	}
+}
+
+// The laptop chain embeds. Without an endpoint that does, gateway.AsEmbedder()
+// is nil and the vectorfs kind refuses every mount, so a build with no Ollama
+// running could not hold an index at all — which is what this endpoint is for.
+func TestTheLaptopChainEmbedsWithNothingStarted(t *testing.T) {
+	gateway, err := providerRegistry(t).Gateway([]llm.ProviderSpec{
+		{Name: "summaries", Kind: termsum.Kind},
+		{Name: "vectors", Kind: termvec.Kind},
+		{Name: "facts", Kind: cuefact.Kind},
+	})
+	if err != nil {
+		t.Fatalf("Gateway(laptop) = %v", err)
+	}
+
+	served := gateway.Capabilities()
+	for _, capability := range []string{"summarise", "embed", "extract"} {
+		if !slices.Contains(served, capability) {
+			t.Fatalf("the gateway serves %v, want %s among them", served, capability)
+		}
+	}
+
+	embedder := gateway.AsEmbedder()
+	if embedder == nil {
+		t.Fatal("AsEmbedder = nil; the vectorfs kind refuses a mount on this")
+	}
+
+	vectors, err := embedder.Embed(context.Background(), []string{"the pumps had not run", "nobody funded the maintenance"})
+	if err != nil {
+		t.Fatalf("Embed = %v", err)
+	}
+	if len(vectors) != 2 || len(vectors[0]) != termvec.DefaultDimension {
+		t.Errorf("Embed returned %d vectors of %d, want two of %d", len(vectors), len(vectors[0]), termvec.DefaultDimension)
 	}
 }
 
