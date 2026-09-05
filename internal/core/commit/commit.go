@@ -1,16 +1,29 @@
 // Package commit is what happens to a conversation when it is over: the
-// transcript is read, what is worth remembering is extracted from it, and the
-// result is written to the workspace's memories.
+// transcript is read, what is worth remembering is extracted from it into the
+// workspace's memories, and the half nobody will read again is moved aside
+// behind a summary.
 //
 // It is the stage that turns a record of what was said into claims that stand
-// on their own. The transcript is not touched — it is append-only and this
-// package only reads it — so a commit can be run again over the same session
-// and the session is the same session afterwards.
+// on their own, and the rest of it into a sentence. Nothing said is thrown
+// away: no message is rewritten and none is removed — the cold ones move into
+// the session's archive under the sequences they were said under, and the
+// session retains what they said.
 //
-// Extraction is a model call and goes through the gateway, so no stage here
-// holds a provider client and which endpoint reads the transcript is a line of
-// config. A build with no extracting endpoint has no committer, which it finds
-// out where it wires the pipeline rather than on the first conversation.
+// Both stages are model calls and both go through the gateway, so no stage here
+// holds a provider client and which endpoint reads a transcript is a line of
+// config. A build with no extracting endpoint has no committer, and a build
+// with no summarising endpoint has no archiver and so no committer either.
+// Both are found out where the pipeline is wired rather than on the first
+// conversation.
+//
+// The order of the two stages is the whole recovery story. Extraction reads the
+// whole conversation and archival narrows it, so archival runs last: a commit
+// interrupted between them has written its memories and not reduced anything,
+// which running it again completes. The other order reduces the transcript
+// first, and the second run extracts from a conversation whose cold half it can
+// no longer see — the facts in it are lost to that run and to every later one.
+// The memories a repeat run writes twice are the duplicate E8.5 exists to
+// resolve; a fact never extracted is not recoverable at all.
 package commit
 
 import (
@@ -18,39 +31,66 @@ import (
 	"fmt"
 	"io/fs"
 
+	"github.com/tunedev/nerve/internal/core/archive"
 	"github.com/tunedev/nerve/internal/core/llm"
 	"github.com/tunedev/nerve/internal/core/memory"
 	"github.com/tunedev/nerve/internal/core/session"
 	"github.com/tunedev/nerve/internal/core/workspace"
 )
 
-// Committer reads a session and writes what it is worth remembering.
+// Result is what one commit did: the memories it wrote, and the session as it
+// stands afterwards.
+//
+// The session is the session's state and not this run's. A commit that found
+// the cold half already moved aside answers with the summary that was already
+// there, which is the true statement about the conversation — and a caller
+// comparing Archived against what it saw last is asking whether the
+// conversation has grown, not whether an endpoint was called.
+type Result struct {
+	Memories []memory.Memory
+	Session  session.Session
+}
+
+// Committer reads a session, writes what is worth remembering from it, and
+// moves aside what will not be read again.
 type Committer struct {
 	sessions *session.Store
 	memories *memory.Store
 	extract  llm.FactExtractor
+	archiver *archive.Archiver
+	keep     int
 }
 
 // New returns the committer reading sessions from sessions, writing memories to
-// memories, and extracting through extract.
+// memories, extracting through extract, and reducing through archiver while
+// keeping the last keep turns of a conversation as they were said. The archiver
+// reads and writes the same sessions.
 //
-// A nil extractor is refused. It is what the gateway answers when nothing in
-// the chain extracts, and a committer built on it would accept every session
-// and fail on each one, which is a build that looks wired and remembers
-// nothing.
-func New(sessions *session.Store, memories *memory.Store, extract llm.FactExtractor) (*Committer, error) {
+// A nil extractor or a nil archiver is refused. Nil is what the gateway answers
+// when nothing in the chain serves a capability, and a committer built on one
+// would accept every session and fail on each one, which is a build that looks
+// wired and remembers nothing.
+//
+// Keeping no turns hot is refused rather than read as "reduce everything": it
+// is the setting that hands a caller a summary where the turn it is answering
+// should be.
+func New(sessions *session.Store, memories *memory.Store, extract llm.FactExtractor, archiver *archive.Archiver, keep int) (*Committer, error) {
 	switch {
 	case sessions == nil || memories == nil:
 		return nil, fmt.Errorf("committer needs a session store and a memory store: %w", fs.ErrInvalid)
 	case extract == nil:
 		return nil, fmt.Errorf("committer needs an extractor; no configured endpoint extracts: %w", fs.ErrInvalid)
+	case archiver == nil:
+		return nil, fmt.Errorf("committer needs an archiver; no configured endpoint summarises: %w", fs.ErrInvalid)
+	case keep < 1:
+		return nil, fmt.Errorf("committer keeps %d turns hot, leaving a session with no live half: %w", keep, fs.ErrInvalid)
 	}
-	return &Committer{sessions: sessions, memories: memories, extract: extract}, nil
+	return &Committer{sessions: sessions, memories: memories, extract: extract, archiver: archiver, keep: keep}, nil
 }
 
 // Commit reads the session named name in s, extracts what is worth remembering
-// from it, and adds it to the workspace's memories. It answers with what it
-// wrote.
+// from it into the workspace's memories, and moves everything but the last few
+// turns into the session's archive behind a summary. It answers with both.
 //
 // A session nobody created reports fs.ErrNotExist, from the read: a commit of a
 // misspelled name that quietly wrote nothing looks exactly like a conversation
@@ -59,22 +99,28 @@ func New(sessions *session.Store, memories *memory.Store, extract llm.FactExtrac
 // A conversation with nothing worth remembering commits nothing and is not a
 // failure. Committing the same session twice writes its facts twice — nothing
 // here compares a fact against what is already stored, which is E8.5's job.
-func (c *Committer) Commit(ctx context.Context, s workspace.Scope, name string) ([]memory.Memory, error) {
+// Reduction is not like that: a second commit over a conversation that has not
+// grown finds the hot half already within the policy and calls no endpoint.
+func (c *Committer) Commit(ctx context.Context, s workspace.Scope, name string) (Result, error) {
 	transcript, err := c.sessions.Get(ctx, s, name)
 	if err != nil {
-		return nil, fmt.Errorf("commit session %q: %w", name, err)
+		return Result{}, fmt.Errorf("commit session %q: %w", name, err)
 	}
 
 	facts, err := c.extract.Extract(ctx, turnsOf(transcript.Messages))
 	if err != nil {
-		return nil, fmt.Errorf("commit session %q: %w", name, err)
+		return Result{}, fmt.Errorf("commit session %q: %w", name, err)
 	}
-
 	written, err := c.memories.Add(ctx, s, name, factsOf(facts))
 	if err != nil {
-		return nil, fmt.Errorf("commit session %q: %w", name, err)
+		return Result{}, fmt.Errorf("commit session %q: %w", name, err)
 	}
-	return written, nil
+
+	reduced, err := c.archiver.Archive(ctx, s, name, c.keep)
+	if err != nil {
+		return Result{}, fmt.Errorf("commit session %q: %w", name, err)
+	}
+	return Result{Memories: written, Session: reduced}, nil
 }
 
 // turnsOf hands a transcript to the extractor in the extractor's vocabulary.
