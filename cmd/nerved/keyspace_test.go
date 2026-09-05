@@ -25,7 +25,7 @@ const endpointEnv = "NERVE_OBJECTFS_ENDPOINT"
 // the userinfo, the bucket is the path, the region is a query, and what is left
 // is the endpoint the store answers on.
 func TestAStoreURLIsReadAsOneBucketsAddress(t *testing.T) {
-	cfg, err := bucket("https://AKIA:wJalrXUt@objects.example.com/nerve?region=eu-west-1")
+	cfg, err := bucket("kv-store-url", "https://AKIA:wJalrXUt@objects.example.com/nerve?region=eu-west-1")
 	if err != nil {
 		t.Fatalf("bucket() = %v", err)
 	}
@@ -46,7 +46,7 @@ func TestAStoreURLIsReadAsOneBucketsAddress(t *testing.T) {
 // to name, so a URL that names none is signed for the same region a mount that
 // names none is.
 func TestAStoreURLWithoutARegionSignsForTheDefault(t *testing.T) {
-	cfg, err := bucket("http://nerve:nervenerve@127.0.0.1:9000/nerve")
+	cfg, err := bucket("kv-store-url", "http://nerve:nervenerve@127.0.0.1:9000/nerve")
 	if err != nil {
 		t.Fatalf("bucket() = %v", err)
 	}
@@ -117,7 +117,7 @@ func boot(t *testing.T, url string) *vfs.MountTable {
 	}
 
 	registry := vfs.NewRegistry(10*time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", store, vfs.NewTraffic(time.Now), stubEmbedder{}); err != nil {
+	if err := registerKinds(registry, "test", store, vfs.NewTraffic(time.Now), stubEmbedder{}, testCorpus(t)); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 

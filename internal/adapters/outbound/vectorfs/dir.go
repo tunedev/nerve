@@ -75,9 +75,10 @@ func (f *FS) ReadDir(ctx context.Context, name string) ([]vfs.FileInfo, error) {
 }
 
 // statDoc answers for a name under the corpus: the document stored under it,
-// the directory a prefix makes while something is beneath it, or neither.
+// the directory a prefix makes while something is beneath it, or neither. The
+// corpus answers both, because the corpus is what says a document is there.
 func (f *FS) statDoc(ctx context.Context, name, key string) (vfs.FileInfo, error) {
-	entry, err := f.index.Peek(ctx, key)
+	entry, err := f.docs.Head(ctx, f.doc(key))
 	if err == nil {
 		return entry.info(), nil
 	}
@@ -85,7 +86,7 @@ func (f *FS) statDoc(ctx context.Context, name, key string) (vfs.FileInfo, error
 		return vfs.FileInfo{}, fmt.Errorf("stat %q: %w", name, err)
 	}
 
-	beneath, err := f.index.List(ctx, prefixOf(key))
+	beneath, err := f.docs.List(ctx, f.doc(prefixOf(key)))
 	if err != nil {
 		return vfs.FileInfo{}, fmt.Errorf("stat %q: %w", name, err)
 	}
@@ -99,7 +100,8 @@ func (f *FS) statDoc(ctx context.Context, name, key string) (vfs.FileInfo, error
 // no separator left in it is a document, and everything a separator cuts short
 // is one directory however many keys are under it.
 func (f *FS) listCorpus(ctx context.Context, name, prefix string) ([]vfs.FileInfo, error) {
-	beneath, err := f.index.List(ctx, prefix)
+	under := f.doc(prefix)
+	beneath, err := f.docs.List(ctx, under)
 	if err != nil {
 		return nil, fmt.Errorf("read_dir %q: %w", name, err)
 	}
@@ -107,7 +109,7 @@ func (f *FS) listCorpus(ctx context.Context, name, prefix string) ([]vfs.FileInf
 	entries := make([]vfs.FileInfo, 0, len(beneath))
 	named := make(map[string]struct{}, len(beneath))
 	for _, entry := range beneath {
-		rest := strings.TrimPrefix(entry.Key, prefix)
+		rest := strings.TrimPrefix(entry.Key, under)
 		if strings.Contains(rest, separator) {
 			continue
 		}
@@ -115,7 +117,7 @@ func (f *FS) listCorpus(ctx context.Context, name, prefix string) ([]vfs.FileInf
 		entries = append(entries, entry.info())
 	}
 	for _, entry := range beneath {
-		rest := strings.TrimPrefix(entry.Key, prefix)
+		rest := strings.TrimPrefix(entry.Key, under)
 		cut := strings.Index(rest, separator)
 		if cut < 0 {
 			continue

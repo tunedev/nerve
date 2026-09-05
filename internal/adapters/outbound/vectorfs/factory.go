@@ -42,17 +42,23 @@ var known = []string{settingName, settingIndex, settingDimension, settingNeighbo
 // column is declared from that number and nothing can infer it.
 var required = []string{settingName, settingIndex, settingDimension}
 
-// Factory builds indexes that embed through one chain, which is what keeps a
-// model client out of the plugin: the composition root owns the gateway, and
-// every mount from this factory asks it.
+// Factory builds indexes over one corpus that embed through one chain, which is
+// what keeps both a model client and a bucket out of the plugin: the
+// composition root owns the gateway and the corpus, and every mount from this
+// factory is a part of each.
 //
-// A build with no embedding endpoint behind the chain has a nil Embedder, and
-// an index over one could store nothing and answer nothing. That is refused
-// here, where an operator is still watching, rather than on the first document.
-func Factory(embed llm.Embedder) vfs.Factory {
+// A build with no embedding endpoint behind the chain has a nil Embedder, and a
+// build with nowhere to keep documents has a nil DocStore. An index over either
+// could store nothing and answer nothing, so both are refused here, where an
+// operator is still watching, rather than on the first document.
+func Factory(embed llm.Embedder, docs DocStore) vfs.Factory {
 	return func(settings map[string]string) (vfs.FileSystem, error) {
 		if embed == nil {
 			return nil, fmt.Errorf("kind %q needs an embedding endpoint, and no provider in the chain embeds: %w",
+				Kind, fs.ErrInvalid)
+		}
+		if docs == nil {
+			return nil, fmt.Errorf("kind %q needs somewhere to keep documents, and this build names no corpus: %w",
 				Kind, fs.ErrInvalid)
 		}
 		if unknown := unknownSettings(settings); len(unknown) > 0 {
@@ -77,7 +83,7 @@ func Factory(embed llm.Embedder) vfs.Factory {
 		if err != nil {
 			return nil, fmt.Errorf("kind %q: %w", Kind, err)
 		}
-		return holding(New(name, dimension, neighbours, index, embed), index), nil
+		return holding(New(name, dimension, neighbours, docs, index, embed), index), nil
 	}
 }
 

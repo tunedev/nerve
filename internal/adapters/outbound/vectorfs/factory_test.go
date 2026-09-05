@@ -7,13 +7,31 @@ import (
 	"testing"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/vectorfs"
+	"github.com/tunedev/nerve/internal/core/vfs"
 )
+
+// A build that names no corpus and a build whose chain embeds nothing are both
+// refused where an operator is still watching. Either would mount an index that
+// could store nothing and answer nothing.
+func TestFactoryRefusesAMountWithNothingBehindIt(t *testing.T) {
+	settings := map[string]string{"name": "memories", "index_url": "postgres://nowhere", "dimension": "8"}
+
+	missing := map[string]vfs.Factory{
+		"no corpus":   vectorfs.Factory(bagEmbedder{width: width}, nil),
+		"no embedder": vectorfs.Factory(nil, newLocalDocs(t)),
+	}
+	for what, build := range missing {
+		if _, err := build(settings); !errors.Is(err, fs.ErrInvalid) {
+			t.Errorf("a build with %s = %v, want fs.ErrInvalid", what, err)
+		}
+	}
+}
 
 // A mount is refused for what it says before anything is dialled, so a config
 // that could never work is a boot failure rather than a mount that looks
 // healthy and answers nothing.
 func TestFactoryRefusesSettingsBeforeReachingTheDatabase(t *testing.T) {
-	build := vectorfs.Factory(bagEmbedder{width: width})
+	build := vectorfs.Factory(bagEmbedder{width: width}, newLocalDocs(t))
 
 	refusals := map[string]map[string]string{
 		"no name":            {"index_url": "postgres://nowhere", "dimension": "8"},
@@ -37,7 +55,7 @@ func TestFactoryRefusesSettingsBeforeReachingTheDatabase(t *testing.T) {
 // The index's name becomes a table name in DDL that no parameter can carry, so
 // a name that is not a bare word is refused rather than escaped.
 func TestFactoryRefusesANameATableCannotBeCalled(t *testing.T) {
-	build := vectorfs.Factory(bagEmbedder{width: width})
+	build := vectorfs.Factory(bagEmbedder{width: width}, newLocalDocs(t))
 
 	for _, name := range []string{"Memories", "memories; drop table x", "9lives", "", strings.Repeat("m", 64)} {
 		_, err := build(map[string]string{

@@ -25,6 +25,14 @@
 // client and which endpoint embeds is a line of config. A mount with no
 // embedding endpoint behind it is refused where it is built rather than on the
 // first document it is given.
+//
+// The corpus and the ranking over it are two ports. The DocStore is the record
+// of what is in the corpus and the Index is derived from it, which is what
+// decides the order of every verb that touches both: a document is stored
+// before it is indexed and unindexed before it is removed, so a failure between
+// the two leaves a document that is there and not yet findable rather than an
+// answer naming a document that is gone. A rename is the one verb no order
+// saves, and it says so where it is written.
 package vectorfs
 
 import (
@@ -60,28 +68,46 @@ const separator = "/"
 
 // FS is one similarity index seen as part of the tree.
 //
-// It holds no documents of its own. The index does, because a corpus whose
-// state lived in this process would lose it with the process, and the cost of
-// filling it again is a model call per document.
+// It holds nothing of its own. The corpus and the ranking do, because state
+// that lived in this process would go with the process, and the cost of filling
+// a ranking again is a model call per document.
 type FS struct {
 	vfs.NoAccessors
 
 	name       string
 	dimension  int
 	neighbours int
+	docs       DocStore
 	index      Index
 	embed      llm.Embedder
+	// under is what every document key of this mount starts with. The corpus is
+	// shared the way a keyspace is, so two indexes in one store never answer
+	// each other's documents; the ranking needs no prefix because a table is
+	// already one index's.
+	under string
 }
 
-// New returns an index named name over documents embedded to dimension by
-// embed, answering with at most neighbours documents per question.
+// New returns an index named name over documents kept in docs, ranked by index
+// and embedded to dimension by embed, answering with at most neighbours
+// documents per question.
 //
-// The name is what the mount reads back as at its config path. It is not how
-// the index finds its documents: an index is built for one corpus and scopes
-// itself, so nothing here has to pass a name into every call.
-func New(name string, dimension, neighbours int, index Index, embed llm.Embedder) *FS {
-	return &FS{name: name, dimension: dimension, neighbours: neighbours, index: index, embed: embed}
+// The name is what the mount reads back as at its config path, and it is what
+// scopes the mount inside each of the two: a prefix in the corpus, a table in
+// the ranking.
+func New(name string, dimension, neighbours int, docs DocStore, index Index, embed llm.Embedder) *FS {
+	return &FS{
+		name:       name,
+		dimension:  dimension,
+		neighbours: neighbours,
+		docs:       docs,
+		index:      index,
+		embed:      embed,
+		under:      name + separator,
+	}
 }
+
+// doc is the corpus key a name under the documents addresses.
+func (f *FS) doc(key string) string { return f.under + key }
 
 // Capabilities reports the corpus under the docs path and a fixed, read-only
 // shape everywhere else. This is the descriptor varying inside one mount: the

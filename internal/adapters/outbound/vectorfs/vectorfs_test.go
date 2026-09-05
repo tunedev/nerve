@@ -7,12 +7,9 @@ import (
 	"testing"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/vectorfs"
+	"github.com/tunedev/nerve/internal/core/llm"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
-
-// vectorfs answers the port a mount table dispatches to, which is the only
-// reason it can be mounted at all.
-var _ vfs.FileSystem = vectorfs.New("test", 1, 1, nil, nil)
 
 // width is how wide the offline cases embed to, and neighbours how many
 // documents a question is answered with. Both are small on purpose: a case
@@ -22,11 +19,18 @@ const (
 	neighbours = 3
 )
 
-// newIndex returns an index mount over a corpus in a map, embedded by the bag
-// of words.
+// newIndex returns an index mount over a corpus on the disk and a ranking in a
+// map, embedded by the bag of words.
 func newIndex(t *testing.T) *vectorfs.FS {
 	t.Helper()
-	return vectorfs.New("test", width, neighbours, newMemIndex(), bagEmbedder{width: width})
+	return newIndexOver(t, newLocalDocs(t), newMemIndex(), bagEmbedder{width: width})
+}
+
+// newIndexOver returns an index mount over the corpus, ranking and model given,
+// which is what a case naming one of the three builds through.
+func newIndexOver(t *testing.T, docs vectorfs.DocStore, index vectorfs.Index, embed llm.Embedder) *vectorfs.FS {
+	t.Helper()
+	return vectorfs.New("test", width, neighbours, docs, index, embed)
 }
 
 // The acceptance: a question read through the tree comes back as the corpus
@@ -116,7 +120,7 @@ func TestAnEmptyDocumentIsNeverAnAnswer(t *testing.T) {
 // column was sized from mount config and the model reports nothing about
 // itself. So the mount checks, at its own edge, and says both numbers.
 func TestAVectorOfTheWrongWidthIsRefused(t *testing.T) {
-	fsys := vectorfs.New("test", width, neighbours, newMemIndex(), wideEmbedder{width: width + 1})
+	fsys := newIndexOver(t, newLocalDocs(t), newMemIndex(), wideEmbedder{width: width + 1})
 
 	err := fsys.Write(t.Context(), "/docs/one", []byte("text"))
 	if !errors.Is(err, fs.ErrInvalid) {
@@ -130,8 +134,7 @@ func TestAVectorOfTheWrongWidthIsRefused(t *testing.T) {
 // A model that will not answer is a write that did not happen. The alternative
 // is a document in the corpus that no question can reach.
 func TestADocumentIsNotStoredWhenItCannotBeEmbedded(t *testing.T) {
-	index := newMemIndex()
-	fsys := vectorfs.New("test", width, neighbours, index, errEmbedder{})
+	fsys := newIndexOver(t, newLocalDocs(t), newMemIndex(), errEmbedder{})
 	ctx := t.Context()
 
 	if err := fsys.Write(ctx, "/docs/one", []byte("text")); !errors.Is(err, errNoModel) {
@@ -145,8 +148,8 @@ func TestADocumentIsNotStoredWhenItCannotBeEmbedded(t *testing.T) {
 // A rename changes where a document is filed and not what it says, so the
 // vector travels with it rather than being made again.
 func TestARenameKeepsTheDocumentFindable(t *testing.T) {
-	index := newMemIndex()
-	fsys := vectorfs.New("test", width, neighbours, index, bagEmbedder{width: width})
+	docs, index := newLocalDocs(t), newMemIndex()
+	fsys := newIndexOver(t, docs, index, bagEmbedder{width: width})
 	ctx := t.Context()
 
 	if err := fsys.Write(ctx, "/docs/here", []byte("a circuit breaker stops calling")); err != nil {
@@ -154,7 +157,7 @@ func TestARenameKeepsTheDocumentFindable(t *testing.T) {
 	}
 
 	// The model is taken away, so a rename that embedded again would fail.
-	moved := vectorfs.New("test", width, neighbours, index, errEmbedder{})
+	moved := newIndexOver(t, docs, index, errEmbedder{})
 	if err := moved.Rename(ctx, "/docs/here", "/docs/there"); err != nil {
 		t.Fatalf("Rename = %v, want a rename that asks no model", err)
 	}
