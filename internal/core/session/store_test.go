@@ -89,6 +89,22 @@ func mustAppend(t *testing.T, store *session.Store, s workspace.Scope, name, rol
 	}
 }
 
+func mustArchive(t *testing.T, store *session.Store, s workspace.Scope, name string, through int, summary string) {
+	t.Helper()
+	if err := store.Archive(t.Context(), s, name, through, summary); err != nil {
+		t.Fatalf("Archive(%q, %d): %v", name, through, err)
+	}
+}
+
+func mustArchived(t *testing.T, store *session.Store, s workspace.Scope, name string) []session.Message {
+	t.Helper()
+	got, err := store.Archived(t.Context(), s, name)
+	if err != nil {
+		t.Fatalf("Archived(%q): %v", name, err)
+	}
+	return got
+}
+
 func mustGet(t *testing.T, store *session.Store, s workspace.Scope, name string) session.Transcript {
 	t.Helper()
 	got, err := store.Get(t.Context(), s, name)
@@ -106,6 +122,16 @@ func said(got session.Transcript) []string {
 		turns = append(turns, m.Role+": "+m.Body)
 	}
 	return turns
+}
+
+// turns flattens messages into who said what, which is what the archive answers
+// with: a session, unlike a transcript, is not part of the answer.
+func turns(messages []session.Message) []string {
+	said := make([]string, 0, len(messages))
+	for _, m := range messages {
+		said = append(said, m.Role+": "+m.Body)
+	}
+	return said
 }
 
 func names(sessions []session.Session) []string {
@@ -446,4 +472,173 @@ func TestAStoreIsWhereAMountWasPut(t *testing.T) {
 			t.Errorf("NewStore(%q) = %v, want fs.ErrInvalid", bad, err)
 		}
 	}
+}
+
+// TestAColdTranscriptIsMovedAsideWithASummaryRetained is the ticket: the cold
+// half of a conversation leaves the transcript, the session says what it said,
+// and the messages themselves are still there to be read back.
+func TestAColdTranscriptIsMovedAsideWithASummaryRetained(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", session.Meta{"model": "opus"})
+		mustAppend(t, store, here, "monday", "user", "where did it go")
+		mustAppend(t, store, here, "monday", "assistant", "east")
+		mustAppend(t, store, here, "monday", "user", "and now")
+		mustAppend(t, store, here, "monday", "assistant", "still east")
+
+		mustArchive(t, store, here, "monday", 2, "it went east")
+
+		got := mustGet(t, store, here, "monday")
+		want := []string{"user: and now", "assistant: still east"}
+		if !equal(said(got), want) {
+			t.Fatalf("transcript after Archive = %v, want %v", said(got), want)
+		}
+		if got.Session.Summary != "it went east" {
+			t.Errorf("Summary = %q, want the summary the archive was given", got.Session.Summary)
+		}
+		if got.Session.Archived != 2 {
+			t.Errorf("Archived = %d, want 2", got.Session.Archived)
+		}
+		if got.Session.Meta["model"] != "opus" {
+			t.Errorf("metadata = %v, want the model the session was created with", got.Session.Meta)
+		}
+
+		cold := mustArchived(t, store, here, "monday")
+		wantCold := []string{"user: where did it go", "assistant: east"}
+		if !equal(turns(cold), wantCold) {
+			t.Fatalf("Archived = %v, want %v", turns(cold), wantCold)
+		}
+		for i, m := range cold {
+			if m.Seq != i+1 {
+				t.Errorf("archived message %d has sequence %d, want %d", i, m.Seq, i+1)
+			}
+		}
+
+		listed, err := store.List(t.Context(), here)
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if !equal(names(listed), []string{"monday"}) {
+			t.Fatalf("List = %v, want [monday]: an archive is not a session", names(listed))
+		}
+		if listed[0].Summary != "it went east" {
+			t.Errorf("listed Summary = %q, want the retained summary", listed[0].Summary)
+		}
+	})
+}
+
+// TestArchivedSequencesAreNeverHandedOutAgain archives the whole transcript, so
+// there is nothing left in the session to count the next turn from. Numbering it
+// one again would put a new message under a sequence the archive already holds,
+// and the two would be one conversation with two turns claiming to be its first.
+func TestArchivedSequencesAreNeverHandedOutAgain(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		mustAppend(t, store, here, "monday", "user", "first")
+		mustAppend(t, store, here, "monday", "assistant", "second")
+		mustArchive(t, store, here, "monday", 2, "they spoke twice")
+
+		mustAppend(t, store, here, "monday", "user", "third")
+
+		got := mustGet(t, store, here, "monday")
+		if len(got.Messages) != 1 {
+			t.Fatalf("transcript = %v, want the one turn said since the archive", said(got))
+		}
+		if got.Messages[0].Seq != 3 {
+			t.Fatalf("the turn after archiving two has sequence %d, want 3", got.Messages[0].Seq)
+		}
+		if cold := mustArchived(t, store, here, "monday"); len(cold) != 2 {
+			t.Fatalf("Archived = %v, want the two turns that were moved aside", turns(cold))
+		}
+	})
+}
+
+// TestASecondArchiveExtendsTheFirst: a conversation goes cold twice, and the
+// archive holds both halves under the sequences they were said in.
+func TestASecondArchiveExtendsTheFirst(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "long", nil)
+		for i := 1; i <= 4; i++ {
+			mustAppend(t, store, here, "long", "user", fmt.Sprintf("turn %d", i))
+		}
+
+		mustArchive(t, store, here, "long", 1, "one turn")
+		mustArchive(t, store, here, "long", 3, "three turns")
+
+		got := mustGet(t, store, here, "long")
+		if !equal(said(got), []string{"user: turn 4"}) {
+			t.Fatalf("transcript = %v, want only the fourth turn", said(got))
+		}
+		if got.Session.Summary != "three turns" {
+			t.Errorf("Summary = %q, want the second archive's, which covers both", got.Session.Summary)
+		}
+		cold := mustArchived(t, store, here, "long")
+		want := []string{"user: turn 1", "user: turn 2", "user: turn 3"}
+		if !equal(turns(cold), want) {
+			t.Fatalf("Archived = %v, want %v", turns(cold), want)
+		}
+	})
+}
+
+// TestArchivingRefusesWhatNoSummaryCanStandFor: every refusal here is a session
+// that would afterwards claim a summary covering something other than what is
+// in its archive.
+func TestArchivingRefusesWhatNoSummaryCanStandFor(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		mustAppend(t, store, here, "monday", "user", "first")
+		mustAppend(t, store, here, "monday", "assistant", "second")
+
+		if err := store.Archive(t.Context(), here, "monday", 2, ""); !errors.Is(err, fs.ErrInvalid) {
+			t.Errorf("Archive with no summary = %v, want fs.ErrInvalid", err)
+		}
+		if err := store.Archive(t.Context(), here, "monday", 0, "nothing"); !errors.Is(err, fs.ErrInvalid) {
+			t.Errorf("Archive through 0 = %v, want fs.ErrInvalid", err)
+		}
+		if err := store.Archive(t.Context(), here, "monday", 3, "a turn nobody said"); !errors.Is(err, fs.ErrInvalid) {
+			t.Errorf("Archive past the last turn = %v, want fs.ErrInvalid", err)
+		}
+
+		mustArchive(t, store, here, "monday", 2, "they spoke twice")
+		if err := store.Archive(t.Context(), here, "monday", 1, "they spoke once"); !errors.Is(err, fs.ErrInvalid) {
+			t.Errorf("Archive below what is archived = %v, want fs.ErrInvalid", err)
+		}
+
+		got := mustGet(t, store, here, "monday")
+		if got.Session.Summary != "they spoke twice" || got.Session.Archived != 2 {
+			t.Fatalf("session = %+v, want the archive the refusals left alone", got.Session)
+		}
+	})
+}
+
+// TestDeletingASessionTakesItsArchive: an archive is part of the conversation,
+// so a workspace that deleted one does not still hold half of what was said.
+func TestDeletingASessionTakesItsArchive(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		mustAppend(t, store, here, "monday", "user", "first")
+		mustArchive(t, store, here, "monday", 1, "one turn")
+
+		if err := store.Delete(t.Context(), here, "monday"); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		if _, err := store.Archived(t.Context(), here, "monday"); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("Archived after Delete = %v, want fs.ErrNotExist", err)
+		}
+	})
+}
+
+// TestAnUnarchivedSessionHasAnEmptyArchive: the verb answers for every session,
+// not only the ones something has been moved out of.
+func TestAnUnarchivedSessionHasAnEmptyArchive(t *testing.T) {
+	onBoth(t, func(t *testing.T, store *session.Store, _ vfs.FileSystem) {
+		mustCreate(t, store, here, "monday", nil)
+		mustAppend(t, store, here, "monday", "user", "first")
+
+		if cold := mustArchived(t, store, here, "monday"); len(cold) != 0 {
+			t.Fatalf("Archived = %v, want none", turns(cold))
+		}
+		if _, err := store.Archived(t.Context(), here, "tuesday"); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("Archived of a session nobody created = %v, want fs.ErrNotExist", err)
+		}
+	})
 }

@@ -52,14 +52,10 @@ func (st *Store) Create(ctx context.Context, s workspace.Scope, name string, met
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("create session %q: %w", name, err)
 	}
-	data, err := encodeRecord(record{Meta: meta, Created: st.now().UTC()})
-	if err != nil {
-		return fmt.Errorf("create session %q: %w", name, err)
-	}
 	if err := st.fsys.Mkdir(ctx, dir); err != nil {
 		return fmt.Errorf("create session %q: %w", name, err)
 	}
-	if err := st.fsys.Write(ctx, path.Join(dir, recordName), data); err != nil {
+	if err := st.writeRecord(ctx, dir, record{Meta: meta, Created: st.now().UTC()}); err != nil {
 		return fmt.Errorf("create session %q: %w", name, err)
 	}
 	return nil
@@ -118,6 +114,9 @@ func (st *Store) List(ctx context.Context, s workspace.Scope) ([]Session, error)
 // The session comes back with the transcript rather than beside it, because a
 // caller holding a transcript alone cannot say whose conversation it is, and
 // everything this package feeds derives a claim about a user from it.
+//
+// What has been archived is not in the messages. It is what the session's
+// summary stands for, and Archived is the verb that reads it back.
 func (st *Store) Get(ctx context.Context, s workspace.Scope, name string) (Transcript, error) {
 	dir, err := st.dir(s, name)
 	if err != nil {
@@ -128,17 +127,9 @@ func (st *Store) Get(ctx context.Context, s workspace.Scope, name string) (Trans
 		return Transcript{}, fmt.Errorf("get session %q: %w", name, err)
 	}
 
-	messages := make([]Message, 0, len(seqs))
-	for _, seq := range seqs {
-		data, err := st.fsys.Read(ctx, path.Join(dir, messageName(seq)))
-		if err != nil {
-			return Transcript{}, fmt.Errorf("get session %q message %d: %w", name, seq, err)
-		}
-		said, err := decodeMessage(data)
-		if err != nil {
-			return Transcript{}, fmt.Errorf("get session %q message %d: %w", name, seq, err)
-		}
-		messages = append(messages, Message{Seq: seq, Role: said.Role, Body: said.Body, At: said.At})
+	messages, err := st.messages(ctx, dir, seqs)
+	if err != nil {
+		return Transcript{}, fmt.Errorf("get session %q: %w", name, err)
 	}
 	return Transcript{Session: sessionOf(name, held), Messages: messages}, nil
 }
@@ -165,6 +156,11 @@ func (st *Store) Delete(ctx context.Context, s workspace.Scope, name string) err
 // Each message is written once, to a path of its own, and nothing already
 // written is read back and rewritten. A caller interrupted between two appends
 // has lost the message it was making and nothing else.
+//
+// The next sequence continues past the archive as well as past the transcript.
+// A session whose every message has been moved aside has nothing left to count
+// from, and numbering the next turn one again would put two different messages
+// under one sequence.
 func (st *Store) Append(ctx context.Context, s workspace.Scope, name, role, body string) error {
 	dir, err := st.dir(s, name)
 	if err != nil {
@@ -173,14 +169,11 @@ func (st *Store) Append(ctx context.Context, s workspace.Scope, name, role, body
 	if err := validRole(role); err != nil {
 		return fmt.Errorf("append to session %q: %w", name, err)
 	}
-	_, seqs, err := st.readDir(ctx, dir)
+	held, seqs, err := st.readDir(ctx, dir)
 	if err != nil {
 		return fmt.Errorf("append to session %q: %w", name, err)
 	}
-	next := 1
-	if len(seqs) > 0 {
-		next = seqs[len(seqs)-1] + 1
-	}
+	next := st.nextSeq(held, seqs)
 	data, err := encodeMessage(message{Role: role, Body: body, At: st.now().UTC()})
 	if err != nil {
 		return fmt.Errorf("append to session %q: %w", name, err)
@@ -189,6 +182,91 @@ func (st *Store) Append(ctx context.Context, s workspace.Scope, name, role, body
 		return fmt.Errorf("append to session %q: %w", name, err)
 	}
 	return nil
+}
+
+// Archive moves every message in the session named name in s up to and
+// including through into the session's archive, and retains summary on the
+// session in their place. It is what happens to a conversation that has gone
+// cold: the transcript a caller reads becomes the part still in the
+// conversation, and what the rest of it said is the summary.
+//
+// Nothing is deleted. The archived messages keep the sequences they were said
+// under, and Archived reads them back.
+//
+// A through that names a turn the session never held is refused with
+// fs.ErrInvalid, and so is one below what is already archived: the summary
+// stands for everything in the archive, and one written for less of it is a
+// claim about a conversation nobody can see.
+//
+// The record is written before the messages move. A caller interrupted the
+// other way round leaves messages under sequences the record does not know are
+// taken, and the next append would hand one of them out twice; interrupted this
+// way it leaves cold messages still in the transcript, which running the same
+// archival again completes.
+func (st *Store) Archive(ctx context.Context, s workspace.Scope, name string, through int, summary string) error {
+	dir, err := st.dir(s, name)
+	if err != nil {
+		return fmt.Errorf("archive session: %w", err)
+	}
+	if err := validArchive(through, summary); err != nil {
+		return fmt.Errorf("archive session %q: %w", name, err)
+	}
+	held, seqs, err := st.readDir(ctx, dir)
+	if err != nil {
+		return fmt.Errorf("archive session %q: %w", name, err)
+	}
+	if last := st.nextSeq(held, seqs) - 1; through > last {
+		return fmt.Errorf("archive session %q through %d, which was never said: %w", name, through, fs.ErrInvalid)
+	}
+	if through < held.Archived {
+		return fmt.Errorf("archive session %q through %d, below the %d already archived: %w", name, through, held.Archived, fs.ErrInvalid)
+	}
+
+	held.Summary, held.Archived = summary, through
+	if err := st.writeRecord(ctx, dir, held); err != nil {
+		return fmt.Errorf("archive session %q: %w", name, err)
+	}
+	archive := path.Join(dir, archiveName)
+	if err := st.fsys.Mkdir(ctx, archive); err != nil {
+		return fmt.Errorf("archive session %q: %w", name, err)
+	}
+	for _, seq := range seqs {
+		if seq > through {
+			break
+		}
+		from := path.Join(dir, messageName(seq))
+		if err := st.fsys.Rename(ctx, from, path.Join(archive, messageName(seq))); err != nil {
+			return fmt.Errorf("archive session %q message %d: %w", name, seq, err)
+		}
+	}
+	return nil
+}
+
+// Archived returns the messages moved aside from the session named name in s,
+// in the order they were said. A session nobody has archived from has none,
+// which is not an error. A session nobody created reports fs.ErrNotExist.
+//
+// This is what makes archiving a move rather than a deletion: the cold half of
+// a conversation is out of the way of every caller that only wants the live
+// one, and still there for the caller that asks for it.
+func (st *Store) Archived(ctx context.Context, s workspace.Scope, name string) ([]Message, error) {
+	dir, err := st.dir(s, name)
+	if err != nil {
+		return nil, fmt.Errorf("read archive: %w", err)
+	}
+	if _, err := st.readRecord(ctx, dir); err != nil {
+		return nil, fmt.Errorf("read archive of session %q: %w", name, err)
+	}
+	archive := path.Join(dir, archiveName)
+	seqs, err := st.seqsIn(ctx, archive)
+	if err != nil {
+		return nil, fmt.Errorf("read archive of session %q: %w", name, err)
+	}
+	messages, err := st.messages(ctx, archive, seqs)
+	if err != nil {
+		return nil, fmt.Errorf("read archive of session %q: %w", name, err)
+	}
+	return messages, nil
 }
 
 // readRecord returns the record standing in dir. A directory with no record in
@@ -201,21 +279,47 @@ func (st *Store) readRecord(ctx context.Context, dir string) (record, error) {
 	return decodeRecord(data)
 }
 
+// writeRecord puts held in dir as the session's record. It is the one write
+// this package makes to a file it has already written, and it touches nothing
+// in the transcript: the record is its own file precisely so that retaining a
+// summary does not rewrite a single message.
+func (st *Store) writeRecord(ctx context.Context, dir string, held record) error {
+	data, err := encodeRecord(held)
+	if err != nil {
+		return err
+	}
+	return st.fsys.Write(ctx, path.Join(dir, recordName), data)
+}
+
 // readDir returns the record standing in dir and the sequence of every message
 // beside it, ascending, in one listing rather than one call per question.
-//
-// The sequences come from the names on the mount rather than from a count the
-// record keeps, so a session whose caller was interrupted still says what it
-// holds. Anything in the directory that is not a message — the record, and
-// whatever else a mount put there — is passed over.
 func (st *Store) readDir(ctx context.Context, dir string) (record, []int, error) {
 	held, err := st.readRecord(ctx, dir)
 	if err != nil {
 		return record{}, nil, err
 	}
-	children, err := st.fsys.ReadDir(ctx, dir)
+	seqs, err := st.seqsIn(ctx, dir)
 	if err != nil {
 		return record{}, nil, err
+	}
+	return held, seqs, nil
+}
+
+// seqsIn returns the sequence of every message directly in dir, ascending. A
+// directory nothing has been written into holds none, which is what an archive
+// nobody has moved anything into looks like.
+//
+// The sequences come from the names on the mount rather than from a count the
+// record keeps, so a session whose caller was interrupted still says what it
+// holds. Anything in the directory that is not a message — the record, the
+// archive, and whatever else a mount put there — is passed over.
+func (st *Store) seqsIn(ctx context.Context, dir string) ([]int, error) {
+	children, err := st.fsys.ReadDir(ctx, dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	seqs := make([]int, 0, len(children))
 	for _, child := range children {
@@ -224,7 +328,35 @@ func (st *Store) readDir(ctx context.Context, dir string) (record, []int, error)
 		}
 	}
 	slices.Sort(seqs)
-	return held, seqs, nil
+	return seqs, nil
+}
+
+// messages reads the message at each of seqs out of dir, in the order given.
+func (st *Store) messages(ctx context.Context, dir string, seqs []int) ([]Message, error) {
+	messages := make([]Message, 0, len(seqs))
+	for _, seq := range seqs {
+		data, err := st.fsys.Read(ctx, path.Join(dir, messageName(seq)))
+		if err != nil {
+			return nil, fmt.Errorf("message %d: %w", seq, err)
+		}
+		said, err := decodeMessage(data)
+		if err != nil {
+			return nil, fmt.Errorf("message %d: %w", seq, err)
+		}
+		messages = append(messages, Message{Seq: seq, Role: said.Role, Body: said.Body, At: said.At})
+	}
+	return messages, nil
+}
+
+// nextSeq is the sequence the session's next message takes, counting past the
+// archive as well as past the messages still in the transcript. Subtracting one
+// from it is the highest sequence the session has ever handed out.
+func (st *Store) nextSeq(held record, seqs []int) int {
+	last := held.Archived
+	if len(seqs) > 0 {
+		last = max(last, seqs[len(seqs)-1])
+	}
+	return last + 1
 }
 
 // base is where s keeps its sessions.
@@ -254,5 +386,5 @@ func (st *Store) dir(s workspace.Scope, name string) (string, error) {
 
 // sessionOf names a record, which is the one thing a record does not carry.
 func sessionOf(name string, held record) Session {
-	return Session{Name: name, Meta: held.Meta, Created: held.Created}
+	return Session{Name: name, Meta: held.Meta, Created: held.Created, Summary: held.Summary, Archived: held.Archived}
 }
