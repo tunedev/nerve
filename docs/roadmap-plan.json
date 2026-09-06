@@ -1300,81 +1300,6 @@
   ],
   "edges": [
     {
-      "from_key": "e2",
-      "to_key": "e1",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e3",
-      "to_key": "e1",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e3",
-      "to_key": "e2",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e4",
-      "to_key": "e1",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e4",
-      "to_key": "e2",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e5",
-      "to_key": "e1",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e6",
-      "to_key": "e3",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e6",
-      "to_key": "e4",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e6",
-      "to_key": "e5",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e7",
-      "to_key": "e6",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e8",
-      "to_key": "e7",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e9",
-      "to_key": "e4",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e10",
-      "to_key": "e6",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e11",
-      "to_key": "e5",
-      "type": "blocks"
-    },
-    {
-      "from_key": "e1.6",
-      "to_key": "e12.14",
-      "type": "blocks"
-    },
-    {
       "from_key": "e1.2",
       "to_key": "e1.1",
       "type": "blocks"
@@ -1390,13 +1315,28 @@
       "type": "blocks"
     },
     {
+      "from_key": "e1.4",
+      "to_key": "e1.2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e1.4",
+      "to_key": "e1.3",
+      "type": "blocks"
+    },
+    {
       "from_key": "e1.5",
       "to_key": "e1.4",
       "type": "blocks"
     },
     {
-      "from_key": "e2.6",
-      "to_key": "e2.1",
+      "from_key": "e1.6",
+      "to_key": "e12.14",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e2",
+      "to_key": "e1",
       "type": "blocks"
     },
     {
@@ -1417,6 +1357,366 @@
     {
       "from_key": "e2.5",
       "to_key": "e2.6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e2.6",
+      "to_key": "e2.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e2.8",
+      "to_key": "e2.5",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e2.8",
+      "to_key": "e2.6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e3",
+      "to_key": "e1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e3",
+      "to_key": "e2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e3.3",
+      "to_key": "e3.2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e3.4",
+      "to_key": "e3.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e3.5",
+      "to_key": "e3.4",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e3.6",
+      "to_key": "e3.4",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e4",
+      "to_key": "e1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e4",
+      "to_key": "e2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e4.3",
+      "to_key": "e4.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e4.3",
+      "to_key": "e4.2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e4.4",
+      "to_key": "e4.2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e4.4",
+      "to_key": "e4.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e4.5",
+      "to_key": "e4.2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e5",
+      "to_key": "e1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e5.3",
+      "to_key": "e5.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e5.4",
+      "to_key": "e5.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e5.4",
+      "to_key": "e5.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e6",
+      "to_key": "e3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e6",
+      "to_key": "e4",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e6",
+      "to_key": "e5",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e6.2",
+      "to_key": "e3.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e6.2",
+      "to_key": "e6.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e6.4",
+      "to_key": "e6.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e6.5",
+      "to_key": "e6.4",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7",
+      "to_key": "e6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7.2",
+      "to_key": "e7.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7.3",
+      "to_key": "e7.2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7.4",
+      "to_key": "e7.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7.5",
+      "to_key": "e7.4",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7.6",
+      "to_key": "e7.7",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7.8",
+      "to_key": "e7.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7.8",
+      "to_key": "e7.5",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7.10",
+      "to_key": "e7.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e7.11",
+      "to_key": "e7.5",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8",
+      "to_key": "e7",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8.2",
+      "to_key": "e7.8",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8.3",
+      "to_key": "e8.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8.4",
+      "to_key": "e8.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8.5",
+      "to_key": "e8.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8.6",
+      "to_key": "e8.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8.7",
+      "to_key": "e8.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8.8",
+      "to_key": "e8.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8.9",
+      "to_key": "e8.6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8.9",
+      "to_key": "e8.8",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e8.10",
+      "to_key": "e8.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e9",
+      "to_key": "e4",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e9.2",
+      "to_key": "e9.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e9.3",
+      "to_key": "e9.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e9.3",
+      "to_key": "e9.2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e9.4",
+      "to_key": "e9.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e9.5",
+      "to_key": "e9.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e9.6",
+      "to_key": "e9.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e9.7",
+      "to_key": "e9.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e10",
+      "to_key": "e6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e10.2",
+      "to_key": "e10.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e10.3",
+      "to_key": "e10.2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e10.4",
+      "to_key": "e10.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e10.6",
+      "to_key": "e10.2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e10.7",
+      "to_key": "e10.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e11",
+      "to_key": "e5",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e11.1",
+      "to_key": "e11.2",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e11.3",
+      "to_key": "e11.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e11.4",
+      "to_key": "e11.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e11.5",
+      "to_key": "e11.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e12.2",
+      "to_key": "e12.1",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e12.5",
+      "to_key": "e12.3",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e12.7",
+      "to_key": "e12.6",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e12.15",
+      "to_key": "e12.14",
+      "type": "blocks"
+    },
+    {
+      "from_key": "e12.17",
+      "to_key": "e12.4",
       "type": "blocks"
     }
   ]
