@@ -188,8 +188,11 @@ its documents in, scoped per mount by the index's name. A `vectorfs` mount is tw
 the documents on one side and the vectors that rank them on the other — so a corpus can be
 a bucket while its ranking is a database, and the scheme is which: `file:///var/lib/nerve/corpus`
 is a directory on this host and a bucket URL is the same path-style spelling `kv-store-url`
-takes, redacted the same way. It is empty by default, and empty means the build keeps no
-documents, so a `vectorfs` mount is refused at boot rather than mounted over nowhere.
+takes, redacted the same way. Every `graphfs` mount keeps its graph in that same corpus,
+under a namespace of its own: a graph is held whole in memory and written back as one blob,
+so it survives the process that learnt it. It is empty by default, and empty means the build
+keeps no documents, so a `vectorfs` or `graphfs` mount is refused at boot rather than mounted
+over nowhere.
 
 `telemetry-endpoint` is where that goes: an OTLP collector URL, `http://` for plaintext and
 `https://` for TLS, as the OTLP exporters read the standard variable. It is empty by

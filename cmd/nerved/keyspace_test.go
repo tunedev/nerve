@@ -117,7 +117,7 @@ func boot(t *testing.T, url string) *vfs.MountTable {
 	}
 
 	registry := vfs.NewRegistry(10*time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", store, vfs.NewTraffic(time.Now), stubEmbedder{}, testCorpus(t)); err != nil {
+	if err := registerKinds(registry, "test", store, vfs.NewTraffic(time.Now), stubEmbedder{}, testCorpus(t), stubExtractor{}, testGraphs(t)); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 

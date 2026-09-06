@@ -85,7 +85,8 @@ func main() {
 	// The keyspace every kvfs mount is a part of and the corpus every vectorfs
 	// mount keeps its documents in are built before the table that mounts over
 	// them, because a store two mounts share is the composition root's to own
-	// rather than a mount's to build.
+	// rather than a mount's to build. Every graphfs mount keeps its blob in
+	// that same corpus, under a namespace of its own.
 	//
 	// The tally counts what every mount is asked for and is read back through
 	// the tree, so per-mount accounting is answerable on a laptop with no
@@ -115,8 +116,9 @@ func main() {
 	// stopped answering mean the same thing on either side of the process.
 	//
 	// The chain is built before the mount table because a mount may be over a
-	// model: an index stores the vector of every document written to it, and
-	// the routed Embedder is what makes one. Nothing points back the other way,
+	// model: an index stores the vector of every document written to it and a
+	// graph stores what every text named, and the routed Embedder and
+	// EntityExtractor are what make those. Nothing points back the other way,
 	// so this is the whole of the ordering.
 	providers := llm.NewRegistry(cfg.ProviderTimeoutDuration(), retry, breaker)
 	if err := registerProviders(providers); err != nil {
@@ -131,7 +133,8 @@ func main() {
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), retry, breaker)
 	registry.Record(vfs.Recorders(signals.Recorder, traffic))
 	registry.ReadAhead(cfg.ReadaheadBytes())
-	if err := registerKinds(registry, version, store, traffic, gateway.AsEmbedder(), documents); err != nil {
+	if err := registerKinds(registry, version, store, traffic, gateway.AsEmbedder(), documents,
+		gateway.AsEntityExtractor(), graphStore(documents)); err != nil {
 		fail(err)
 	}
 

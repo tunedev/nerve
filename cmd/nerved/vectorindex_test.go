@@ -108,7 +108,7 @@ func mountIndex(t *testing.T, index, name, dimension string, embed llm.Embedder)
 	}
 
 	registry := vfs.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
-	if err := registerKinds(registry, "test", nil, vfs.NewTraffic(time.Now), embed, documents); err != nil {
+	if err := registerKinds(registry, "test", nil, vfs.NewTraffic(time.Now), embed, documents, stubExtractor{}, graphStore(documents)); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
 
