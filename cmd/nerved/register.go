@@ -90,7 +90,7 @@ import (
 // once — by the Build that puts the proxy itself into the table. exportfs is
 // given it for the same reason: the kind holding an export's inputs is a kind
 // like any other, and the export mount over it is what goes into the table.
-func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store, traffic *vfs.Traffic, embed llm.Embedder, corpus vectorfs.DocStore, extract llm.EntityExtractor, graphs graphfs.Store) error {
+func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store, traffic *vfs.Traffic, embed llm.Embedder, corpus vectorfs.DocStore, extract llm.EntityExtractor, graphs graphKeeper) error {
 	return errors.Join(
 		registry.Register(memfs.Kind, memfs.Factory),
 		registry.Register(localfs.Kind, localfs.Factory, localfs.RootSetting),
@@ -99,7 +99,7 @@ func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store, 
 		registry.Register(queuefs.Kind, queuefs.Factory, queuefs.Public...),
 		registry.Register(sqlfs.Kind, sqlfs.Factory, sqlfs.PathSetting),
 		registry.Register(vectorfs.Kind, vectorfs.Factory(embed, corpus), vectorfs.Public...),
-		registry.Register(graphfs.Kind, graphfs.Factory(extract, graphs), graphfs.Public...),
+		registry.Register(graphfs.Kind, graphfs.Factory(extract, graphs, graphs), graphfs.Public...),
 		registry.Register(streamfs.Kind, streamfs.Factory, streamfs.Public...),
 		registry.Register(streamrotatefs.Kind, streamrotatefs.Factory, streamrotatefs.Public...),
 		registry.Register(hellofs.Kind, hellofs.Factory, hellofs.MessageSetting),

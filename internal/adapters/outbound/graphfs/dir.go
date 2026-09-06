@@ -20,7 +20,7 @@ import (
 // size of the answer. Unlike a similarity query that costs a model call,
 // answering is a walk of what this process already holds, so a caller that
 // stats before reading pays a walk twice and no round trip at all.
-func (f *FS) Stat(_ context.Context, name string) (vfs.FileInfo, error) {
+func (f *FS) Stat(ctx context.Context, name string) (vfs.FileInfo, error) {
 	spot, rest := locate(name)
 	switch spot {
 	case atRoot:
@@ -29,6 +29,12 @@ func (f *FS) Stat(_ context.Context, name string) (vfs.FileInfo, error) {
 		return dirInfo(Docs), nil
 	case atNeighbours:
 		return dirInfo(Neighbours), nil
+	case atSnapshots:
+		return dirInfo(Snapshots), nil
+	case atRestore:
+		return vfs.FileInfo{Name: Restore, Size: int64(len(f.standing())), Mode: fileMode}, nil
+	case atSnapshot:
+		return f.statSnapshot(ctx, name, rest)
 	case atConfig:
 		return vfs.FileInfo{Name: Config, Size: int64(len(f.description())), Mode: fileMode}, nil
 	case atDoc:
@@ -44,6 +50,10 @@ func (f *FS) Stat(_ context.Context, name string) (vfs.FileInfo, error) {
 // nothing under it lists nothing rather than failing: there was no directory to
 // be missing.
 //
+// The snapshots list, unlike the expansions: a label exists because somebody
+// took it, so there is a set to enumerate and it is the useful thing to read
+// before restoring one.
+//
 // The expansions list nothing, ever. Every name under them answers, so there is
 // nothing to enumerate: a listing would either be empty or be the set of
 // entities somebody happened to ask about, and only the first of those is true.
@@ -52,7 +62,7 @@ func (f *FS) Stat(_ context.Context, name string) (vfs.FileInfo, error) {
 // the one listed: it describes itself, where a prefix is only ever described by
 // what sits beneath it. Both stay reachable by name; only the listing has to
 // choose.
-func (f *FS) ReadDir(_ context.Context, name string) ([]vfs.FileInfo, error) {
+func (f *FS) ReadDir(ctx context.Context, name string) ([]vfs.FileInfo, error) {
 	spot, key := locate(name)
 	switch spot {
 	case atRoot:
@@ -60,14 +70,45 @@ func (f *FS) ReadDir(_ context.Context, name string) ([]vfs.FileInfo, error) {
 			{Name: Config, Size: int64(len(f.description())), Mode: fileMode},
 			dirInfo(Docs),
 			dirInfo(Neighbours),
+			{Name: Restore, Size: int64(len(f.standing())), Mode: fileMode},
+			dirInfo(Snapshots),
 		}, nil
 	case atNeighbours:
 		return nil, nil
 	case atCorpus, atDoc:
 		return f.listTexts(prefixOf(key)), nil
+	case atSnapshots:
+		return f.listSnapshots(ctx)
 	default:
 		return nil, fmt.Errorf("read_dir %q: %w", name, fs.ErrNotExist)
 	}
+}
+
+// listSnapshots names every snapshot kept of this graph. A label is described
+// by what the store knows without fetching it, which is its name: a size and an
+// instant would each cost a fetch of the whole graph per label, and both read
+// back from the label's own path.
+func (f *FS) listSnapshots(ctx context.Context) ([]vfs.FileInfo, error) {
+	labels, err := f.snapshots.Labels(ctx, f.name)
+	if err != nil {
+		return nil, fmt.Errorf("read_dir %q: %w", Snapshots, err)
+	}
+
+	entries := make([]vfs.FileInfo, 0, len(labels))
+	for _, label := range labels {
+		entries = append(entries, vfs.FileInfo{Name: label, Mode: fileMode})
+	}
+	return entries, nil
+}
+
+// statSnapshot describes one snapshot from what it holds: the instant it was
+// taken, and the size of the description its own path reads back.
+func (f *FS) statSnapshot(ctx context.Context, name, label string) (vfs.FileInfo, error) {
+	kept, err := f.fetch(ctx, label)
+	if err != nil {
+		return vfs.FileInfo{}, fmt.Errorf("stat %q: %w", name, err)
+	}
+	return vfs.FileInfo{Name: label, Size: int64(len(described(kept))), Mode: fileMode, ModTime: kept.Taken}, nil
 }
 
 // statDoc answers for a name under the texts: the text stored under it, the

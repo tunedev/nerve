@@ -58,6 +58,67 @@ func TestAGraphMountedAgainOverTheSameCorpusKeepsWhatItLearnt(t *testing.T) {
 	}
 }
 
+// The acceptance of E7.11, through the wiring the composition root uses and
+// over a corpus on the host disk: a snapshot taken by one mount table is what a
+// later one is set back to, with everything written in between gone.
+func TestASnapshotTakenByOneMountIsRestoredByALaterOne(t *testing.T) {
+	documents := testCorpus(t)
+
+	first := mountGraph(t, documents)
+	if err := first.Write(t.Context(), "/graph/docs/stack",
+		[]byte("Nerve uses Postgres for storage.")); err != nil {
+		t.Fatalf("Write(/graph/docs/stack) = %v", err)
+	}
+	if err := first.Write(t.Context(), "/graph/snapshots/before", []byte("about to reindex")); err != nil {
+		t.Fatalf("Write(/graph/snapshots/before) = %v", err)
+	}
+	if err := first.Write(t.Context(), "/graph/docs/crew", []byte("Furiosa drives the Rig.")); err != nil {
+		t.Fatalf("Write(/graph/docs/crew) = %v", err)
+	}
+
+	later := mountGraph(t, documents)
+	if err := later.Write(t.Context(), "/graph/restore", []byte("before")); err != nil {
+		t.Fatalf("Write(/graph/restore) = %v", err)
+	}
+
+	if _, err := later.Read(t.Context(), "/graph/docs/crew"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Read(/graph/docs/crew) = %v, want a text the snapshot never had to be gone", err)
+	}
+	body, err := later.Read(t.Context(), "/graph/docs/stack")
+	if err != nil {
+		t.Fatalf("Read(/graph/docs/stack) = %v", err)
+	}
+	if string(body) != "Nerve uses Postgres for storage." {
+		t.Errorf("Read(/graph/docs/stack) = %q, want the text as the snapshot held it", body)
+	}
+
+	standing, err := mountGraph(t, documents).Read(t.Context(), "/graph/restore")
+	if err != nil {
+		t.Fatalf("Read(/graph/restore) = %v", err)
+	}
+	if !strings.Contains(string(standing), "standing before") {
+		t.Errorf("Read(/graph/restore) = %q, want the label the graph stands at", standing)
+	}
+}
+
+// A snapshot is filed apart from the graph, so a graph and a label of one name
+// are two keys in the corpus rather than one.
+func TestASnapshotIsFiledApartFromTheGraph(t *testing.T) {
+	documents := testCorpus(t)
+	table := mountGraph(t, documents)
+
+	if err := table.Write(t.Context(), "/graph/snapshots/notes", nil); err != nil {
+		t.Fatalf("Write(/graph/snapshots/notes) = %v", err)
+	}
+
+	if _, err := documents.Head(t.Context(), graphPrefix+"notes"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a snapshot wrote the key the graph itself is kept under: %v", err)
+	}
+	if _, err := documents.Head(t.Context(), snapshotKey("notes", "notes")); err != nil {
+		t.Errorf("Head(%q) = %v, want the snapshot", snapshotKey("notes", "notes"), err)
+	}
+}
+
 // A build whose chain reads no entities has no graph to offer, and the refusal
 // lands where an operator is still watching rather than on the first text.
 func TestGraphfsMountRefusesAChainThatReadsNoEntities(t *testing.T) {

@@ -14,7 +14,8 @@ import (
 //
 // It moves one text rather than a subtree: a prefix is not an entry, so there
 // is nothing under a name to bring along. Only texts move — the mount's own
-// three paths are its shape, not entries a caller can rearrange.
+// paths are its shape, not entries a caller can rearrange, and a snapshot is
+// what the graph was under the label somebody chose for it.
 //
 // Unlike an index over two stores, there is no order here to get wrong. The
 // move and everything derived from it are one change to one blob, so it either
@@ -67,6 +68,13 @@ func (f *FS) Chmod(ctx context.Context, name string, mode fs.FileMode) error {
 	})
 }
 
-// fixed reports whether a path is one of the mount's own three, which are its
-// shape and not entries a verb may move.
-func fixed(where spot) bool { return where == atRoot || where == atCorpus || where == atNeighbours }
+// fixed reports whether a path is one of the mount's own directories, which are
+// its shape and not entries a verb may move.
+func fixed(where spot) bool {
+	switch where {
+	case atRoot, atCorpus, atNeighbours, atSnapshots:
+		return true
+	default:
+		return false
+	}
+}

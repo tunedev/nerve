@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tunedev/nerve/internal/adapters/outbound/graphfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/kvfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/queuefs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
@@ -617,7 +616,7 @@ func (stubEmbedder) Embed(context.Context, []string) ([][]float32, error) { retu
 
 // testGraphs is the store a graphfs mount keeps its blob in, in a corpus of
 // this test's own.
-func testGraphs(t *testing.T) graphfs.Store {
+func testGraphs(t *testing.T) graphKeeper {
 	t.Helper()
 
 	return graphStore(testCorpus(t))

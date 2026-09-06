@@ -43,9 +43,10 @@ var known = []string{settingName, settingEdges}
 // factory is a part of each.
 //
 // A build with no extracting endpoint behind the chain has a nil
-// EntityExtractor, and a build with nowhere to keep a graph has a nil Store.
-// A graph over either could learn nothing or keep nothing, so both are refused
-// here, where an operator is still watching, rather than on the first text.
+// EntityExtractor, and a build with nowhere to keep a graph has a nil Store and
+// a nil SnapshotStore. A graph over any of them could learn nothing, keep
+// nothing or never be put back, so all three are refused here, where an
+// operator is still watching, rather than on the first text.
 //
 // The graph is loaded here, at boot, and a store that cannot be read is a mount
 // that does not come up. This is the opposite of the rule about model
@@ -53,7 +54,7 @@ var known = []string{settingName, settingEdges}
 // a bucket was briefly unreachable would overwrite the real one on its first
 // write. An endpoint that is down costs an answer; a store that is down would
 // cost the graph.
-func Factory(extract llm.EntityExtractor, store Store) vfs.Factory {
+func Factory(extract llm.EntityExtractor, store Store, snapshots SnapshotStore) vfs.Factory {
 	return func(settings map[string]string) (vfs.FileSystem, error) {
 		if extract == nil {
 			return nil, fmt.Errorf("kind %q needs an endpoint that reads entities, and no provider in the chain does: %w",
@@ -61,6 +62,10 @@ func Factory(extract llm.EntityExtractor, store Store) vfs.Factory {
 		}
 		if store == nil {
 			return nil, fmt.Errorf("kind %q needs somewhere to keep a graph, and this build names none: %w",
+				Kind, fs.ErrInvalid)
+		}
+		if snapshots == nil {
+			return nil, fmt.Errorf("kind %q needs somewhere to keep a graph's snapshots, and this build names none: %w",
 				Kind, fs.ErrInvalid)
 		}
 		if unknown := unknownSettings(settings); len(unknown) > 0 {
@@ -77,7 +82,7 @@ func Factory(extract llm.EntityExtractor, store Store) vfs.Factory {
 		}
 
 		name := settings[settingName]
-		graph, err := Open(context.Background(), name, edges, store, extract)
+		graph, err := Open(context.Background(), name, edges, store, snapshots, extract)
 		if err != nil {
 			return nil, fmt.Errorf("kind %q: %w", Kind, err)
 		}
