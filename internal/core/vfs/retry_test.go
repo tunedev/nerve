@@ -73,6 +73,9 @@ func (f *flaky) Symlink(context.Context, string, string) error { return f.answer
 func (f *flaky) Readlink(context.Context, string) (string, error) {
 	return "/elsewhere", f.answer()
 }
+func (f *flaky) Lstat(context.Context, string) (vfs.FileInfo, error) {
+	return vfs.FileInfo{}, f.answer()
+}
 func (f *flaky) Truncate(context.Context, string, int64) error { return f.answer() }
 func (f *flaky) OpenRead(context.Context, string) (io.ReadCloser, error) {
 	if err := f.answer(); err != nil {

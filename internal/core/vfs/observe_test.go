@@ -57,6 +57,9 @@ func (w writable) Stat(context.Context, string) (vfs.FileInfo, error) {
 	return vfs.FileInfo{}, w.refuse
 }
 func (w writable) Readlink(context.Context, string) (string, error) { return "", w.refuse }
+func (w writable) Lstat(context.Context, string) (vfs.FileInfo, error) {
+	return vfs.FileInfo{}, w.refuse
+}
 
 func (w writable) OpenRead(context.Context, string) (io.ReadCloser, error) {
 	if w.refuse != nil {
@@ -156,6 +159,10 @@ func reading() map[string]func(context.Context, vfs.FileSystem) error {
 		},
 		"Readlink": func(ctx context.Context, f vfs.FileSystem) error {
 			_, err := f.AsSymlinker().Readlink(ctx, "/x")
+			return err
+		},
+		"Lstat": func(ctx context.Context, f vfs.FileSystem) error {
+			_, err := vfs.Lstat(ctx, f, "/x")
 			return err
 		},
 		"OpenRead": func(ctx context.Context, f vfs.FileSystem) error {

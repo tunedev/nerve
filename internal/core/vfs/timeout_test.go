@@ -67,6 +67,10 @@ func (r *noting) Readlink(ctx context.Context, _ string) (string, error) {
 	r.at(ctx)
 	return "/elsewhere", nil
 }
+func (r *noting) Lstat(ctx context.Context, _ string) (vfs.FileInfo, error) {
+	r.at(ctx)
+	return vfs.FileInfo{}, nil
+}
 func (r *noting) Truncate(ctx context.Context, _ string, _ int64) error {
 	r.at(ctx)
 	return nil

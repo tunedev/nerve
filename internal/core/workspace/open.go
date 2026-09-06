@@ -152,6 +152,12 @@ func (r areaRoot) Readlink(_ context.Context, name string) (string, error) {
 	return "", r.missing("readlink", name)
 }
 
+// Lstat is Stat: nothing here is a link, so there is nothing for following to
+// have changed.
+func (r areaRoot) Lstat(ctx context.Context, name string) (vfs.FileInfo, error) {
+	return r.Stat(ctx, name)
+}
+
 func (r areaRoot) OpenRead(_ context.Context, name string) (io.ReadCloser, error) {
 	return nil, r.missing("open", name)
 }

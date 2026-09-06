@@ -179,6 +179,10 @@ func (s observedSymlinker) Readlink(ctx context.Context, path string) (string, e
 	return s.link.Readlink(ctx, path)
 }
 
+func (s observedSymlinker) Lstat(ctx context.Context, path string) (FileInfo, error) {
+	return s.link.Lstat(ctx, path)
+}
+
 type observedTruncater struct {
 	cut Truncater
 	observed

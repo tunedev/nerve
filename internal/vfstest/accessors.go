@@ -30,6 +30,9 @@ func accessorCases() []testCase {
 		{name: "Symlink to a target that is not there is allowed", when: writable, run: symlinkToAMissingTarget},
 		{name: "Readlink of an entry that is not a link is invalid", when: writable, run: readlinkOfAnEntry},
 		{name: "Readlink of a missing path does not exist", run: readlinkOfAMissingPath},
+		{name: "Lstat describes a link and not what it stands for", when: writable, run: lstatDescribesTheLink},
+		{name: "Lstat of an entry that is not a link is Stat", when: writable, run: lstatOfAnEntry},
+		{name: "Lstat of a missing path does not exist", run: lstatOfAMissingPath},
 		{name: "Sub serves the subtree at its own root", when: needs(writable, tree), run: subServesTheSubtree},
 		{name: "Sub serves nothing above the subtree", when: needs(writable, tree), run: subServesNothingAbove},
 	}
@@ -283,6 +286,63 @@ func symlinkToAMissingTarget(t *testing.T, w world) {
 	}
 	if target != w.at("absent") {
 		t.Errorf("Readlink(%q) = %q, want %q", w.at("shortcut"), target, w.at("absent"))
+	}
+}
+
+// The verb the whole accessor is for: Stat follows a link and reports the entry
+// it stands for, and Lstat reports the link. A kind that answered them the same
+// way has no way to say that a link is there.
+func lstatDescribesTheLink(t *testing.T, w world) {
+	link := symlinker(t, w)
+	mustWrite(t, w, "notes", "text")
+	if err := link.Symlink(t.Context(), w.at("notes"), w.at("shortcut")); err != nil {
+		t.Fatalf("Symlink(%q, %q) = %v", w.at("notes"), w.at("shortcut"), err)
+	}
+
+	stood, err := w.fsys.Stat(t.Context(), w.at("shortcut"))
+	if err != nil {
+		t.Fatalf("Stat(%q) = %v", w.at("shortcut"), err)
+	}
+	if stood.IsSymlink() {
+		t.Errorf("Stat(%q) mode = %v, want the entry the link stands for", w.at("shortcut"), stood.Mode)
+	}
+
+	found, err := link.Lstat(t.Context(), w.at("shortcut"))
+	if err != nil {
+		t.Fatalf("Lstat(%q) = %v", w.at("shortcut"), err)
+	}
+	if !found.IsSymlink() {
+		t.Errorf("Lstat(%q) mode = %v, want a link", w.at("shortcut"), found.Mode)
+	}
+	if found.Name != "shortcut" {
+		t.Errorf("Lstat(%q) name = %q, want %q", w.at("shortcut"), found.Name, "shortcut")
+	}
+}
+
+// Where there is no link there is nothing for following to have changed, so the
+// two verbs describe the same entry.
+func lstatOfAnEntry(t *testing.T, w world) {
+	link := symlinker(t, w)
+	mustWrite(t, w, "notes", "text")
+
+	found, err := link.Lstat(t.Context(), w.at("notes"))
+	if err != nil {
+		t.Fatalf("Lstat(%q) = %v", w.at("notes"), err)
+	}
+	stood, err := w.fsys.Stat(t.Context(), w.at("notes"))
+	if err != nil {
+		t.Fatalf("Stat(%q) = %v", w.at("notes"), err)
+	}
+	if found != stood {
+		t.Errorf("Lstat(%q) = %+v, want Stat's %+v", w.at("notes"), found, stood)
+	}
+}
+
+func lstatOfAMissingPath(t *testing.T, w world) {
+	link := symlinker(t, w)
+
+	if _, err := link.Lstat(t.Context(), w.at("absent")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Lstat of a missing path = %v, want fs.ErrNotExist", err)
 	}
 }
 

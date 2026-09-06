@@ -62,3 +62,15 @@ func TestFileInfoIsDirFollowsMode(t *testing.T) {
 		t.Error("entry without ModeDir set reports IsDir() = true")
 	}
 }
+
+func TestFileInfoIsSymlinkFollowsMode(t *testing.T) {
+	link := vfs.FileInfo{Name: "peek", Mode: fs.ModeSymlink | 0o777}
+	if !link.IsSymlink() {
+		t.Error("entry with ModeSymlink set reports IsSymlink() = false")
+	}
+
+	file := vfs.FileInfo{Name: "peek", Mode: 0o644}
+	if file.IsSymlink() {
+		t.Error("entry without ModeSymlink set reports IsSymlink() = true")
+	}
+}

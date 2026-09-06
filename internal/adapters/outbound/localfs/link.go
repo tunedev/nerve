@@ -34,3 +34,13 @@ func (f *FS) Readlink(_ context.Context, name string) (string, error) {
 	}
 	return linkTarget(path.Dir(path.Join("/", name)), target), nil
 }
+
+// Lstat describes name without following a link at it, which is what the host
+// spells Lstat and what os.Root resolves without leaving the root.
+func (f *FS) Lstat(_ context.Context, name string) (vfs.FileInfo, error) {
+	found, err := f.root.Lstat(rel(name))
+	if err != nil {
+		return vfs.FileInfo{}, fmt.Errorf("lstat %q: %w", name, sentinel(err))
+	}
+	return info(name, found), nil
+}

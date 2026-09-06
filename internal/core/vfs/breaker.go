@@ -262,6 +262,10 @@ func (s guardedSymlinker) Readlink(ctx context.Context, path string) (string, er
 	return answer(s.circuit, func() (string, error) { return s.link.Readlink(ctx, path) })
 }
 
+func (s guardedSymlinker) Lstat(ctx context.Context, path string) (FileInfo, error) {
+	return answer(s.circuit, func() (FileInfo, error) { return s.link.Lstat(ctx, path) })
+}
+
 type guardedTruncater struct {
 	cut     Truncater
 	circuit *Circuit

@@ -235,6 +235,13 @@ func (s telemeteredSymlinker) Readlink(ctx context.Context, path string) (string
 	return target, err
 }
 
+func (s telemeteredSymlinker) Lstat(ctx context.Context, path string) (FileInfo, error) {
+	ctx, done := s.begin(ctx, "Lstat", path)
+	info, err := s.link.Lstat(ctx, path)
+	done(err)
+	return info, err
+}
+
 type telemeteredTruncater struct {
 	cut Truncater
 	telemetered

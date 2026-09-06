@@ -187,6 +187,15 @@ func (s *symlinker) Readlink(ctx context.Context, name string) (string, error) {
 	return s.fsys.from(target), nil
 }
 
+// Lstat forwards the path and names the root "/", for the reason Stat does.
+func (s *symlinker) Lstat(ctx context.Context, name string) (vfs.FileInfo, error) {
+	info, err := s.link.Lstat(ctx, s.fsys.at(name))
+	if err == nil && isRoot(name) {
+		info.Name = "/"
+	}
+	return info, err
+}
+
 type streamer struct {
 	fsys   *FS
 	stream vfs.Streamer

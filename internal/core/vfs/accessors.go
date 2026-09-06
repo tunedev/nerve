@@ -13,6 +13,29 @@ type Symlinker interface {
 
 	// Readlink returns what path stands for, without following it.
 	Readlink(ctx context.Context, path string) (string, error)
+
+	// Lstat describes path without following a link at it: a link is reported
+	// as a link, with fs.ModeSymlink set and the length of its target as its
+	// size, rather than as the entry it stands for.
+	//
+	// It lives here because only a kind with links can answer it differently
+	// from Stat. Callers reach it through Lstat rather than the accessor, so
+	// that a kind with no links answers with Stat instead of nothing.
+	Lstat(ctx context.Context, path string) (FileInfo, error)
+}
+
+// Lstat describes path without following a link at it, whatever fsys is: the
+// link verbs' Lstat where the kind has links, and Stat where it has none,
+// because a kind with no links cannot have one at path.
+//
+// This is the call a caller writes. Reaching for the accessor directly leaves
+// every kind that refuses it undescribed, when what it refused was links and
+// not description.
+func Lstat(ctx context.Context, fsys FileSystem, path string) (FileInfo, error) {
+	if link := fsys.AsSymlinker(); link != nil {
+		return link.Lstat(ctx, path)
+	}
+	return fsys.Stat(ctx, path)
 }
 
 // Streamer is the verb set of a storage kind whose entries can be moved in

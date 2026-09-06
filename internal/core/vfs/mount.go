@@ -353,6 +353,18 @@ func (s tableSymlinker) Readlink(ctx context.Context, name string) (string, erro
 	return m.restore(target), nil
 }
 
+// Lstat describes name as the mount holding it does, without following a link.
+// A mount with no link verbs answers with its own Stat rather than a refusal,
+// because a kind with no links cannot have one at name — which is what the
+// package Lstat says, and this is a table of mounts that answer it differently.
+func (s tableSymlinker) Lstat(ctx context.Context, name string) (FileInfo, error) {
+	m, rest, err := s.table.resolve(name)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	return Lstat(ctx, m.fsys, rest)
+}
+
 type tableStreamer struct {
 	table *MountTable
 }

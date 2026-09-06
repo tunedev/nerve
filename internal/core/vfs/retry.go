@@ -275,6 +275,12 @@ func (s retryingSymlinker) Readlink(ctx context.Context, path string) (string, e
 	})
 }
 
+func (s retryingSymlinker) Lstat(ctx context.Context, path string) (FileInfo, error) {
+	return attempt(ctx, s.policy, func(ctx context.Context) (FileInfo, error) {
+		return s.link.Lstat(ctx, path)
+	})
+}
+
 type retryingTruncater struct {
 	cut    Truncater
 	policy Retry

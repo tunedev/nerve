@@ -247,6 +247,11 @@ func (l *linking) Readlink(_ context.Context, path string) (string, error) {
 	return "/jobs/first", nil
 }
 
+func (l *linking) Lstat(_ context.Context, path string) (vfs.FileInfo, error) {
+	l.saw("Lstat", path)
+	return vfs.FileInfo{Name: "first", Mode: fs.ModeSymlink | 0o777}, nil
+}
+
 func linkingTable(t *testing.T) (*vfs.MountTable, *linking) {
 	t.Helper()
 
@@ -290,6 +295,40 @@ func TestReadlinkReturnsATablePath(t *testing.T) {
 
 	if target != "/queue/jobs/first" {
 		t.Errorf("Readlink() = %q, want %q", target, "/queue/jobs/first")
+	}
+}
+
+// Lstat is the one link verb a mount without links still answers, because a
+// kind with no links cannot have one at the path and its Stat already describes
+// what stands there. Refusing would leave a mixed table with no way to describe
+// most of its own paths.
+func TestLstatOfAPathWhoseMountHasNoLinkVerbsIsItsStat(t *testing.T) {
+	table, _ := linkingTable(t)
+
+	found, err := table.AsSymlinker().Lstat(context.Background(), "/plain/notes")
+	if err != nil {
+		t.Fatalf("Lstat() = %v, want nil", err)
+	}
+	if found.Name != "/plain" {
+		t.Errorf("Lstat() = %+v, want the mount's own Stat", found)
+	}
+}
+
+// A mount that has the link verbs answers with them, in its own vocabulary: a
+// path is what the table derived, and what comes back describes an entry rather
+// than naming one.
+func TestLstatOfAPathWhoseMountHasLinkVerbsReachesThem(t *testing.T) {
+	table, plugin := linkingTable(t)
+
+	found, err := table.AsSymlinker().Lstat(context.Background(), "/queue/jobs/latest")
+	if err != nil {
+		t.Fatalf("Lstat() = %v, want nil", err)
+	}
+	if !found.IsSymlink() {
+		t.Errorf("Lstat() = %+v, want the link the mount described", found)
+	}
+	if plugin.verb != "Lstat" || plugin.path != "/jobs/latest" {
+		t.Errorf("the mount saw %s(%q), want Lstat(%q)", plugin.verb, plugin.path, "/jobs/latest")
 	}
 }
 

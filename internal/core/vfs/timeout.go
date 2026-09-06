@@ -200,6 +200,12 @@ func (s boundedSymlinker) Readlink(ctx context.Context, path string) (string, er
 	return s.link.Readlink(ctx, path)
 }
 
+func (s boundedSymlinker) Lstat(ctx context.Context, path string) (FileInfo, error) {
+	ctx, cancel := s.within.apply(ctx)
+	defer cancel()
+	return s.link.Lstat(ctx, path)
+}
+
 type boundedTruncater struct {
 	cut    Truncater
 	within bound
