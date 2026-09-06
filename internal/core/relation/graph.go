@@ -108,7 +108,7 @@ func (g *Graph) List(ctx context.Context, s workspace.Scope, from Ref) ([]Edge, 
 // at is where e stands in s: the whole edge spelled as a path, which is what
 // makes two writers asserting different edges write different files.
 func (g *Graph) at(s workspace.Scope, e Edge) (string, error) {
-	if err := validSegment("predicate", e.Predicate); err != nil {
+	if err := vfs.ValidSegment("predicate", e.Predicate); err != nil {
 		return "", err
 	}
 	if err := e.To.valid(); err != nil {

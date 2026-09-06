@@ -116,7 +116,9 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 	if err != nil {
 		return nil, err
 	}
-	if err := validSource(source); err != nil {
+	// A source is a session name and carries that rule: a source that resolves
+	// away names a conversation nobody had.
+	if err := vfs.ValidSegment("source session", source); err != nil {
 		return nil, err
 	}
 	if err := validSupersedes(replaced); err != nil {

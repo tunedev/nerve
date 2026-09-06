@@ -26,9 +26,6 @@ package library
 
 import (
 	"context"
-	"fmt"
-	"io/fs"
-	"strings"
 )
 
 // Card is what a document says about itself before anyone reads it: enough to
@@ -86,20 +83,4 @@ type Bundle struct {
 // of an agent.
 type Matcher interface {
 	Rank(ctx context.Context, task string, cards []Card) ([]Match, error)
-}
-
-// validName returns fs.ErrInvalid for a name no document can have. The rule is
-// the scope's flat-segment rule for the same reason: a name carrying a separator
-// is a document that can name a place inside another one, and a name that is "."
-// or ".." is a directory rather than a document.
-func validName(name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("name is empty: %w", fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("name %q contains a separator: %w", name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("name %q names a directory, not a document: %w", name, fs.ErrInvalid)
-	}
-	return nil
 }

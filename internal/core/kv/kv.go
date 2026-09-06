@@ -19,25 +19,3 @@
 // unchanged: a namespace is a directory on a tree and a prefix in a keyspace,
 // and Put makes the first and asks nothing of the second.
 package kv
-
-import (
-	"fmt"
-	"io/fs"
-	"strings"
-)
-
-// validSegment returns fs.ErrInvalid for a name no namespace or key can have.
-// The rule is the scope's flat-segment rule for the same reason: a name
-// carrying a separator names a place inside another one, and "." or ".." is a
-// spelling that resolves away and lands on a key nobody asked for.
-func validSegment(kind, name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("%s is empty: %w", kind, fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("%s %q contains a separator: %w", kind, name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("%s %q names a directory, not a %s: %w", kind, name, kind, fs.ErrInvalid)
-	}
-	return nil
-}

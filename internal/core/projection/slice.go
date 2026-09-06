@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
 // Slice is the rows sharing one value of the manifest's slice column: the value
@@ -59,13 +61,8 @@ func (m Manifest) sliceKey(value Value) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("projection %q slices by %q: %w", m.Name, m.SliceBy, err)
 	}
-	switch {
-	case key == "":
-		return "", fmt.Errorf("projection %q slices by %q, which is empty in a record: %w", m.Name, m.SliceBy, fs.ErrInvalid)
-	case strings.Contains(key, "/"):
-		return "", fmt.Errorf("projection %q slices by %q, which is %q in a record and contains a separator: %w", m.Name, m.SliceBy, key, fs.ErrInvalid)
-	case key == "." || key == "..":
-		return "", fmt.Errorf("projection %q slices by %q, which is %q in a record and names a directory: %w", m.Name, m.SliceBy, key, fs.ErrInvalid)
+	if err := vfs.ValidSegment("slice name", key); err != nil {
+		return "", fmt.Errorf("projection %q slices by %q: %w", m.Name, m.SliceBy, err)
 	}
 	return key, nil
 }

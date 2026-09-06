@@ -21,10 +21,6 @@
 package resource
 
 import (
-	"fmt"
-	"io/fs"
-	"strings"
-
 	"github.com/tunedev/nerve/internal/core/cas"
 )
 
@@ -49,20 +45,4 @@ type meta struct {
 	Size        int64  `json:"size"`
 	Digest      string `json:"digest,omitempty"`
 	Complete    bool   `json:"complete"`
-}
-
-// validName returns fs.ErrInvalid for a name no resource can have. The rule is
-// the scope's flat-segment rule for the same reason: a name carrying a
-// separator names a place inside another resource, and "." or ".." is a
-// spelling that resolves away and lands on content nobody asked for.
-func validName(name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("resource name is empty: %w", fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("resource name %q contains a separator: %w", name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("resource name %q names a directory: %w", name, fs.ErrInvalid)
-	}
-	return nil
 }

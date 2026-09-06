@@ -26,12 +26,6 @@
 // nothing below depends on which.
 package thread
 
-import (
-	"fmt"
-	"io/fs"
-	"strings"
-)
-
 // Entry is one piece of output a run appended, with its position in the run.
 // Sequence numbers start at one and have no gaps: the log assigns them, and a
 // caller uses them to say how much of a thread it has already seen.
@@ -46,20 +40,4 @@ type Entry struct {
 type Result struct {
 	Run     Run
 	Entries []Entry
-}
-
-// validName returns fs.ErrInvalid for a name no thread can have. The rule is
-// the scope's flat-segment rule for the same reason: a name carrying a
-// separator names a run inside another one, and "." or ".." is a spelling that
-// resolves away and lands on a thread nobody started.
-func validName(name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("thread name is empty: %w", fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("thread name %q contains a separator: %w", name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("thread name %q names a directory, not a thread: %w", name, fs.ErrInvalid)
-	}
-	return nil
 }

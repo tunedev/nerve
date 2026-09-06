@@ -374,7 +374,7 @@ func (st *Store) base(s workspace.Scope) (string, error) {
 
 // dir is where the session named name stands in s.
 func (st *Store) dir(s workspace.Scope, name string) (string, error) {
-	if err := validName(name); err != nil {
+	if err := vfs.ValidSegment("session name", name); err != nil {
 		return "", err
 	}
 	base, err := st.base(s)

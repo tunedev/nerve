@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"strings"
 	"time"
 )
 
@@ -80,20 +79,4 @@ func decode(data []byte) (record, error) {
 	default:
 		return record{}, fmt.Errorf("indexing record names no status: %w", fs.ErrInvalid)
 	}
-}
-
-// validName returns fs.ErrInvalid for a name no document can have. The rule is
-// the scope's flat-segment rule for the same reason: a name carrying a
-// separator names a record inside another one, and "." or ".." is a spelling
-// that resolves away and lands on a record about a different document.
-func validName(name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("document name is empty: %w", fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("document name %q contains a separator: %w", name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("document name %q names a directory: %w", name, fs.ErrInvalid)
-	}
-	return nil
 }

@@ -38,7 +38,6 @@ import (
 	"fmt"
 	"io/fs"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -153,22 +152,6 @@ func decodeMessage(data []byte) (message, error) {
 		return message{}, fmt.Errorf("message names no role: %w", fs.ErrInvalid)
 	}
 	return held, nil
-}
-
-// validName returns fs.ErrInvalid for a name no session can have. The rule is
-// the scope's flat-segment rule for the same reason: a name carrying a
-// separator names a session inside another one, and "." or ".." is a spelling
-// that resolves away and lands on a conversation nobody had.
-func validName(name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("session name is empty: %w", fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("session name %q contains a separator: %w", name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("session name %q names a directory, not a session: %w", name, fs.ErrInvalid)
-	}
-	return nil
 }
 
 // validMeta returns fs.ErrInvalid for metadata a session cannot carry. A key

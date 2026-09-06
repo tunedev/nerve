@@ -127,7 +127,7 @@ func (l *Ledger) write(ctx context.Context, s workspace.Scope, name string, held
 // every workspace that user has, so a record written there would stand where a
 // workspace belongs.
 func (l *Ledger) at(s workspace.Scope, name string) (string, error) {
-	if err := validName(name); err != nil {
+	if err := vfs.ValidSegment("document name", name); err != nil {
 		return "", err
 	}
 	if s.Workspace == "" {

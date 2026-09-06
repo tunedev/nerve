@@ -311,7 +311,7 @@ func (r *Registry) base(s workspace.Scope) (string, error) {
 
 // dir is where the document named name stands in s.
 func (r *Registry) dir(s workspace.Scope, name string) (string, error) {
-	if err := validName(name); err != nil {
+	if err := vfs.ValidSegment("document name", name); err != nil {
 		return "", err
 	}
 	base, err := r.base(s)

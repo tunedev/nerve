@@ -24,6 +24,8 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+
+	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
 // Type is the column vocabulary a projection has. It is small on purpose: every
@@ -123,13 +125,8 @@ func (s Source) valid() error {
 	if !strings.HasPrefix(s.Root, "/") || path.Clean(s.Root) != s.Root {
 		return fmt.Errorf("source root %q is not a rooted clean path: %w", s.Root, fs.ErrInvalid)
 	}
-	switch {
-	case s.File == "":
-		return fmt.Errorf("source under %q names no record file: %w", s.Root, fs.ErrInvalid)
-	case strings.Contains(s.File, "/"):
-		return fmt.Errorf("source file %q contains a separator: %w", s.File, fs.ErrInvalid)
-	case s.File == "." || s.File == "..":
-		return fmt.Errorf("source file %q names a directory: %w", s.File, fs.ErrInvalid)
+	if err := vfs.ValidSegment("source file", s.File); err != nil {
+		return fmt.Errorf("source under %q: %w", s.Root, err)
 	}
 	return nil
 }
@@ -153,7 +150,7 @@ type Manifest struct {
 // It is the whole check: a manifest that passes here declares a slice schema
 // and a rollup schema that both derive without failing.
 func (m Manifest) Valid() error {
-	if err := validName(m.Name); err != nil {
+	if err := vfs.ValidSegment("projection name", m.Name); err != nil {
 		return err
 	}
 	if err := m.Source.valid(); err != nil {
@@ -218,18 +215,4 @@ func (m Manifest) columnAt(name string) int {
 		}
 	}
 	return 0
-}
-
-// validName returns fs.ErrInvalid for a projection name that cannot stand as
-// one path segment.
-func validName(name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("projection has no name: %w", fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("projection name %q contains a separator: %w", name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("projection name %q names a directory: %w", name, fs.ErrInvalid)
-	}
-	return nil
 }
