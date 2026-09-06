@@ -38,8 +38,20 @@ func NewStore(fsys vfs.FileSystem, root string, now func() time.Time) (*Store, e
 	return &Store{fsys: fsys, root: root, now: now}, nil
 }
 
-// Add writes facts to s as the next memories, each naming source as the session
-// it came from, and answers with what it wrote.
+// Add writes the facts s does not already believe as the next memories, each
+// naming source as the session it came from, and answers with what it wrote.
+//
+// A fact restating something the workspace already believes is not written
+// again, so the answer can be shorter than the batch and empty for a
+// conversation that said nothing new. That is the rule the log needs rather
+// than one a caller keeps: a restated fact that became a second memory would be
+// counted twice by everything reading the log, and every writer would have to
+// remember not to write it.
+//
+// Restated means restated. Two facts are the same claim when they were filed
+// under the same category and say the same thing, read as text rather than as
+// bytes; a paraphrase is a different claim here and is merged, if it is merged,
+// where meaning is judged.
 //
 // Adding nothing writes nothing and is not an error: a conversation with
 // nothing worth remembering in it is the ordinary case, not a failed commit.
@@ -47,6 +59,13 @@ func NewStore(fsys vfs.FileSystem, root string, now func() time.Time) (*Store, e
 // What is added is believed from the moment it is written until something
 // supersedes it, which is what Supersede is for.
 func (st *Store) Add(ctx context.Context, s workspace.Scope, source string, facts []Fact) ([]Memory, error) {
+	if len(facts) > 0 {
+		believed, err := st.Current(ctx, s)
+		if err != nil {
+			return nil, fmt.Errorf("add memories from session %q: %w", source, err)
+		}
+		facts = fresh(believed, facts)
+	}
 	written, err := st.write(ctx, s, source, nil, facts)
 	if err != nil {
 		return nil, fmt.Errorf("add memories from session %q: %w", source, err)

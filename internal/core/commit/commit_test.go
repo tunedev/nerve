@@ -278,6 +278,66 @@ func TestASecondCommitOverAConversationThatHasNotGrownSummarisesNothing(t *testi
 	}
 }
 
+// The acceptance: a fact restated in a later conversation does not become a
+// second memory. What the workspace keeps is one memory naming the conversation
+// the claim was first made in, and the commit that heard it again answers with
+// what it actually wrote.
+func TestARestatedFactDoesNotBecomeASecondMemory(t *testing.T) {
+	found := &extractor{facts: []llm.Fact{
+		{Kind: "preference", Body: "prefers tabs", Priority: llm.Normal},
+	}}
+	committer, sessions, memories := newCommitter(t, found, &summariser{summary: "they talked"}, 2)
+	mustTalk(t, sessions, "monday", [2]string{"user", "I prefer tabs."}, [2]string{"assistant", "Noted."})
+	mustTalk(t, sessions, "tuesday", [2]string{"user", "Still prefer tabs."}, [2]string{"assistant", "Still noted."})
+
+	if _, err := committer.Commit(t.Context(), here, "monday"); err != nil {
+		t.Fatalf("Commit(monday): %v", err)
+	}
+	result, err := committer.Commit(t.Context(), here, "tuesday")
+	if err != nil {
+		t.Fatalf("Commit(tuesday): %v", err)
+	}
+	if len(result.Memories) != 0 {
+		t.Errorf("the second commit wrote %+v, want nothing: the workspace already believed it", result.Memories)
+	}
+
+	stored, err := memories.List(t.Context(), here)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(stored) != 1 {
+		t.Fatalf("List = %+v, want one memory", stored)
+	}
+	if stored[0].Source != "monday" {
+		t.Errorf("the memory came from %q, want monday: the claim was first made there", stored[0].Source)
+	}
+}
+
+// Committing one conversation twice leaves the log as the first commit left it.
+// A commit interrupted after its memories and before its reduction is completed
+// by running it again, and completing it must not double what it wrote.
+func TestASecondCommitOfTheSameConversationWritesNoSecondMemory(t *testing.T) {
+	found := &extractor{facts: []llm.Fact{
+		{Kind: "preference", Body: "prefers tabs", Priority: llm.Normal},
+		{Kind: "instruction", Body: "never force push", Priority: llm.High},
+	}}
+	committer, sessions, memories := newCommitter(t, found, &summariser{summary: "they talked"}, 1)
+	mustTalk(t, sessions, "monday", [2]string{"user", "I prefer tabs."}, [2]string{"assistant", "Noted."})
+
+	for range 2 {
+		if _, err := committer.Commit(t.Context(), here, "monday"); err != nil {
+			t.Fatalf("Commit: %v", err)
+		}
+	}
+	stored, err := memories.List(t.Context(), here)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(stored) != 2 {
+		t.Errorf("List = %+v, want the two memories the first commit wrote", stored)
+	}
+}
+
 // A conversation with nothing worth remembering commits nothing, and that is an
 // answer rather than a failure.
 func TestACommitWithNothingWorthKeepingWritesNothing(t *testing.T) {
