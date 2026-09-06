@@ -40,6 +40,9 @@ type Provider interface {
 	// AsFactExtractor returns the endpoint's extraction verb, or nil when it
 	// does not extract.
 	AsFactExtractor() FactExtractor
+	// AsFactConsolidator returns the endpoint's consolidation verb, or nil
+	// when it does not merge facts.
+	AsFactConsolidator() FactConsolidator
 
 	// AsSQLWriter returns the endpoint's SQL-writing verb, or nil when it does
 	// not write SQL.
@@ -62,6 +65,9 @@ func (NoAccessors) AsEmbedder() Embedder { return nil }
 
 // AsFactExtractor reports that the provider does not extract facts.
 func (NoAccessors) AsFactExtractor() FactExtractor { return nil }
+
+// AsFactConsolidator reports that the provider does not merge facts.
+func (NoAccessors) AsFactConsolidator() FactConsolidator { return nil }
 
 // AsSQLWriter reports that the provider does not write SQL.
 func (NoAccessors) AsSQLWriter() SQLWriter { return nil }
@@ -145,6 +151,41 @@ type Fact struct {
 // because what a later turn means often depends on an earlier one.
 type FactExtractor interface {
 	Extract(ctx context.Context, turns []Turn) ([]Fact, error)
+}
+
+// Narrative is one thing a consolidator found several facts saying, and the
+// sentence that says it in one place.
+//
+// Facts are positions in the batch the consolidator was handed rather than the
+// facts themselves, the way an embedder answers in the order it was given: the
+// caller holds what those positions came from, so it can name what the
+// narrative replaces. A consolidator that answered with facts alone would
+// leave the caller matching sentences to work out what it had merged.
+//
+// There is no priority on it. How much a merged claim is worth keeping is the
+// caller's to derive from what it merged, because a model that ranked the
+// narrative could quietly demote what it was told never to do.
+type Narrative struct {
+	// Facts are the positions of the facts this narrative merges, in the
+	// batch the consolidator was handed.
+	Facts []int
+	// Body is what they say together.
+	Body string
+}
+
+// FactConsolidator reads the facts a workspace believes and answers with the
+// groups of them that say one thing, each with the sentence that says it.
+//
+// It is handed the whole believed set in one call rather than a group at a
+// time, because which facts are related is the judgement being asked for: a
+// caller that pre-grouped them would have already made it, and a call per group
+// pays the round trip once per category.
+//
+// A set with nothing to merge consolidates to no narratives, which is an answer
+// and not a failure — most of what a workspace believes is unrelated to the
+// rest of it.
+type FactConsolidator interface {
+	Consolidate(ctx context.Context, facts []Fact) ([]Narrative, error)
 }
 
 // Column is one column of the table a question is asked over: what it is

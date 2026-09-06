@@ -12,6 +12,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/cuefact"
 	"github.com/tunedev/nerve/internal/adapters/outbound/nounlink"
 	"github.com/tunedev/nerve/internal/adapters/outbound/ollama"
+	"github.com/tunedev/nerve/internal/adapters/outbound/termfold"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termsum"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termvec"
 	"github.com/tunedev/nerve/internal/core/llm"
@@ -55,8 +56,9 @@ func TestRegisterProvidersMakesTermsumRoutable(t *testing.T) {
 // termsum reads no settings, so it declares none safe to read back and the
 // effective-config surface has nothing of its to show. cuefact has one and it
 // is not a credential, so an operator can read back whose turns are extracted,
-// and termvec has the width its vectors are, which is the number a mount
-// holding them was sized by.
+// termvec has the width its vectors are, which is the number a mount holding
+// them was sized by, and termfold has how much two facts share before they are
+// merged into one.
 func TestAKindDeclaresWhatIsSafeToReadBack(t *testing.T) {
 	if public := providerRegistry(t).Public(termsum.Kind); len(public) != 0 {
 		t.Errorf("Public(%q) = %v, want none", termsum.Kind, public)
@@ -66,6 +68,9 @@ func TestAKindDeclaresWhatIsSafeToReadBack(t *testing.T) {
 	}
 	if public := providerRegistry(t).Public(termvec.Kind); !slices.Contains(public, termvec.DimensionSetting) {
 		t.Errorf("Public(%q) = %v, want the dimension", termvec.Kind, public)
+	}
+	if public := providerRegistry(t).Public(termfold.Kind); !slices.Contains(public, termfold.ShareSetting) {
+		t.Errorf("Public(%q) = %v, want the share", termfold.Kind, public)
 	}
 }
 
@@ -103,21 +108,25 @@ func TestTheLaptopChainEmbedsWithNothingStarted(t *testing.T) {
 	}
 }
 
-// The laptop can commit a conversation with no model configured. One chain
-// holds both local endpoints and each capability routes to the one that serves
-// it, which is what makes the memory pipeline runnable on a plane.
-func TestTheLaptopChainSummarisesAndExtracts(t *testing.T) {
+// The laptop can commit a conversation with no model configured. A committer
+// refuses to be built without an extractor, a consolidator and an archiver, so
+// all three have to come off one chain of local endpoints for the memory
+// pipeline to be runnable on a plane.
+func TestTheLaptopChainRunsTheWholeCommitPipeline(t *testing.T) {
 	gateway, err := providerRegistry(t).Gateway([]llm.ProviderSpec{
 		{Name: "summaries", Kind: termsum.Kind},
 		{Name: "facts", Kind: cuefact.Kind},
+		{Name: "narratives", Kind: termfold.Kind},
 	})
 	if err != nil {
 		t.Fatalf("Gateway(laptop) = %v", err)
 	}
 
 	served := gateway.Capabilities()
-	if !slices.Contains(served, "summarise") || !slices.Contains(served, "extract") {
-		t.Fatalf("the gateway serves %v, want summarisation and extraction", served)
+	for _, capability := range []string{"summarise", "extract", "consolidate"} {
+		if !slices.Contains(served, capability) {
+			t.Fatalf("the gateway serves %v, want %s among them", served, capability)
+		}
 	}
 
 	facts, err := gateway.AsFactExtractor().Extract(context.Background(), []llm.Turn{{Role: "user", Body: "Never force push."}})
@@ -126,6 +135,17 @@ func TestTheLaptopChainSummarisesAndExtracts(t *testing.T) {
 	}
 	if len(facts) != 1 || facts[0].Kind != "instruction" || facts[0].Priority != llm.High {
 		t.Errorf("Extract = %+v, want one high-priority instruction", facts)
+	}
+
+	narratives, err := gateway.AsFactConsolidator().Consolidate(context.Background(), []llm.Fact{
+		{Kind: "instruction", Body: "never force push", Priority: llm.High},
+		{Kind: "instruction", Body: "never force push on main", Priority: llm.High},
+	})
+	if err != nil {
+		t.Fatalf("Consolidate = %v", err)
+	}
+	if len(narratives) != 1 {
+		t.Errorf("Consolidate = %+v, want the two instructions merged", narratives)
 	}
 }
 

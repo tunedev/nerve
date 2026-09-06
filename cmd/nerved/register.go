@@ -23,6 +23,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/sqlfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamrotatefs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/termfold"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termsum"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termvec"
 	"github.com/tunedev/nerve/internal/adapters/outbound/textproc"
@@ -133,17 +134,18 @@ func registerProcessors(registry *ingest.Registry) error {
 // concrete provider, and a second endpoint is a package plus a line here rather
 // than an edit to whatever routes.
 //
-// termsum, termvec and nounlink take no credentials, so they name none.
-// ollama names its endpoint and its model, cuefact names whose turns it reads,
-// and termvec names how wide its vectors are, because those are an operator's
-// business and not credentials. A kind that reached a hosted model would say
-// nothing about the key beside them, which is what makes the key read back as
-// redacted.
+// termsum and nounlink take no credentials, so they name none. ollama names its
+// endpoint and its model, cuefact names whose turns it reads, termvec names how
+// wide its vectors are, and termfold names how much two facts have to share to
+// be one claim, because those are an operator's business and not credentials. A
+// kind that reached a hosted model would say nothing about the key beside them,
+// which is what makes the key read back as redacted.
 //
 // Which endpoint a call reaches is the accessor it asked for and then the order
-// listed in config, so a chain naming all five summarises through termsum,
-// extracts through cuefact, reads entities through nounlink, and embeds through
-// whichever of ollama and termvec its config puts first.
+// listed in config, so a chain naming all six summarises through termsum,
+// extracts through cuefact, merges facts through termfold, reads entities
+// through nounlink, and embeds through whichever of ollama and termvec its
+// config puts first.
 //
 // That last one is a chain an operator should not write. termvec and a model
 // embed into different vector spaces, so a chain holding both fills one index
@@ -157,5 +159,6 @@ func registerProviders(registry *llm.Registry) error {
 		registry.Register(ollama.Kind, ollama.Factory, ollama.Public...),
 		registry.Register(cuefact.Kind, cuefact.Factory, cuefact.RoleSetting),
 		registry.Register(nounlink.Kind, nounlink.Factory),
+		registry.Register(termfold.Kind, termfold.Factory, termfold.Public...),
 	)
 }

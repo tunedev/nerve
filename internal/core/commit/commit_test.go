@@ -11,6 +11,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
 	"github.com/tunedev/nerve/internal/core/archive"
 	"github.com/tunedev/nerve/internal/core/commit"
+	"github.com/tunedev/nerve/internal/core/consolidate"
 	"github.com/tunedev/nerve/internal/core/llm"
 	"github.com/tunedev/nerve/internal/core/memory"
 	"github.com/tunedev/nerve/internal/core/session"
@@ -66,7 +67,28 @@ func (s *summariser) Summarise(_ context.Context, text string, _ int) (string, e
 	return s.summary, s.err
 }
 
+// consolidator answers with whatever a test set, keeping the facts it was
+// handed so a case can say what the endpoint was actually shown.
+type consolidator struct {
+	narratives []llm.Narrative
+	err        error
+	saw        []llm.Fact
+	calls      int
+}
+
+func (c *consolidator) Consolidate(_ context.Context, facts []llm.Fact) ([]llm.Narrative, error) {
+	c.calls++
+	c.saw = facts
+	return c.narratives, c.err
+}
+
 func newCommitter(t *testing.T, extract llm.FactExtractor, summarise llm.Summariser, keep int) (*commit.Committer, *session.Store, *memory.Store) {
+	t.Helper()
+	committer, sessions, memories, _ := newMergingCommitter(t, extract, &consolidator{}, summarise, keep)
+	return committer, sessions, memories
+}
+
+func newMergingCommitter(t *testing.T, extract llm.FactExtractor, merge llm.FactConsolidator, summarise llm.Summariser, keep int) (*commit.Committer, *session.Store, *memory.Store, *consolidate.Consolidator) {
 	t.Helper()
 
 	table := vfs.NewMountTable()
@@ -87,11 +109,15 @@ func newCommitter(t *testing.T, extract llm.FactExtractor, summarise llm.Summari
 	if err != nil {
 		t.Fatalf("archive.New: %v", err)
 	}
-	committer, err := commit.New(sessions, memories, extract, archiver, keep)
+	merging, err := consolidate.New(memories, merge)
+	if err != nil {
+		t.Fatalf("consolidate.New: %v", err)
+	}
+	committer, err := commit.New(sessions, memories, extract, merging, archiver, keep)
 	if err != nil {
 		t.Fatalf("commit.New: %v", err)
 	}
-	return committer, sessions, memories
+	return committer, sessions, memories, merging
 }
 
 func mustTalk(t *testing.T, sessions *session.Store, name string, said ...[2]string) {
@@ -444,9 +470,19 @@ func TestAPriorityTheEndpointInventedIsRefused(t *testing.T) {
 // nil for a capability nothing serves, and a committer built on that nil would
 // accept every session and fail on each one.
 func TestACommitterNeedsAnExtractor(t *testing.T) {
-	sessions, memories, archiver := parts(t)
-	if _, err := commit.New(sessions, memories, nil, archiver, 2); !errors.Is(err, fs.ErrInvalid) {
+	sessions, memories, merging, archiver := parts(t)
+	if _, err := commit.New(sessions, memories, nil, merging, archiver, 2); !errors.Is(err, fs.ErrInvalid) {
 		t.Errorf("New with no extractor = %v, want fs.ErrInvalid", err)
+	}
+}
+
+// A build with nothing that merges facts has no committer either. Consolidation
+// is a stage of the commit rather than something a caller runs afterwards, and
+// a committer holding nil would fail every session past the extraction.
+func TestACommitterNeedsAConsolidator(t *testing.T) {
+	sessions, memories, _, archiver := parts(t)
+	if _, err := commit.New(sessions, memories, &extractor{}, nil, archiver, 2); !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("New with no consolidator = %v, want fs.ErrInvalid", err)
 	}
 }
 
@@ -455,8 +491,8 @@ func TestACommitterNeedsAnExtractor(t *testing.T) {
 // endpoint does not have, and a committer holding nil would accept every
 // session and fail on each one past the extraction.
 func TestACommitterNeedsAnArchiver(t *testing.T) {
-	sessions, memories, _ := parts(t)
-	if _, err := commit.New(sessions, memories, &extractor{}, nil, 2); !errors.Is(err, fs.ErrInvalid) {
+	sessions, memories, merging, _ := parts(t)
+	if _, err := commit.New(sessions, memories, &extractor{}, merging, nil, 2); !errors.Is(err, fs.ErrInvalid) {
 		t.Errorf("New with no archiver = %v, want fs.ErrInvalid", err)
 	}
 }
@@ -465,15 +501,15 @@ func TestACommitterNeedsAnArchiver(t *testing.T) {
 // conversation": it is the setting that hands a caller a paragraph where the
 // turn it is answering should be.
 func TestACommitterKeepingNoTurnsHotIsRefused(t *testing.T) {
-	sessions, memories, archiver := parts(t)
-	if _, err := commit.New(sessions, memories, &extractor{}, archiver, 0); !errors.Is(err, fs.ErrInvalid) {
+	sessions, memories, merging, archiver := parts(t)
+	if _, err := commit.New(sessions, memories, &extractor{}, merging, archiver, 0); !errors.Is(err, fs.ErrInvalid) {
 		t.Errorf("New keeping no turns = %v, want fs.ErrInvalid", err)
 	}
 }
 
 // parts builds what a committer is made of, for the cases about refusing one of
 // them.
-func parts(t *testing.T) (*session.Store, *memory.Store, *archive.Archiver) {
+func parts(t *testing.T) (*session.Store, *memory.Store, *consolidate.Consolidator, *archive.Archiver) {
 	t.Helper()
 
 	table := vfs.NewMountTable()
@@ -492,5 +528,127 @@ func parts(t *testing.T) (*session.Store, *memory.Store, *archive.Archiver) {
 	if err != nil {
 		t.Fatalf("archive.New: %v", err)
 	}
-	return sessions, memories, archiver
+	merging, err := consolidate.New(memories, &consolidator{})
+	if err != nil {
+		t.Fatalf("consolidate.New: %v", err)
+	}
+	return sessions, memories, merging, archiver
+}
+
+// merging merges everything filed under one category, so a case can drive the
+// stage without spelling out positions.
+type merging struct{ calls int }
+
+func (m *merging) Consolidate(_ context.Context, facts []llm.Fact) ([]llm.Narrative, error) {
+	m.calls++
+	var merged llm.Narrative
+	for i, fact := range facts {
+		if fact.Kind != facts[0].Kind {
+			continue
+		}
+		merged.Facts = append(merged.Facts, i)
+		merged.Body += fact.Body + ". "
+	}
+	if len(merged.Facts) < 2 {
+		return nil, nil
+	}
+	return []llm.Narrative{merged}, nil
+}
+
+// The acceptance: what a conversation said and what the workspace already
+// believed merge, and the commit answers with the narrative it wrote. The facts
+// it merged are still in the log and are no longer believed.
+func TestACommitMergesWhatTheConversationSaidWithWhatTheWorkspaceBelieved(t *testing.T) {
+	found := &extractor{facts: []llm.Fact{{Kind: "preference", Body: "prefers tabs in Go", Priority: llm.Normal}}}
+	committer, sessions, memories, _ := newMergingCommitter(t, found, &merging{}, &summariser{summary: "they talked"}, 2)
+	if _, err := memories.Add(t.Context(), here, "monday", []memory.Fact{
+		{Kind: "preference", Body: "prefers tabs", Priority: memory.Normal},
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	mustTalk(t, sessions, "tuesday", [2]string{"user", "I prefer tabs in Go"}, [2]string{"assistant", "Noted."})
+
+	result, err := committer.Commit(t.Context(), here, "tuesday")
+	if err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if len(result.Memories) != 1 || len(result.Narratives) != 1 {
+		t.Fatalf("Commit wrote %+v and merged %+v, want one of each", result.Memories, result.Narratives)
+	}
+	if result.Narratives[0].Fact.Body != "prefers tabs. prefers tabs in Go. " {
+		t.Errorf("the narrative says %q, want both claims", result.Narratives[0].Fact.Body)
+	}
+	if result.Narratives[0].Source != "tuesday" {
+		t.Errorf("the narrative came from %q, want the conversation the merge was made during", result.Narratives[0].Source)
+	}
+
+	current, err := memories.Current(t.Context(), here)
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if len(current) != 1 || current[0].Seq != result.Narratives[0].Seq {
+		t.Errorf("the workspace believes %+v, want the narrative alone", current)
+	}
+	if stored, err := memories.List(t.Context(), here); err != nil || len(stored) != 3 {
+		t.Errorf("List = %+v, %v, want the two facts and the narrative", stored, err)
+	}
+}
+
+// Consolidation runs after the memories are written, so what it is shown
+// includes this conversation's facts. Merging first would weigh what the
+// workspace believed against a conversation that had not been read yet, and the
+// facts it just heard would wait for the next commit to be merged.
+func TestTheConsolidatorIsShownTheFactsThisCommitJustWrote(t *testing.T) {
+	found := &extractor{facts: []llm.Fact{{Kind: "preference", Body: "prefers tabs", Priority: llm.Normal}}}
+	merge := &consolidator{}
+	committer, sessions, _, _ := newMergingCommitter(t, found, merge, &summariser{summary: "they talked"}, 2)
+	mustTalk(t, sessions, "monday", [2]string{"user", "I prefer tabs"}, [2]string{"assistant", "Noted."})
+
+	if _, err := committer.Commit(t.Context(), here, "monday"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if merge.calls != 0 {
+		t.Errorf("the endpoint saw %d calls, want 0: one memory has nothing to merge with", merge.calls)
+	}
+
+	found.facts = []llm.Fact{{Kind: "preference", Body: "prefers tabs in Go", Priority: llm.Normal}}
+	mustTalk(t, sessions, "tuesday", [2]string{"user", "I prefer tabs in Go"}, [2]string{"assistant", "Noted."})
+	if _, err := committer.Commit(t.Context(), here, "tuesday"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	want := []llm.Fact{
+		{Kind: "preference", Body: "prefers tabs", Priority: llm.Normal},
+		{Kind: "preference", Body: "prefers tabs in Go", Priority: llm.Normal},
+	}
+	if len(merge.saw) != 2 || merge.saw[0] != want[0] || merge.saw[1] != want[1] {
+		t.Errorf("the endpoint saw %+v, want %+v", merge.saw, want)
+	}
+}
+
+// A failed consolidation leaves the memories this commit wrote standing and the
+// transcript where it was said, so running the commit again merges them. The
+// facts are recoverable; a conversation reduced on behalf of a merge that did
+// not happen would not be.
+func TestAFailedConsolidationLeavesTheFactsAndTheTranscriptAlone(t *testing.T) {
+	said := &summariser{summary: "they talked"}
+	merge := &consolidator{err: fmt.Errorf("endpoint is down: %w", vfs.ErrUnavailable)}
+	found := &extractor{facts: []llm.Fact{
+		{Kind: "preference", Body: "prefers tabs", Priority: llm.Normal},
+		{Kind: "preference", Body: "prefers tabs in Go", Priority: llm.Normal},
+	}}
+	committer, sessions, memories, _ := newMergingCommitter(t, found, merge, said, 1)
+	mustTalk(t, sessions, "monday", [2]string{"user", "I prefer tabs, and tabs in Go"}, [2]string{"assistant", "noted"})
+
+	if _, err := committer.Commit(t.Context(), here, "monday"); !errors.Is(err, vfs.ErrUnavailable) {
+		t.Fatalf("Commit over a failing consolidator = %v, want the endpoint's failure", err)
+	}
+	if stored, err := memories.List(t.Context(), here); err != nil || len(stored) != 2 {
+		t.Errorf("List = %+v, %v, want the two facts the extraction wrote", stored, err)
+	}
+	if said.calls != 0 {
+		t.Errorf("the summariser saw %d calls, want 0", said.calls)
+	}
+	if transcript, err := sessions.Get(t.Context(), here, "monday"); err != nil || len(transcript.Messages) != 2 {
+		t.Errorf("the transcript is now %+v, %v, want both turns still in it", transcript.Messages, err)
+	}
 }
