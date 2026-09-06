@@ -2,12 +2,15 @@
 // by writing a path and what it said about a thing comes back by reading one,
 // which is the whole of the interface a retriever needs.
 //
-// The mount holds three places and they mean different things, which is what
+// The mount holds five places and they mean different things, which is what
 // the per-path descriptor is for:
 //
 //	/docs/<key>        the texts. Writing one reads its entities and relations
 //	                   into the graph; reading gives the text back
 //	/neighbours/<name> one hop out of every entity with that name
+//	/snapshots/<label> the graph as it stood. Writing one takes it, reading one
+//	                   describes it, removing one forgets it
+//	/restore           write a label to set the graph back to that snapshot
 //	/config            what the graph is. Read as often as you like, written never
 //
 // An expansion is a path rather than a parameter for the reason a similarity
@@ -28,6 +31,11 @@
 // writes the whole of it before the change is visible here. It is a laptop's
 // graph, bounded by what one process can hold and rewritten in full on every
 // write; a graph that outgrows either is what a real graph backend is for.
+//
+// A snapshot is a second port rather than more verbs on that one, because the
+// real graph backend snapshots itself and keeps no blob. A restore is a change
+// like any other: it goes through the same commit, so a restore the record
+// refused is a restore this mount did not make.
 package graphfs
 
 import (
@@ -43,12 +51,14 @@ import (
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
-// Docs, Neighbours and Config are the three names a graph mount answers for.
-// Nothing makes them and nothing removes them: they are the shape of the mount
-// rather than entries in it.
+// Docs, Neighbours, Snapshots, Restore and Config are the names a graph mount
+// answers for. Nothing makes them and nothing removes them: they are the shape
+// of the mount rather than entries in it.
 const (
 	Docs       = "docs"
 	Neighbours = "neighbours"
+	Snapshots  = "snapshots"
+	Restore    = "restore"
 	Config     = "config"
 )
 
@@ -73,47 +83,53 @@ const separator = "/"
 type FS struct {
 	vfs.NoAccessors
 
-	name    string
-	edges   int
-	store   Store
-	extract llm.EntityExtractor
+	name      string
+	edges     int
+	store     Store
+	snapshots SnapshotStore
+	extract   llm.EntityExtractor
 
-	// mu guards documents and serialises the writes that replace it. A write
+	// mu guards the graph and serialises the writes that replace it. A write
 	// holds it across the Save, because the blob is one object and two
 	// processes-worth of concurrent saves would each write a graph missing the
 	// other's change.
-	mu        sync.RWMutex
-	documents map[string]document
+	mu    sync.RWMutex
+	graph graph
 }
 
-// Open returns the graph named name kept in store, read by extract, answering
-// an expansion with at most edges claims.
+// Open returns the graph named name kept in store and snapshotted into
+// snapshots, read by extract, answering an expansion with at most edges claims.
 //
 // The graph is loaded here, so a store that cannot be read is a graph that
 // cannot be opened. Nothing kept under the name yet is a graph with nothing in
 // it, which is the first boot.
-func Open(ctx context.Context, name string, edges int, store Store, extract llm.EntityExtractor) (*FS, error) {
-	documents, err := load(ctx, store, name)
+func Open(ctx context.Context, name string, edges int, store Store, snapshots SnapshotStore, extract llm.EntityExtractor) (*FS, error) {
+	held, err := load(ctx, store, name)
 	if err != nil {
 		return nil, err
 	}
-	return &FS{name: name, edges: edges, store: store, extract: extract, documents: documents}, nil
+	return &FS{name: name, edges: edges, store: store, snapshots: snapshots, extract: extract, graph: held}, nil
 }
 
-// Capabilities reports the texts under the docs path and a fixed, read-only
-// shape everywhere else. This is the descriptor varying inside one mount: the
-// same plugin takes texts at one path, answers about entities at another and
-// refuses to be written at either of the other two, and no type could have said
-// all three.
+// Capabilities reports three different things inside one mount, which is what
+// the per-path descriptor is for: the texts are an object store, the snapshots
+// and the restore path are an ordinary read-write tree, and what the graph says
+// about itself and its entities is read-only. No type could have said all
+// three.
 //
 // The texts are an object store rather than a tree: a key is a flat name, a
 // prefix is a directory only while something sits under it, and Mkdir has
-// nothing to make.
+// nothing to make. A snapshot label is not a key: it is one name, and a label
+// with a separator in it is no label at all.
 func (f *FS) Capabilities(name string) vfs.Caps {
-	if spot, _ := locate(name); spot == atCorpus || spot == atDoc {
+	switch spot, _ := locate(name); spot {
+	case atCorpus, atDoc:
 		return vfs.Caps{ObjectStore: true}
+	case atSnapshots, atSnapshot, atRestore:
+		return vfs.Caps{}
+	default:
+		return vfs.Caps{ReadOnly: true}
 	}
-	return vfs.Caps{ReadOnly: true}
 }
 
 // spot is where a path falls in the mount's shape.
@@ -134,6 +150,13 @@ const (
 	atNeighbours
 	// atEntity is a name under it, which is the entity being asked about.
 	atEntity
+	// atSnapshots is the snapshots directory itself, which lists the labels.
+	atSnapshots
+	// atSnapshot is a label under it: a graph as it stood, or a label nothing
+	// has been kept under yet.
+	atSnapshot
+	// atRestore is the path a label is written to to set the graph back.
+	atRestore
 )
 
 // locate resolves a path into where it falls and, for a name under the texts or
@@ -152,10 +175,16 @@ func locate(name string) (spot, string) {
 		return atCorpus, ""
 	case clean == separator+Neighbours:
 		return atNeighbours, ""
+	case clean == separator+Snapshots:
+		return atSnapshots, ""
+	case clean == separator+Restore:
+		return atRestore, ""
 	case strings.HasPrefix(clean, separator+Docs+separator):
 		return atDoc, strings.TrimPrefix(clean, separator+Docs+separator)
 	case strings.HasPrefix(clean, separator+Neighbours+separator):
 		return atEntity, strings.TrimPrefix(clean, separator+Neighbours+separator)
+	case strings.HasPrefix(clean, separator+Snapshots+separator):
+		return atSnapshot, strings.TrimPrefix(clean, separator+Snapshots+separator)
 	default:
 		return outside, ""
 	}
@@ -183,8 +212,8 @@ func base(name string) string { return path.Base(strings.TrimSuffix(name, separa
 // missing entry: there is nothing a caller could create first to make it work.
 func (f *FS) refuse(verb, name string, where spot) error {
 	if where == outside {
-		return fmt.Errorf("%s %q: a graph holds %q, %q and %q: %w",
-			verb, name, Docs, Neighbours, Config, fs.ErrPermission)
+		return fmt.Errorf("%s %q: a graph holds %q, %q, %q, %q and %q: %w",
+			verb, name, Docs, Neighbours, Snapshots, Restore, Config, fs.ErrPermission)
 	}
 	return fmt.Errorf("%s %q: the shape of the mount: %w", verb, name, fs.ErrPermission)
 }

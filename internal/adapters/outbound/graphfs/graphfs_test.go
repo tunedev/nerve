@@ -17,10 +17,10 @@ const edges = 10
 
 // newGraph is a graph with nothing in it, over a store and an extractor a case
 // keeps a handle on.
-func newGraph(t *testing.T, store graphfs.Store, extract statements) *graphfs.FS {
+func newGraph(t *testing.T, store *memStore, extract statements) *graphfs.FS {
 	t.Helper()
 
-	graph, err := graphfs.Open(t.Context(), "notes", edges, store, extract)
+	graph, err := graphfs.Open(t.Context(), "notes", edges, store, store, extract)
 	if err != nil {
 		t.Fatalf("Open = %v", err)
 	}
@@ -121,7 +121,10 @@ func TestANameWithNothingSaidAboutItStillAnswers(t *testing.T) {
 // The bound is the whole point of the setting: a well-connected entity has more
 // edges than anything reading them has room for.
 func TestAnExpansionIsBoundedByTheEdgesSetting(t *testing.T) {
-	graph, err := graphfs.Open(t.Context(), "notes", 2, newMemStore(), statements{})
+	graph, err := func() (*graphfs.FS, error) {
+		store := newMemStore()
+		return graphfs.Open(t.Context(), "notes", 2, store, store, statements{})
+	}()
 	if err != nil {
 		t.Fatalf("Open = %v", err)
 	}
@@ -175,7 +178,7 @@ func TestAGraphOpensAgainOutOfItsBlob(t *testing.T) {
 
 	// The extractor refuses, so anything this graph answers came out of the
 	// blob rather than out of a second reading.
-	again, err := graphfs.Open(t.Context(), "notes", edges, store, statements{refuse: errors.New("no endpoint")})
+	again, err := graphfs.Open(t.Context(), "notes", edges, store, store, statements{refuse: errors.New("no endpoint")})
 	if err != nil {
 		t.Fatalf("Open = %v", err)
 	}
@@ -284,7 +287,8 @@ func TestConfigSaysWhatTheGraphIs(t *testing.T) {
 // The whole path, with the endpoint the laptop actually has behind it: no
 // model, no network, nothing started.
 func TestTheLaptopChainAnswersAnExpansion(t *testing.T) {
-	graph, err := graphfs.Open(t.Context(), "notes", edges, newMemStore(), nounlink.New())
+	store := newMemStore()
+	graph, err := graphfs.Open(t.Context(), "notes", edges, store, store, nounlink.New())
 	if err != nil {
 		t.Fatalf("Open = %v", err)
 	}

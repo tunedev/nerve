@@ -40,27 +40,41 @@ type document struct {
 // can disagree with the first about what a document said.
 type graph struct {
 	Documents map[string]document
+
+	// Standing is the label of the snapshot this graph was set back to, and
+	// when. It is emptied by every other change, so a graph that names one has
+	// had nothing written to it since: the claim is exact rather than a note of
+	// where the contents once came from.
+	Standing string
+	Restored time.Time
 }
 
 // load reads the graph kept under name. A name with nothing under it is a graph
 // with nothing in it, which is the first boot and not a failure.
-func load(ctx context.Context, store Store, name string) (map[string]document, error) {
+func load(ctx context.Context, store Store, name string) (graph, error) {
 	body, err := store.Load(ctx, name)
 	if errors.Is(err, fs.ErrNotExist) {
-		return map[string]document{}, nil
+		return graph{Documents: map[string]document{}}, nil
 	}
 	if err != nil {
-		return nil, err
+		return graph{}, err
 	}
 
+	return decode(body, name)
+}
+
+// decode reads a blob back as the graph it was kept as. It is what load does
+// and what a restore does to a snapshot, so a blob this build cannot read is
+// refused the same way wherever it came from.
+func decode(body []byte, name string) (graph, error) {
 	var held graph
 	if err := json.Unmarshal(body, &held); err != nil {
-		return nil, fmt.Errorf("graph %q is kept as something this build cannot read: %w", name, err)
+		return graph{}, fmt.Errorf("graph %q is kept as something this build cannot read: %w", name, err)
 	}
 	if held.Documents == nil {
 		held.Documents = map[string]document{}
 	}
-	return held.Documents, nil
+	return held, nil
 }
 
 // commit applies change to a copy of the graph, writes the whole of the result
@@ -76,22 +90,33 @@ func load(ctx context.Context, store Store, name string) (map[string]document, e
 // document is replaced rather than edited, so nothing the copy shares is ever
 // written through.
 func (f *FS) commit(ctx context.Context, change func(map[string]document) error) error {
+	return f.save(ctx, func(next *graph) error { return change(next.Documents) })
+}
+
+// save is commit over the whole graph rather than only its documents, which is
+// what a restore needs: it is the one change that sets the standing label
+// instead of clearing it.
+//
+// Clearing is by construction. The next graph is built with the documents
+// copied and nothing else carried, so a change that does not set the label does
+// not have one.
+func (f *FS) save(ctx context.Context, change func(*graph) error) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	next := maps.Clone(f.documents)
-	if err := change(next); err != nil {
+	next := graph{Documents: maps.Clone(f.graph.Documents)}
+	if err := change(&next); err != nil {
 		return err
 	}
 
-	body, err := json.Marshal(graph{Documents: next})
+	body, err := json.Marshal(next)
 	if err != nil {
 		return err
 	}
 	if err := f.store.Save(ctx, f.name, body); err != nil {
 		return err
 	}
-	f.documents = next
+	f.graph = next
 	return nil
 }
 
@@ -100,7 +125,7 @@ func (f *FS) held(key string) (document, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	held, there := f.documents[key]
+	held, there := f.graph.Documents[key]
 	return held, there
 }
 
@@ -110,7 +135,7 @@ func (f *FS) read(walk func(map[string]document)) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	walk(f.documents)
+	walk(f.graph.Documents)
 }
 
 // info is what the graph says about a document.

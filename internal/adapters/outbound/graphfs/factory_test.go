@@ -11,7 +11,7 @@ import (
 )
 
 func TestFactoryBuildsAGraphFromItsSettings(t *testing.T) {
-	build := graphfs.Factory(statements{}, newMemStore())
+	build := graphfs.Factory(statements{}, newMemStore(), newMemStore())
 
 	mount, err := build(map[string]string{"name": "notes", "edges": "3"})
 	if err != nil {
@@ -28,7 +28,7 @@ func TestFactoryBuildsAGraphFromItsSettings(t *testing.T) {
 }
 
 func TestFactoryDefaultsTheBoundAMountDoesNotName(t *testing.T) {
-	build := graphfs.Factory(statements{}, newMemStore())
+	build := graphfs.Factory(statements{}, newMemStore(), newMemStore())
 
 	mount, err := build(map[string]string{"name": "notes"})
 	if err != nil {
@@ -41,23 +41,27 @@ func TestFactoryDefaultsTheBoundAMountDoesNotName(t *testing.T) {
 	}
 }
 
-// A build whose chain reads no entities and a build with nowhere to keep a
-// graph are both refused where an operator is still watching, rather than on
-// the first text.
+// A build whose chain reads no entities, a build with nowhere to keep a graph
+// and a build with nowhere to keep a snapshot of one are all refused where an
+// operator is still watching, rather than on the first text or the first
+// snapshot.
 func TestAMountIsRefusedWithNothingBehindIt(t *testing.T) {
 	settings := map[string]string{"name": "notes"}
 
-	if _, err := graphfs.Factory(nil, newMemStore())(settings); !errors.Is(err, fs.ErrInvalid) {
+	if _, err := graphfs.Factory(nil, newMemStore(), newMemStore())(settings); !errors.Is(err, fs.ErrInvalid) {
 		t.Errorf("a chain that reads no entities built a mount: %v", err)
 	}
-	if _, err := graphfs.Factory(statements{}, nil)(settings); !errors.Is(err, fs.ErrInvalid) {
+	if _, err := graphfs.Factory(statements{}, nil, newMemStore())(settings); !errors.Is(err, fs.ErrInvalid) {
 		t.Errorf("a build with no store built a mount: %v", err)
+	}
+	if _, err := graphfs.Factory(statements{}, newMemStore(), nil)(settings); !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("a build with nowhere to keep a snapshot built a mount: %v", err)
 	}
 }
 
 // A misspelled setting is a boot failure rather than a line quietly ignored.
 func TestASettingThisKindDoesNotTakeIsRefused(t *testing.T) {
-	build := graphfs.Factory(statements{}, newMemStore())
+	build := graphfs.Factory(statements{}, newMemStore(), newMemStore())
 
 	_, err := build(map[string]string{"name": "notes", "hops": "2"})
 	if !errors.Is(err, fs.ErrInvalid) {
@@ -69,7 +73,7 @@ func TestASettingThisKindDoesNotTakeIsRefused(t *testing.T) {
 }
 
 func TestAGraphWithNoNameIsRefused(t *testing.T) {
-	build := graphfs.Factory(statements{}, newMemStore())
+	build := graphfs.Factory(statements{}, newMemStore(), newMemStore())
 
 	if _, err := build(map[string]string{}); !errors.Is(err, fs.ErrInvalid) {
 		t.Errorf("Factory = %v, want fs.ErrInvalid", err)
@@ -77,7 +81,7 @@ func TestAGraphWithNoNameIsRefused(t *testing.T) {
 }
 
 func TestABoundThatIsNotACountIsRefused(t *testing.T) {
-	build := graphfs.Factory(statements{}, newMemStore())
+	build := graphfs.Factory(statements{}, newMemStore(), newMemStore())
 
 	for _, spelled := range []string{"many", "0", "-1"} {
 		if _, err := build(map[string]string{"name": "notes", "edges": spelled}); !errors.Is(err, fs.ErrInvalid) {
@@ -90,7 +94,7 @@ func TestABoundThatIsNotACountIsRefused(t *testing.T) {
 // booted empty because a bucket was briefly unreachable would overwrite the
 // real one on its first write.
 func TestAStoreThatCannotBeReadRefusesTheMount(t *testing.T) {
-	build := graphfs.Factory(statements{}, unreadable{})
+	build := graphfs.Factory(statements{}, unreadable{}, newMemStore())
 
 	if _, err := build(map[string]string{"name": "notes"}); err == nil {
 		t.Fatal("Factory = nil, want the store's refusal")
