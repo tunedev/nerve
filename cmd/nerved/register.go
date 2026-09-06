@@ -23,6 +23,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamrotatefs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termsum"
+	"github.com/tunedev/nerve/internal/adapters/outbound/termvec"
 	"github.com/tunedev/nerve/internal/adapters/outbound/textproc"
 	"github.com/tunedev/nerve/internal/adapters/outbound/vectorfs"
 	"github.com/tunedev/nerve/internal/core/ingest"
@@ -121,19 +122,27 @@ func registerProcessors(registry *ingest.Registry) error {
 // concrete provider, and a second endpoint is a package plus a line here rather
 // than an edit to whatever routes.
 //
-// termsum and nounlink take no settings, so they name none. ollama names its
-// endpoint and its model, and cuefact names whose turns it reads, because that
-// is an operator's business and not a credential. A kind that reached a hosted
-// model would say nothing about the key beside them, which is what makes the
-// key read back as redacted.
+// termsum, termvec and nounlink take no credentials, so they name none.
+// ollama names its endpoint and its model, cuefact names whose turns it reads,
+// and termvec names how wide its vectors are, because those are an operator's
+// business and not credentials. A kind that reached a hosted model would say
+// nothing about the key beside them, which is what makes the key read back as
+// redacted.
 //
-// The four serve different capabilities, so which one a call reaches is the
-// accessor it asked for rather than the order they are listed in here. A chain
-// naming all four summarises through termsum, embeds through ollama, remembers
-// through cuefact and reads entities through nounlink.
+// Which endpoint a call reaches is the accessor it asked for and then the order
+// listed in config, so a chain naming all five summarises through termsum,
+// extracts through cuefact, reads entities through nounlink, and embeds through
+// whichever of ollama and termvec its config puts first.
+//
+// That last one is a chain an operator should not write. termvec and a model
+// embed into different vector spaces, so a chain holding both fills one index
+// from two the first time the model falters - the line llm.Embedder says is the
+// operator's to hold. termvec is the endpoint for a build with no model, which
+// is what makes an index mountable on a plane; it is not a model's fallback.
 func registerProviders(registry *llm.Registry) error {
 	return errors.Join(
 		registry.Register(termsum.Kind, termsum.Factory),
+		registry.Register(termvec.Kind, termvec.Factory, termvec.Public...),
 		registry.Register(ollama.Kind, ollama.Factory, ollama.Public...),
 		registry.Register(cuefact.Kind, cuefact.Factory, cuefact.RoleSetting),
 		registry.Register(nounlink.Kind, nounlink.Factory),

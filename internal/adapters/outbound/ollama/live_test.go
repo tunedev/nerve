@@ -10,6 +10,7 @@ import (
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/ollama"
 	"github.com/tunedev/nerve/internal/core/llm"
+	"github.com/tunedev/nerve/internal/llmtest"
 )
 
 // endpointEnv turns this file on. Nothing here runs without an Ollama to talk
@@ -47,35 +48,12 @@ func live(t *testing.T) *ollama.Embedder {
 	return embedder
 }
 
-// A real model answers one vector per text, every vector the same width, and
-// answers the same text the same way twice. That last one is what makes an
-// index worth keeping: a vector written on Monday is compared against one read
-// on Friday.
-func TestLiveEmbedAnswersOneVectorPerText(t *testing.T) {
-	embedder := live(t)
-
-	texts := []string{"the pumps had not run since March", "nobody funded the maintenance"}
-	vectors, err := embedder.Embed(context.Background(), texts)
-	if err != nil {
-		t.Fatalf("Embed = %v", err)
-	}
-	if len(vectors) != len(texts) {
-		t.Fatalf("Embed returned %d vectors for %d texts", len(vectors), len(texts))
-	}
-	if len(vectors[0]) == 0 {
-		t.Fatal("Embed returned an empty vector")
-	}
-	if len(vectors[0]) != len(vectors[1]) {
-		t.Fatalf("Embed returned vectors of %d and %d dimensions, want one width", len(vectors[0]), len(vectors[1]))
-	}
-
-	again, err := embedder.Embed(context.Background(), texts[:1])
-	if err != nil {
-		t.Fatalf("Embed again = %v", err)
-	}
-	if again[0][0] != vectors[0][0] {
-		t.Errorf("the same text embedded to %v and then %v, want one answer", vectors[0][0], again[0][0])
-	}
+// A real model keeps the promises the port makes, held to by the suite every
+// endpoint runs. The rest of this package asserts the wire against a server in
+// this process; this asserts that a model on the other end of it answers the
+// way llm.Embedder says an endpoint does.
+func TestLiveConformance(t *testing.T) {
+	llmtest.RunEmbedder(t, live(t))
 }
 
 // A model the endpoint has not pulled is a config answer and stops the chain,
