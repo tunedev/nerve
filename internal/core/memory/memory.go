@@ -19,6 +19,14 @@
 // with no record of where it came from cannot be checked, cannot be reconciled
 // against the turn that contradicts it, and cannot be removed when the
 // conversation that produced it is deleted.
+//
+// Because nothing is edited, every memory has a validity interval: it was
+// believed from the moment it was written until the moment something replaced
+// it, and a memory nothing has replaced is believed still. The interval is
+// derived rather than stored — a memory that supersedes another names it, and
+// the named memory stops being believed when the naming one starts. Storing an
+// end on the memory itself would mean writing to it later, which is the one
+// thing the log does not do.
 package memory
 
 import (
@@ -101,8 +109,8 @@ type Fact struct {
 	Priority Priority `json:"priority"`
 }
 
-// Memory is a fact as the store holds it: the claim, where it came from, and
-// when it was written.
+// Memory is a fact as the store holds it: the claim, where it came from, when
+// it was written, and how long it was believed.
 type Memory struct {
 	// Seq is the position in the workspace's log, counting from one.
 	Seq int
@@ -110,16 +118,33 @@ type Memory struct {
 	Fact Fact
 	// Source is the session the fact was extracted from.
 	Source string
-	// At is when it was written.
+	// At is when it was written, and the moment it started being believed.
 	At time.Time
+	// Until is when the first memory replacing this one was written, and the
+	// moment it stopped being believed. Zero while nothing has replaced it.
+	Until time.Time
+	// Supersedes is the sequence of every memory this one replaced, ascending.
+	Supersedes []int
+}
+
+// Believed reports whether the memory was the workspace's belief at t. The
+// interval is half-open: the memory that replaced this one is believed at the
+// instant it was written, and this one is not.
+func (m Memory) Believed(t time.Time) bool {
+	if t.Before(m.At) {
+		return false
+	}
+	return m.Until.IsZero() || t.Before(m.Until)
 }
 
 // held is a Memory as a file holds it. The sequence is not in it, because the
-// sequence is the file's own name.
+// sequence is the file's own name, and neither is the end of the interval,
+// because the memory that ends it is the one that records it.
 type held struct {
-	Fact   Fact      `json:"fact"`
-	Source string    `json:"source"`
-	At     time.Time `json:"at"`
+	Fact       Fact      `json:"fact"`
+	Source     string    `json:"source"`
+	At         time.Time `json:"at"`
+	Supersedes []int     `json:"supersedes,omitempty"`
 }
 
 // encode renders a memory as the bytes of its file.
@@ -140,7 +165,28 @@ func decode(data []byte) (held, error) {
 	if err := validFact(m.Fact); err != nil {
 		return held{}, err
 	}
+	if err := validSupersedes(m.Supersedes); err != nil {
+		return held{}, err
+	}
 	return m, nil
+}
+
+// validSupersedes returns fs.ErrInvalid for a supersession no memory can carry.
+// A memory replacing nothing says so by naming nothing, a sequence off the log
+// names no memory, and naming one twice would close its interval against
+// itself.
+func validSupersedes(replaced []int) error {
+	seen := make(map[int]bool, len(replaced))
+	for _, seq := range replaced {
+		switch {
+		case seq < 1:
+			return fmt.Errorf("memory supersedes %d, which is not a sequence: %w", seq, fs.ErrInvalid)
+		case seen[seq]:
+			return fmt.Errorf("memory supersedes %d twice: %w", seq, fs.ErrInvalid)
+		}
+		seen[seq] = true
+	}
+	return nil
 }
 
 // validFact returns fs.ErrInvalid for a fact no memory can carry. A fact with
