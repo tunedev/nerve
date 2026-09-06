@@ -16,21 +16,16 @@ package streamfs
 import (
 	"fmt"
 	"io/fs"
-	"path"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/keyspace"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
-// dirMode and fileMode are what an entry is described with. A stream is a file;
-// dirMode belongs to a prefix a listing synthesized, which exists only because
-// streams are under it.
-const (
-	dirMode  = fs.ModeDir | 0o755
-	fileMode = 0o644
-)
+// fileMode is what a stream is described with. A prefix a listing synthesized
+// is described with keyspace.DirMode.
+const fileMode = 0o644
 
 // FS is one set of streams, safe for concurrent use.
 //
@@ -63,37 +58,9 @@ func (f *FS) Capabilities(string) vfs.Caps {
 	return vfs.Caps{AppendOnly: true, Broadcast: true, ObjectStore: true}
 }
 
-// relative resolves name lexically to the part below the mount's root, so a
-// caller is not made to clean paths a mount table would have cleaned. The root
-// is what is left of a path that names nothing below it.
-func relative(name string) string {
-	return strings.TrimPrefix(path.Clean("/"+strings.TrimPrefix(name, "/")), "/")
-}
-
-// key is the stream name addresses. The root has none: it is the prefix every
-// stream of the mount is under rather than a stream itself, which is what makes
-// it the one path no verb reads, removes or moves.
-func key(name string) (string, error) {
-	rest := relative(name)
-	if rest == "" {
-		return "", fmt.Errorf("%q: the root is a prefix and not a stream: %w", name, fs.ErrInvalid)
-	}
-	return rest, nil
-}
-
-// prefix is what a listing of name matches: every stream beneath it, and never
-// the stream at it.
-func prefix(name string) string {
-	rest := relative(name)
-	if rest == "" {
-		return ""
-	}
-	return rest + "/"
-}
-
 // find hands back the stream at name, or says it is not there.
 func (f *FS) find(name string) (*ring, error) {
-	at, err := key(name)
+	at, err := keyspace.Key(name)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +77,7 @@ func (f *FS) find(name string) (*ring, error) {
 
 // open hands back the stream at name, making an empty one if it is not there.
 func (f *FS) open(name string) (*ring, error) {
-	at, err := key(name)
+	at, err := keyspace.Key(name)
 	if err != nil {
 		return nil, err
 	}

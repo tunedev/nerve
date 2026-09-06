@@ -4,13 +4,15 @@ import (
 	"context"
 	"fmt"
 	"slices"
+
+	"github.com/tunedev/nerve/internal/adapters/outbound/keyspace"
 )
 
 // Create makes name exist as an empty log. A log already there is left as it is
 // rather than truncated: the mount is append-only, and what has been written to
 // a log is never shortened.
 func (f *FS) Create(_ context.Context, name string) error {
-	at, err := key(name)
+	at, err := keyspace.Key(name)
 	if err != nil {
 		return fmt.Errorf("create %w", err)
 	}
@@ -39,7 +41,7 @@ func (f *FS) Read(_ context.Context, name string) ([]byte, error) {
 // Write appends data to the end of name, making the log if it is not there and
 // sealing a segment if the append filled one.
 func (f *FS) Write(_ context.Context, name string, data []byte) error {
-	at, err := key(name)
+	at, err := keyspace.Key(name)
 	if err != nil {
 		return fmt.Errorf("write %w", err)
 	}

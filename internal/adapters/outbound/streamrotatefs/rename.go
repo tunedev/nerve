@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+
+	"github.com/tunedev/nerve/internal/adapters/outbound/keyspace"
 )
 
 // Rename moves the entry at oldPath to newPath, replacing what is there. It
@@ -15,11 +17,11 @@ import (
 // names it sealed them under, and it seals what it rotates from here on under
 // the name it now has.
 func (f *FS) Rename(_ context.Context, oldPath, newPath string) error {
-	from, err := key(oldPath)
+	from, err := keyspace.Key(oldPath)
 	if err != nil {
 		return fmt.Errorf("rename %w", err)
 	}
-	to, err := key(newPath)
+	to, err := keyspace.Key(newPath)
 	if err != nil {
 		return fmt.Errorf("rename %w", err)
 	}

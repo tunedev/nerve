@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/keyspace"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -107,7 +108,7 @@ func (r *ring) info(name string) vfs.FileInfo {
 	defer r.mu.Unlock()
 
 	return vfs.FileInfo{
-		Name:    path.Base(relative(name)),
+		Name:    path.Base(keyspace.Relative(name)),
 		Size:    int64(len(r.window)),
 		Mode:    r.mode,
 		ModTime: r.modTime,

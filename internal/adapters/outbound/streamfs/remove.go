@@ -6,12 +6,14 @@ import (
 	"io/fs"
 	"maps"
 	"strings"
+
+	"github.com/tunedev/nerve/internal/adapters/outbound/keyspace"
 )
 
 // Remove deletes the stream at name. A prefix is not a stream, so removing one
 // is removing nothing: what is under it is RemoveAll's business.
 func (f *FS) Remove(_ context.Context, name string) error {
-	at, err := key(name)
+	at, err := keyspace.Key(name)
 	if err != nil {
 		return fmt.Errorf("remove %w", err)
 	}
@@ -34,12 +36,12 @@ func (f *FS) Remove(_ context.Context, name string) error {
 // yet: it holds the ring, and what it hands back is what was written before the
 // stream stopped being reachable by name.
 func (f *FS) RemoveAll(_ context.Context, name string) error {
-	under := prefix(name)
+	under := keyspace.Prefix(name)
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	if at, err := key(name); err == nil {
+	if at, err := keyspace.Key(name); err == nil {
 		delete(f.streams, at)
 	}
 	maps.DeleteFunc(f.streams, func(at string, _ *ring) bool { return strings.HasPrefix(at, under) })

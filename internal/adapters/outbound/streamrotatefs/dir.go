@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/keyspace"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -37,14 +38,14 @@ func (f *FS) Stat(_ context.Context, name string) (vfs.FileInfo, error) {
 // It does not refuse a name nothing is under, because a name is a prefix:
 // listing one that holds nothing is how a caller finds out that it does.
 func (f *FS) ReadDir(_ context.Context, name string) ([]vfs.FileInfo, error) {
-	under := prefix(name)
+	under := keyspace.Prefix(name)
 
 	f.mu.RLock()
 	children := make(map[string]vfs.FileInfo, len(f.logs))
 	for at, held := range f.logs {
 		if strings.HasPrefix(at, under) {
 			rest := strings.TrimPrefix(at, under)
-			fold(children, rest, held.info(rest))
+			keyspace.Fold(children, rest, held.info(rest))
 		}
 	}
 	f.mu.RUnlock()
@@ -52,29 +53,4 @@ func (f *FS) ReadDir(_ context.Context, name string) ([]vfs.FileInfo, error) {
 	entries := slices.Collect(maps.Values(children))
 	slices.SortFunc(entries, func(a, b vfs.FileInfo) int { return strings.Compare(a.Name, b.Name) })
 	return entries, nil
-}
-
-// fold adds one entry to what ReadDir answers. The entry either names a child
-// outright, or names one segment of a prefix that exists because it and others
-// are under it.
-//
-// An entry and a prefix can share a name, and the entry is the one that wins:
-// it describes itself, where a prefix is only ever described by what is beneath
-// it.
-func fold(children map[string]vfs.FileInfo, rest string, one vfs.FileInfo) {
-	base, _, deeper := strings.Cut(rest, "/")
-	if !deeper {
-		one.Name = base
-		children[base] = one
-		return
-	}
-
-	existing, listed := children[base]
-	if listed && !existing.IsDir() {
-		return
-	}
-	if one.ModTime.After(existing.ModTime) {
-		existing = vfs.FileInfo{Name: base, Mode: dirMode, ModTime: one.ModTime}
-	}
-	children[base] = existing
 }
