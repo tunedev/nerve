@@ -12,6 +12,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/kvfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/localfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/nounlink"
 	"github.com/tunedev/nerve/internal/adapters/outbound/objectfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/ollama"
 	"github.com/tunedev/nerve/internal/adapters/outbound/pdfproc"
@@ -120,20 +121,21 @@ func registerProcessors(registry *ingest.Registry) error {
 // concrete provider, and a second endpoint is a package plus a line here rather
 // than an edit to whatever routes.
 //
-// termsum takes no settings, so it names none. ollama names its endpoint and
-// its model, and cuefact names whose turns it reads, because that is an
-// operator's business and not a credential. A kind that reached a hosted model
-// would say nothing about the key beside them, which is what makes the key read
-// back as redacted.
+// termsum and nounlink take no settings, so they name none. ollama names its
+// endpoint and its model, and cuefact names whose turns it reads, because that
+// is an operator's business and not a credential. A kind that reached a hosted
+// model would say nothing about the key beside them, which is what makes the
+// key read back as redacted.
 //
-// The three serve different capabilities, so which one a call reaches is the
+// The four serve different capabilities, so which one a call reaches is the
 // accessor it asked for rather than the order they are listed in here. A chain
-// naming all three summarises through termsum, embeds through ollama and
-// extracts through cuefact.
+// naming all four summarises through termsum, embeds through ollama, remembers
+// through cuefact and reads entities through nounlink.
 func registerProviders(registry *llm.Registry) error {
 	return errors.Join(
 		registry.Register(termsum.Kind, termsum.Factory),
 		registry.Register(ollama.Kind, ollama.Factory, ollama.Public...),
 		registry.Register(cuefact.Kind, cuefact.Factory, cuefact.RoleSetting),
+		registry.Register(nounlink.Kind, nounlink.Factory),
 	)
 }

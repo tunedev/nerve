@@ -44,6 +44,9 @@ type Provider interface {
 	// AsSQLWriter returns the endpoint's SQL-writing verb, or nil when it does
 	// not write SQL.
 	AsSQLWriter() SQLWriter
+	// AsEntityExtractor returns the endpoint's entity extraction verb, or nil
+	// when it does not read entities.
+	AsEntityExtractor() EntityExtractor
 }
 
 // NoAccessors is the default a provider embeds so that implementing one
@@ -62,6 +65,9 @@ func (NoAccessors) AsFactExtractor() FactExtractor { return nil }
 
 // AsSQLWriter reports that the provider does not write SQL.
 func (NoAccessors) AsSQLWriter() SQLWriter { return nil }
+
+// AsEntityExtractor reports that the provider does not extract entities.
+func (NoAccessors) AsEntityExtractor() EntityExtractor { return nil }
 
 // Summariser says what a document is about in at most the sentences it is
 // given.
@@ -177,4 +183,54 @@ type Table struct {
 // that cannot produce SQL at all fails rather than answering with prose.
 type SQLWriter interface {
 	WriteSQL(ctx context.Context, question string, table Table) (string, error)
+}
+
+// Entity is one thing a text names: what sort of thing it is, and which one of
+// them.
+//
+// Kind is the extractor's vocabulary and this package reads none of it, for the
+// reason a Fact's is: what sorts of thing there are is a question the endpoint
+// answers, and a port that understood "person" would have to be changed to
+// understand "product". The pair is an address rather than a sentence, which is
+// what lets a graph put two mentions of one name in one place.
+type Entity struct {
+	Kind string
+	Name string
+}
+
+// Relation is one thing a text says about two of the entities in it, read left
+// to right.
+//
+// It is directed, because "Nerve uses Postgres" is not the claim that Postgres
+// uses Nerve, and a graph that symmetrised it would answer a question nobody
+// asked. Predicate is the extractor's vocabulary for the same reason Kind is.
+type Relation struct {
+	From      Entity
+	Predicate string
+	To        Entity
+}
+
+// Extraction is what an extractor read out of a text: the entities it found and
+// the relations it found between them.
+//
+// Every entity a relation names is also in Entities, so a caller building a
+// graph makes its nodes from one field and its edges from the other without
+// reconciling the two. A text that names things and relates none of them
+// extracts to entities alone, which is the ordinary case.
+type Extraction struct {
+	Entities  []Entity
+	Relations []Relation
+}
+
+// EntityExtractor reads a text and answers with what it names and how those
+// things are related.
+//
+// The verb is not called Extract, though FactExtractor's is. A hosted endpoint
+// that served both capabilities would be one type implementing both interfaces,
+// and Go gives it one method per name.
+//
+// A text naming nothing extracts to nothing, which is an answer and not a
+// failure: most of a document is prose about things it named elsewhere.
+type EntityExtractor interface {
+	ExtractEntities(ctx context.Context, text string) (Extraction, error)
 }
