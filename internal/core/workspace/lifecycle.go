@@ -57,7 +57,9 @@ func NewLifecycle(fsys vfs.FileSystem, areas ...string) (*Lifecycle, error) {
 // none, which is the descriptor speaking rather than a failure: a workspace
 // begins to exist there when something is written under it.
 func (l *Lifecycle) Create(ctx context.Context, s Scope) error {
-	return l.across(ctx, "create", s, l.fsys.Mkdir)
+	return l.across(ctx, "create", s, func(fsys vfs.FileSystem, name string) error {
+		return fsys.Mkdir(ctx, name)
+	})
 }
 
 // Delete removes s and everything under it from every area: the files, the
@@ -67,48 +69,79 @@ func (l *Lifecycle) Create(ctx context.Context, s Scope) error {
 // A workspace that is not there is not an error, so a delete that failed
 // halfway is completed by running it again.
 func (l *Lifecycle) Delete(ctx context.Context, s Scope) error {
-	return l.across(ctx, "delete", s, l.fsys.RemoveAll)
+	return l.across(ctx, "delete", s, func(fsys vfs.FileSystem, name string) error {
+		return fsys.RemoveAll(ctx, name)
+	})
 }
 
-// across runs verb at s's path under every area and reports what all of them
+// across runs verb on s's workspace in every area and reports what all of them
 // said, not what the first one to fail said. A mutation stops leaving data
 // behind only if every area is attempted: abandoning the rest because one
 // refused is how a deleted workspace stays readable in the three areas the loop
 // never reached.
 //
+// The workspace is named inside the user scope rather than reached by a path
+// derived down to it. The string is the same either way; who resolves it is
+// not, and that is the whole difference — a path handed to the tree is resolved
+// by the tree, which follows a link standing at any component of it.
+//
 // A scope names one workspace here. Deleting user scope would remove every
 // workspace that user has under a verb named for one, and creating it would
 // make a root with nothing in it, so both are refused.
-func (l *Lifecycle) across(ctx context.Context, verb string, s Scope, act func(context.Context, string) error) error {
+func (l *Lifecycle) across(ctx context.Context, verb string, s Scope, act func(vfs.FileSystem, string) error) error {
 	if s.Workspace == "" {
 		return fmt.Errorf("%s: scope names no workspace: %w", verb, fs.ErrInvalid)
 	}
-	paths, err := l.paths(s)
+	held, err := l.holding(s)
 	if err != nil {
 		return fmt.Errorf("%s: %w", verb, err)
 	}
 
-	errs := make([]error, 0, len(paths))
-	for _, p := range paths {
-		if err := act(ctx, p); err != nil {
-			errs = append(errs, fmt.Errorf("%s %q: %w", verb, p, err))
+	errs := make([]error, 0, len(held))
+	for _, area := range held {
+		if err := act(area.held, s.Workspace); err != nil {
+			errs = append(errs, fmt.Errorf("%s %q: %w", verb, area.at, err))
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// paths is where s stands in every area. A scope that is not valid is invalid
-// everywhere, so it is reported once rather than once per area.
-func (l *Lifecycle) paths(s Scope) ([]string, error) {
-	paths := make([]string, len(l.areas))
+// scoped is one area with the user scope inside it already narrowed to. held is
+// what a verb acts through; at is where the scope stands, carried for what an
+// error says rather than for anything to resolve.
+type scoped struct {
+	at   string
+	held vfs.FileSystem
+}
+
+// holding narrows every area to the subtree holding every workspace s's user
+// has. The workspaces are names in it, so a verb names one rather than spelling
+// a path down to it.
+//
+// It is View that makes this a boundary rather than a prefix. An area that
+// hands out a subtree hands out the one a walk refusing a link at each
+// component reached, so a link planted anywhere on the scope path is refused
+// instead of followed; an area that hands out none is contained by the
+// derivation alone, which is the whole containment a kind that resolves nothing
+// but the name it was given needs.
+//
+// A scope that is not valid is invalid in every area, so it is reported once
+// rather than once per area.
+func (l *Lifecycle) holding(s Scope) ([]scoped, error) {
+	user := Scope{User: s.User}
+	held := make([]scoped, len(l.areas))
 	for i, area := range l.areas {
-		p, err := s.Path(area, "")
+		at, err := s.Path(area, "")
 		if err != nil {
 			return nil, err
 		}
-		paths[i] = p
+		fsys, err := user.View(l.fsys, area)
+		if err != nil {
+			return nil, err
+		}
+		held[i] = scoped{at: at, held: fsys}
 	}
-	return paths, nil
+	return held, nil
 }
 
 // List names the workspaces user has, sorted, each named once however many
@@ -118,26 +151,28 @@ func (l *Lifecycle) paths(s Scope) ([]string, error) {
 //
 // Only a directory is a workspace. A keyspace answers for a prefix with the
 // directory bit set and for a key without it, which is what separates a
-// workspace from a key the user wrote in user scope beside it.
+// workspace from a key the user wrote in user scope beside it. A link is not a
+// directory either, so an entry standing for another user's workspace names
+// none of his.
 //
 // A read that fails is not answered with the part that succeeded. A short list
 // of workspaces is indistinguishable from a correct one, and a caller asking
 // which workspaces exist is usually about to act on the ones it is not told
 // about.
 func (l *Lifecycle) List(ctx context.Context, user string) ([]string, error) {
-	found := map[string]struct{}{}
-	for _, area := range l.areas {
-		p, err := Scope{User: user}.Path(area, "")
-		if err != nil {
-			return nil, fmt.Errorf("list: %w", err)
-		}
+	held, err := l.holding(Scope{User: user})
+	if err != nil {
+		return nil, fmt.Errorf("list: %w", err)
+	}
 
-		entries, err := l.fsys.ReadDir(ctx, p)
+	found := map[string]struct{}{}
+	for _, area := range held {
+		entries, err := area.held.ReadDir(ctx, "/")
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("list %q: %w", p, err)
+			return nil, fmt.Errorf("list %q: %w", area.at, err)
 		}
 
 		for _, entry := range entries {

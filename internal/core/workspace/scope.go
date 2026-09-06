@@ -44,15 +44,26 @@ type Scope struct {
 // derived path is a name; what the store behind it resolves that name to is
 // enforced by the plugin mounted under the scope, at its own boundary.
 func (s Scope) Path(root, rest string) (string, error) {
-	if err := vfs.ValidSegment("user", s.User); err != nil {
+	if err := s.valid(); err != nil {
 		return "", err
 	}
-	if s.Workspace != "" {
-		if err := vfs.ValidSegment("workspace", s.Workspace); err != nil {
-			return "", err
-		}
-	}
 	return path.Join("/", root, s.User, s.Workspace, path.Join("/", rest)), nil
+}
+
+// valid reports whether s names segments that each stand as one name. It is
+// here rather than inside Path because a caller that reaches the tree without
+// deriving a path down to it still needs the same answer, and asking it twice
+// in two spellings is how the two come to disagree.
+//
+// A scope with no workspace is user scope rather than an invalid one.
+func (s Scope) valid() error {
+	if err := vfs.ValidSegment("user", s.User); err != nil {
+		return err
+	}
+	if s.Workspace == "" {
+		return nil
+	}
+	return vfs.ValidSegment("workspace", s.Workspace)
 }
 
 // Locate is the inverse of Path: it returns the scope that name stands in under
