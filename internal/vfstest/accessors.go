@@ -35,6 +35,7 @@ func accessorCases() []testCase {
 		{name: "Lstat of a missing path does not exist", run: lstatOfAMissingPath},
 		{name: "Sub serves the subtree at its own root", when: needs(writable, tree), run: subServesTheSubtree},
 		{name: "Sub serves nothing above the subtree", when: needs(writable, tree), run: subServesNothingAbove},
+		{name: "Sub of a path standing on a link serves nothing it stands for", when: needs(writable, tree), run: subOfALinkedPath},
 	}
 }
 
@@ -392,5 +393,24 @@ func subServesNothingAbove(t *testing.T, w world) {
 		if content, err := beneath.Read(t.Context(), climb); err == nil && string(content) == withheld {
 			t.Errorf("Read(%q) through the subtree = %q, want nothing above it reachable", climb, content)
 		}
+	}
+}
+
+// The subtree's own path is a name like any other, so a link standing at it is
+// followed by whatever resolves that name unless the kind refuses one there. A
+// subtree opened through such a link is another subtree served under this one's
+// name, which is one caller's root handed to another — and the caller cannot
+// tell, because every verb answers.
+func subOfALinkedPath(t *testing.T, w world) {
+	link := symlinker(t, w)
+	mustMkdir(t, w, "other")
+	mustWrite(t, w, "other/notes", withheld)
+	if err := link.Symlink(t.Context(), w.at("other"), w.at("jobs")); err != nil {
+		t.Fatalf("planting the link at %q = %v", w.at("jobs"), err)
+	}
+
+	beneath := subtree(t, w, "jobs")
+	if content, err := beneath.Read(t.Context(), "/notes"); err == nil {
+		t.Errorf("Read through a subtree whose path is a link = %q, want the link refused", content)
 	}
 }

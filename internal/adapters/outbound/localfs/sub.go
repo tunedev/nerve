@@ -33,16 +33,19 @@ func (f *FS) Sub(name string) vfs.FileSystem { return &subFS{parent: f, at: path
 // takes per request and may drop or may keep, so a handle held here would be a
 // descriptor leaked per request or a root still pointing at a directory that
 // has since been deleted and made again. A handle taken per verb is neither,
-// and costs one openat beside the syscall the verb was going to make anyway.
+// and costs the walk of the subtree's path beside the syscall the verb was
+// going to make anyway.
 type subFS struct {
 	parent *FS
 	at     string
 }
 
 // under opens the subtree as a mount of its own and hands it to act, closing
-// the handle when act returns.
+// the handle when act returns. The open is a no-follow one: a link standing at
+// any component of the subtree's own path would otherwise be followed, and the
+// subtree handed out would be whatever it names.
 func under[T any](s *subFS, act func(*FS) (T, error)) (T, error) {
-	opened, err := s.parent.root.OpenRoot(rel(s.at))
+	opened, err := openScope(s.parent.root, s.at)
 	if err != nil {
 		var zero T
 		return zero, fmt.Errorf("open the subtree: %w", sentinel(err))
@@ -63,9 +66,12 @@ func (s *subFS) Create(ctx context.Context, name string) error {
 
 // Mkdir makes the subtree itself when it is not there. The port has Mkdir
 // create the parents on the way, and from inside a subtree the subtree is one.
+// It is the one verb that names the subtree's path before the subtree is open,
+// so it makes each directory on that path under the same no-follow walk the
+// other verbs open through.
 func (s *subFS) Mkdir(ctx context.Context, name string) error {
-	if err := s.parent.Mkdir(ctx, s.at); err != nil {
-		return err
+	if err := makeScope(s.parent.root, s.at); err != nil {
+		return fmt.Errorf("mkdir %q: %w", s.at, sentinel(err))
 	}
 	return s.on(func(f *FS) error { return f.Mkdir(ctx, name) })
 }
@@ -120,7 +126,8 @@ func (s *subFS) AsTruncater() vfs.Truncater { return s }
 func (s *subFS) AsSubber() vfs.Subber       { return s }
 
 // Sub narrows again, against the same mount: a subtree of a subtree is one
-// directory named from the mount's root, and opening it is still one openat.
+// directory named from the mount's root, and opening it is the same walk down
+// a longer path.
 func (s *subFS) Sub(name string) vfs.FileSystem {
 	return &subFS{parent: s.parent, at: path.Join(s.at, path.Join("/", name))}
 }
@@ -151,7 +158,7 @@ func (s *subFS) OpenRead(ctx context.Context, name string) (io.ReadCloser, error
 // when the write lands: the temporary file and the entry it moves onto are both
 // named against the root the stream was opened on.
 func (s *subFS) OpenWrite(ctx context.Context, name string) (io.WriteCloser, error) {
-	opened, err := s.parent.root.OpenRoot(rel(s.at))
+	opened, err := openScope(s.parent.root, s.at)
 	if err != nil {
 		return nil, fmt.Errorf("open_write %q: %w", name, sentinel(err))
 	}

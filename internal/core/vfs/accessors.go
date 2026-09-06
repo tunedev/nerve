@@ -66,6 +66,12 @@ type Truncater interface {
 // symlink long after any name was derived — contains a caller only at the root
 // it was opened on.
 //
+// The subtree's own path is a name like any other, so a kind that resolves a
+// link resolves one standing on that path too, and the subtree handed out would
+// be whatever the link names — one caller's root served under another's name,
+// with every verb answering. A kind answering this accessor opens the path
+// without following a link at any component of it.
+//
 // Sub is not I/O and takes no context, for the reason Capabilities takes none:
 // it narrows the address space and reads nothing. Whether the subtree is there
 // is answered by the verbs called on the result.
