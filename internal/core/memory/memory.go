@@ -34,7 +34,6 @@ import (
 	"fmt"
 	"io/fs"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -201,21 +200,6 @@ func validFact(f Fact) error {
 	}
 	if _, known := priorityNames[f.Priority]; !known {
 		return fmt.Errorf("fact %q has priority %d, which is not on the scale: %w", f.Kind, int(f.Priority), fs.ErrInvalid)
-	}
-	return nil
-}
-
-// validSource returns fs.ErrInvalid for a memory that does not say where it came
-// from. The rule is the session's own name rule, because that is what a source
-// is: a fact whose source resolves away names a conversation nobody had.
-func validSource(source string) error {
-	switch {
-	case source == "":
-		return fmt.Errorf("memory names no source session: %w", fs.ErrInvalid)
-	case strings.Contains(source, "/"):
-		return fmt.Errorf("source session %q contains a separator: %w", source, fs.ErrInvalid)
-	case source == "." || source == "..":
-		return fmt.Errorf("source session %q names a directory, not a session: %w", source, fs.ErrInvalid)
 	}
 	return nil
 }

@@ -309,7 +309,7 @@ func (st *Store) write(ctx context.Context, dir string, held meta) error {
 // every workspace that user has, so a resource written there would stand where
 // a workspace belongs.
 func (st *Store) dir(s workspace.Scope, name string) (string, error) {
-	if err := validName(name); err != nil {
+	if err := vfs.ValidSegment("resource name", name); err != nil {
 		return "", err
 	}
 	if s.Workspace == "" {
@@ -334,7 +334,7 @@ func (st *Store) Resolve(changed string) (workspace.Scope, string, error) {
 	}
 	name, declares := path.Split(inside)
 	name = strings.TrimSuffix(name, "/")
-	if declares != metaFile || validName(name) != nil {
+	if declares != metaFile || vfs.ValidSegment("resource name", name) != nil {
 		return workspace.Scope{}, "", fmt.Errorf("resolve %q: it declares no resource: %w", changed, fs.ErrNotExist)
 	}
 	return s, name, nil

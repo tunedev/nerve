@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tunedev/nerve/internal/core/vfs"
 	"github.com/tunedev/nerve/internal/core/workspace"
 )
 
@@ -55,7 +56,7 @@ func NewSigner(key []byte, now func() time.Time) (*Signer, error) {
 // moment it was made is a token that cannot be redeemed, and handing one out is
 // a failure the caller should see here rather than at the download.
 func (s *Signer) Sign(scope workspace.Scope, name string, ttl time.Duration) (Grant, error) {
-	if err := validName(name); err != nil {
+	if err := vfs.ValidSegment("resource name", name); err != nil {
 		return Grant{}, fmt.Errorf("sign: %w", err)
 	}
 	if ttl <= 0 {

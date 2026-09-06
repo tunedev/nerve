@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path"
 
+	"github.com/tunedev/nerve/internal/core/vfs"
 	"github.com/tunedev/nerve/internal/core/workspace"
 )
 
@@ -95,7 +96,7 @@ func (st *Store) sidecar(s workspace.Scope, name, kind string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := validName(kind); err != nil {
+	if err := vfs.ValidSegment("sidecar name", kind); err != nil {
 		return "", err
 	}
 	if kind == metaFile || kind == contentFile {

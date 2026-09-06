@@ -26,11 +26,7 @@
 // object store is a mount rather than a decision made here.
 package relation
 
-import (
-	"fmt"
-	"io/fs"
-	"strings"
-)
+import "github.com/tunedev/nerve/internal/core/vfs"
 
 // Ref names one resource an edge can reach: what sort of thing it is, and which
 // one of them. Both are flat segments, which is what lets a ref be a place on
@@ -57,26 +53,10 @@ type Edge struct {
 
 // valid returns fs.ErrInvalid for a ref no edge can reach.
 func (r Ref) valid() error {
-	if err := validSegment("kind", r.Kind); err != nil {
+	if err := vfs.ValidSegment("kind", r.Kind); err != nil {
 		return err
 	}
-	return validSegment("name", r.Name)
-}
-
-// validSegment returns fs.ErrInvalid for a name no part of an edge can have.
-// The rule is the scope's flat-segment rule for the same reason: a name
-// carrying a separator names a place inside another one, and "." or ".." is a
-// spelling that resolves away and lands on an edge nobody asserted.
-func validSegment(kind, name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("%s is empty: %w", kind, fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("%s %q contains a separator: %w", kind, name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("%s %q names a directory, not a %s: %w", kind, name, kind, fs.ErrInvalid)
-	}
-	return nil
+	return vfs.ValidSegment("name", r.Name)
 }
 
 // String is what a ref is called in an error: the kind and the name, the way it

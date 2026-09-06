@@ -169,7 +169,7 @@ func (l *Log) read(ctx context.Context, at string) (owed, error) {
 // every workspace that user has, so a note written there would stand where a
 // workspace belongs and Locate would not read it back as a job.
 func (l *Log) at(job Job) (string, error) {
-	if err := validName(job.Name); err != nil {
+	if err := vfs.ValidSegment("job name", job.Name); err != nil {
 		return "", err
 	}
 	if job.Scope.Workspace == "" {
@@ -205,20 +205,4 @@ func decode(data []byte) (note, error) {
 		return note{}, fmt.Errorf("says when no run began: %w", fs.ErrInvalid)
 	}
 	return held, nil
-}
-
-// validName returns fs.ErrInvalid for a name no job can have. The rule is the
-// scope's flat-segment rule for the same reason: a name carrying a separator
-// names a note inside another one, and "." or ".." is a spelling that resolves
-// away and lands on a note about different work.
-func validName(name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("job name is empty: %w", fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("job name %q contains a separator: %w", name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("job name %q names a directory: %w", name, fs.ErrInvalid)
-	}
-	return nil
 }

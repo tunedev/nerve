@@ -3,6 +3,8 @@ package library
 import (
 	"fmt"
 	"io/fs"
+
+	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
 // Kind is what makes a directory a document of one sort rather than another:
@@ -37,7 +39,7 @@ func (k Kind) valid() error {
 	if k.Name == "" {
 		return fmt.Errorf("kind has no name: %w", fs.ErrInvalid)
 	}
-	if err := validName(k.Filename); err != nil {
+	if err := vfs.ValidSegment("filename", k.Filename); err != nil {
 		return fmt.Errorf("kind %q: %w", k.Name, err)
 	}
 	return nil

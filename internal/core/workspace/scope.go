@@ -18,6 +18,8 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+
+	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
 // Scope names the owner of a subtree. A scope with a workspace is workspace
@@ -42,30 +44,15 @@ type Scope struct {
 // derived path is a name; what the store behind it resolves that name to is
 // enforced by the plugin mounted under the scope, at its own boundary.
 func (s Scope) Path(root, rest string) (string, error) {
-	if err := validSegment("user", s.User); err != nil {
+	if err := vfs.ValidSegment("user", s.User); err != nil {
 		return "", err
 	}
 	if s.Workspace != "" {
-		if err := validSegment("workspace", s.Workspace); err != nil {
+		if err := vfs.ValidSegment("workspace", s.Workspace); err != nil {
 			return "", err
 		}
 	}
 	return path.Join("/", root, s.User, s.Workspace, path.Join("/", rest)), nil
-}
-
-// validSegment reports whether name can stand as one path segment. The rule is
-// the ref-name rule for the same reason: a name that is not flat leaves the
-// place it was written into.
-func validSegment(kind, name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("%s is empty: %w", kind, fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("%s %q contains a separator: %w", kind, name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("%s %q names a directory, not a %s: %w", kind, name, kind, fs.ErrInvalid)
-	}
-	return nil
 }
 
 // Locate is the inverse of Path: it returns the scope that name stands in under

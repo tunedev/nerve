@@ -88,10 +88,10 @@ func (sp *Space) Delete(ctx context.Context, s workspace.Scope, namespace, key s
 // every workspace that user has, so a namespace written there would stand where
 // a workspace belongs and be listed as one.
 func (sp *Space) at(s workspace.Scope, namespace, key string) (string, error) {
-	if err := validSegment("namespace", namespace); err != nil {
+	if err := vfs.ValidSegment("namespace", namespace); err != nil {
 		return "", err
 	}
-	if err := validSegment("key", key); err != nil {
+	if err := vfs.ValidSegment("key", key); err != nil {
 		return "", err
 	}
 	if s.Workspace == "" {

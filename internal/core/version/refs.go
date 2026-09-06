@@ -3,11 +3,9 @@ package version
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io/fs"
-	"strings"
 
 	"github.com/tunedev/nerve/internal/core/cas"
+	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
 // ID identifies one version: the digest of the manifest saying what that
@@ -68,17 +66,9 @@ type RefStore interface {
 }
 
 // ValidateRefName returns fs.ErrInvalid for a name no ref store will accept.
-// The rule lives here rather than in each implementation so that a name
+// The rule is named here rather than in each implementation so that a name
 // refused by one store is refused by all of them, and so that a name can never
 // carry a path separator into a store that keeps refs as files.
 func ValidateRefName(name string) error {
-	switch {
-	case name == "":
-		return fmt.Errorf("ref name is empty: %w", fs.ErrInvalid)
-	case strings.Contains(name, "/"):
-		return fmt.Errorf("ref name %q contains a separator: %w", name, fs.ErrInvalid)
-	case name == "." || name == "..":
-		return fmt.Errorf("ref name %q names a directory, not a ref: %w", name, fs.ErrInvalid)
-	}
-	return nil
+	return vfs.ValidSegment("ref name", name)
 }

@@ -287,7 +287,7 @@ func (l *Log) base(s workspace.Scope) (string, error) {
 
 // dir is where the thread named name stands in s.
 func (l *Log) dir(s workspace.Scope, name string) (string, error) {
-	if err := validName(name); err != nil {
+	if err := vfs.ValidSegment("thread name", name); err != nil {
 		return "", err
 	}
 	base, err := l.base(s)
