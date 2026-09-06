@@ -544,3 +544,82 @@ func TestATransientEntityFailurePassesToTheNextProvider(t *testing.T) {
 		t.Errorf("the second endpoint saw %d calls, want 1", second.calls)
 	}
 }
+
+// folding answers Consolidate by merging the first two facts it is shown,
+// counting the calls that reached it. It merges facts and does nothing else,
+// which is the control for the routing below.
+type folding struct {
+	llm.NoAccessors
+	err   error
+	calls int
+	saw   []llm.Fact
+}
+
+func (f *folding) AsFactConsolidator() llm.FactConsolidator { return f }
+
+func (f *folding) Consolidate(_ context.Context, facts []llm.Fact) ([]llm.Narrative, error) {
+	f.calls++
+	f.saw = facts
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []llm.Narrative{{Facts: []int{0, 1}, Body: facts[0].Body + " and " + facts[1].Body}}, nil
+}
+
+// Consolidation is routed over the endpoints that merge facts and over no
+// others, and the facts the caller was shown reach the endpoint that answered.
+func TestTheConsolidatingEndpointIsTheOneAskedToMerge(t *testing.T) {
+	said := &endpoint{answer: "a summary"}
+	merge := &folding{}
+	facts := []llm.Fact{
+		{Kind: "preference", Body: "prefers tabs", Priority: llm.Normal},
+		{Kind: "preference", Body: "prefers tabs in Go", Priority: llm.Normal},
+	}
+
+	narratives, err := chain(t, said, merge).AsFactConsolidator().Consolidate(t.Context(), facts)
+	if err != nil {
+		t.Fatalf("Consolidate: %v", err)
+	}
+	if len(narratives) != 1 || narratives[0].Body != "prefers tabs and prefers tabs in Go" {
+		t.Errorf("Consolidate = %+v, want the merging endpoint's narrative", narratives)
+	}
+	if !slices.Equal(merge.saw, facts) {
+		t.Errorf("the endpoint was shown %+v, want the facts the caller had", merge.saw)
+	}
+	if said.calls != 0 {
+		t.Errorf("the summarising endpoint saw %d calls, want 0: it merges nothing", said.calls)
+	}
+}
+
+// A degraded endpoint passes the facts to the next one that merges them, the
+// same way it passes a summary: the failover rule is written once and the
+// accessor is what varies.
+func TestConsolidationPassesADegradedEndpointToTheNext(t *testing.T) {
+	failing, answering := &folding{err: errTransient}, &folding{}
+	facts := []llm.Fact{
+		{Kind: "instruction", Body: "never force push", Priority: llm.High},
+		{Kind: "instruction", Body: "never force push on main", Priority: llm.High},
+	}
+
+	narratives, err := chain(t, failing, answering).AsFactConsolidator().Consolidate(t.Context(), facts)
+	if err != nil {
+		t.Fatalf("Consolidate: %v", err)
+	}
+	if len(narratives) != 1 {
+		t.Fatalf("Consolidate = %+v, want the second endpoint's narrative", narratives)
+	}
+	if failing.calls != 1 || answering.calls != 1 {
+		t.Errorf("calls = %d then %d, want one each", failing.calls, answering.calls)
+	}
+}
+
+// A chain with no endpoint that merges facts says so where a build wires the
+// commit pipeline, rather than on the first conversation it commits.
+func TestAChainWithNoConsolidatingEndpointAnswersNil(t *testing.T) {
+	if verb := chain(t, &endpoint{}).AsFactConsolidator(); verb != nil {
+		t.Errorf("AsFactConsolidator = %v, want nil: no provider in the chain merges facts", verb)
+	}
+	if served := chain(t, &folding{}).Capabilities(); len(served) != 1 || served[0] != "consolidate" {
+		t.Errorf("Capabilities = %v, want consolidate alone", served)
+	}
+}

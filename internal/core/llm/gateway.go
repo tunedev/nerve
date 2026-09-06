@@ -80,6 +80,9 @@ func (g *Gateway) Capabilities() []string {
 	if g.AsFactExtractor() != nil {
 		served = append(served, "extract")
 	}
+	if g.AsFactConsolidator() != nil {
+		served = append(served, "consolidate")
+	}
 	if g.AsSQLWriter() != nil {
 		served = append(served, "write-sql")
 	}
@@ -157,6 +160,29 @@ type extracting struct{ chain []served[FactExtractor] }
 func (e extracting) Extract(ctx context.Context, turns []Turn) ([]Fact, error) {
 	return route(ctx, e.chain, func(ctx context.Context, provider FactExtractor) ([]Fact, error) {
 		return provider.Extract(ctx, turns)
+	})
+}
+
+// AsFactConsolidator returns a FactConsolidator routed across every provider
+// that has one, or nil when no provider in the chain merges facts. It is nil
+// for the reason AsFactExtractor is: a build with no consolidating endpoint
+// finds that out where it wires the pipeline rather than on the first
+// transcript it commits.
+func (g *Gateway) AsFactConsolidator() FactConsolidator {
+	chain := serving(g, Provider.AsFactConsolidator)
+	if len(chain) == 0 {
+		return nil
+	}
+	return consolidating{chain: chain}
+}
+
+// consolidating is the routed consolidation verb over the providers that serve
+// it, resolved once when the accessor answered rather than per call.
+type consolidating struct{ chain []served[FactConsolidator] }
+
+func (c consolidating) Consolidate(ctx context.Context, facts []Fact) ([]Narrative, error) {
+	return route(ctx, c.chain, func(ctx context.Context, provider FactConsolidator) ([]Narrative, error) {
+		return provider.Consolidate(ctx, facts)
 	})
 }
 
