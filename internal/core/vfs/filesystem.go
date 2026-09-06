@@ -55,7 +55,10 @@ type FileSystem interface {
 	// ReadDir lists the direct children of path, sorted by name.
 	ReadDir(ctx context.Context, path string) ([]FileInfo, error)
 
-	// Stat describes path without reading it.
+	// Stat describes path without reading it, following a link at it and
+	// reporting the entry it stands for. Describing the link itself is Lstat,
+	// which is a link verb because only a kind with links can answer it
+	// differently.
 	Stat(ctx context.Context, path string) (FileInfo, error)
 
 	// Rename moves oldPath to newPath, replacing newPath if it exists.
@@ -91,7 +94,9 @@ type FileInfo struct {
 	Name string
 	// Size is the length of the content in bytes, zero for a directory.
 	Size int64
-	// Mode carries the permission bits and the directory bit.
+	// Mode carries the permission bits and the kind bits — the directory bit,
+	// and the link bit on an entry ReadDir or Lstat described without following
+	// it.
 	Mode fs.FileMode
 	// ModTime is when the content last changed.
 	ModTime time.Time
@@ -99,3 +104,7 @@ type FileInfo struct {
 
 // IsDir reports whether the entry is a directory.
 func (i FileInfo) IsDir() bool { return i.Mode.IsDir() }
+
+// IsSymlink reports whether the entry is a link standing for another path.
+// Only an entry described without following it can be one: Stat follows.
+func (i FileInfo) IsSymlink() bool { return i.Mode&fs.ModeSymlink != 0 }

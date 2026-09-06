@@ -63,6 +63,9 @@ func (d deaf) Stat(ctx context.Context, _ string) (vfs.FileInfo, error) {
 func (d deaf) Readlink(ctx context.Context, _ string) (string, error) {
 	return "", d.wait(ctx)
 }
+func (d deaf) Lstat(ctx context.Context, _ string) (vfs.FileInfo, error) {
+	return vfs.FileInfo{}, d.wait(ctx)
+}
 func (d deaf) OpenRead(ctx context.Context, _ string) (io.ReadCloser, error) {
 	return nil, d.wait(ctx)
 }
@@ -111,6 +114,10 @@ func outbound() map[string]func(context.Context, vfs.FileSystem) error {
 		},
 		"Readlink": func(ctx context.Context, f vfs.FileSystem) error {
 			_, err := f.AsSymlinker().Readlink(ctx, "/x")
+			return err
+		},
+		"Lstat": func(ctx context.Context, f vfs.FileSystem) error {
+			_, err := vfs.Lstat(ctx, f, "/x")
 			return err
 		},
 		"Truncate": func(ctx context.Context, f vfs.FileSystem) error {

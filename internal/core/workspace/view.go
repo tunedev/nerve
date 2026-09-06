@@ -244,6 +244,17 @@ func (s viewSymlinker) Readlink(ctx context.Context, name string) (string, error
 	return s.view.from(target)
 }
 
+// Lstat derives the path and names the root "/", for the reason Stat does. What
+// comes back describes an entry rather than naming a path, so there is nothing
+// here to map back into the view's vocabulary.
+func (s viewSymlinker) Lstat(ctx context.Context, name string) (vfs.FileInfo, error) {
+	info, err := s.link.Lstat(ctx, s.view.at(name))
+	if err == nil && isRoot(name) {
+		info.Name = "/"
+	}
+	return info, err
+}
+
 type viewStreamer struct {
 	view   view
 	stream vfs.Streamer

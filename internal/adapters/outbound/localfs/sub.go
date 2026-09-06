@@ -133,6 +133,10 @@ func (s *subFS) Readlink(ctx context.Context, name string) (string, error) {
 	return under(s, func(f *FS) (string, error) { return f.Readlink(ctx, name) })
 }
 
+func (s *subFS) Lstat(ctx context.Context, name string) (vfs.FileInfo, error) {
+	return under(s, func(f *FS) (vfs.FileInfo, error) { return f.Lstat(ctx, name) })
+}
+
 func (s *subFS) Truncate(ctx context.Context, name string, size int64) error {
 	return s.on(func(f *FS) error { return f.Truncate(ctx, name, size) })
 }

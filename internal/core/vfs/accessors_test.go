@@ -3,6 +3,7 @@ package vfs_test
 import (
 	"context"
 	"io"
+	"io/fs"
 	"testing"
 
 	"github.com/tunedev/nerve/internal/core/vfs"
@@ -44,6 +45,9 @@ func (symlinking) Symlink(context.Context, string, string) error { return nil }
 func (symlinking) Readlink(context.Context, string) (string, error) {
 	return "/elsewhere", nil
 }
+func (symlinking) Lstat(context.Context, string) (vfs.FileInfo, error) {
+	return vfs.FileInfo{Name: "link", Mode: fs.ModeSymlink | 0o777}, nil
+}
 
 func TestOverridingOneAccessorLeavesTheOthersRefused(t *testing.T) {
 	var fsys vfs.FileSystem = symlinking{}
@@ -77,3 +81,34 @@ func (streaming) OpenWrite(context.Context, string) (io.WriteCloser, error) { re
 type truncating struct{}
 
 func (truncating) Truncate(context.Context, string, int64) error { return nil }
+
+// describing is a plugin with no links whose Stat names the entry. It is what
+// Lstat has to fall through to: a kind with no links cannot have one at a path,
+// so its Stat already describes what stands there.
+type describing struct {
+	plain
+}
+
+func (describing) Stat(_ context.Context, path string) (vfs.FileInfo, error) {
+	return vfs.FileInfo{Name: path, Mode: 0o644}, nil
+}
+
+func TestLstatOfAKindWithNoLinksIsItsStat(t *testing.T) {
+	found, err := vfs.Lstat(context.Background(), describing{}, "/notes")
+	if err != nil {
+		t.Fatalf("Lstat() = %v, want nil", err)
+	}
+	if found.Name != "/notes" || found.IsSymlink() {
+		t.Errorf("Lstat() = %+v, want the plugin's Stat of the same path", found)
+	}
+}
+
+func TestLstatOfAKindWithLinksReachesTheLinkVerbs(t *testing.T) {
+	found, err := vfs.Lstat(context.Background(), symlinking{}, "/peek")
+	if err != nil {
+		t.Fatalf("Lstat() = %v, want nil", err)
+	}
+	if !found.IsSymlink() {
+		t.Errorf("Lstat() = %+v, want the link the plugin's own Lstat describes", found)
+	}
+}

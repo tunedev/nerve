@@ -103,6 +103,70 @@ func TestReadlinkThroughAViewRefusesATargetOutsideTheScope(t *testing.T) {
 	}
 }
 
+// The verb this exists for: a link inside the scope is described as a link
+// rather than as the entry it stands for, which is what a caller has to know
+// before it decides whether to follow one.
+func TestLstatThroughAViewDescribesTheLink(t *testing.T) {
+	_, table := newIsolated(t)
+	view := mustView(t, alice, table, files)
+	links := view.AsSymlinker()
+	if links == nil {
+		t.Fatal("AsSymlinker = nil, want the host-backed area to answer through the view")
+	}
+	if err := view.Write(t.Context(), "own.md", []byte("drafted")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := links.Symlink(t.Context(), "own.md", "peek"); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	stood, err := view.Stat(t.Context(), "peek")
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if stood.IsSymlink() {
+		t.Errorf("Stat mode = %v, want the entry the link stands for", stood.Mode)
+	}
+
+	found, err := links.Lstat(t.Context(), "peek")
+	if err != nil {
+		t.Fatalf("Lstat: %v", err)
+	}
+	if !found.IsSymlink() {
+		t.Errorf("Lstat mode = %v, want a link", found.Mode)
+	}
+	if found.Name != "peek" {
+		t.Errorf("Lstat name = %q, want %q", found.Name, "peek")
+	}
+}
+
+// A link planted behind the view, standing outside the scope, is still a link
+// and is described as one. Where it stands for is the answer that is refused,
+// and Readlink is the only verb that gives it: describing an entry says what it
+// is, never another user's layout.
+func TestLstatThroughAViewDescribesALinkOutOfTheScopeWithoutNamingItsTarget(t *testing.T) {
+	_, table := newIsolated(t)
+	planted := table.AsSymlinker()
+	if planted == nil {
+		t.Fatal("AsSymlinker = nil, want the host-backed area to answer")
+	}
+	if err := planted.Symlink(t.Context(), mustPath(t, bob, files, ""), mustPath(t, alice, files, "peek")); err != nil {
+		t.Fatalf("planting the link: %v", err)
+	}
+
+	links := mustView(t, alice, table, files).AsSymlinker()
+	found, err := links.Lstat(t.Context(), "peek")
+	if err != nil {
+		t.Fatalf("Lstat: %v", err)
+	}
+	if !found.IsSymlink() {
+		t.Errorf("Lstat mode = %v, want a link", found.Mode)
+	}
+	if _, err := links.Readlink(t.Context(), "peek"); !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("Readlink of a link out of the scope = %v, want fs.ErrInvalid", err)
+	}
+}
+
 // An accessor the tree beneath refuses is refused through the view too, so the
 // caller's nil guard keeps telling the truth.
 func TestAViewAnswersNilForAnAccessorTheTreeBeneathHasNot(t *testing.T) {
