@@ -567,3 +567,73 @@ func TestNoRenameThroughAScopedViewCarriesAnEntryBetweenScopes(t *testing.T) {
 		})
 	}
 }
+
+// A scope stands on a directory, not on whatever a link standing in that
+// directory's place points at. This is the other half of the boundary the case
+// above draws: a link INSIDE alice's subtree is refused because the subtree is
+// the root the kernel resolves against, and a link ON THE PATH TO that subtree
+// is refused because opening the path follows no link at any component of it.
+//
+// The link is planted through the table, which is the layer that can spell both
+// ends, and the same table then reads through it — so a refusal below is the
+// view refusing rather than a world with nothing in it.
+func TestALinkOnTheScopePathIsNotFollowedIntoAnotherScope(t *testing.T) {
+	for name, plant := range map[string]func(t *testing.T, table vfs.FileSystem){
+		"the workspace directory is a link": func(t *testing.T, table vfs.FileSystem) {
+			replaceWithLink(t, table, mustPath(t, alice, files, ""), mustPath(t, bob, files, ""))
+		},
+		"the user directory above it is a link": func(t *testing.T, table vfs.FileSystem) {
+			replaceWithLink(t, table, userRoot(t, alice), userRoot(t, bob))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			life, table := newIsolated(t)
+			modes := bobsModes(t, table)
+			plant(t, table)
+
+			if content, err := table.Read(t.Context(), mustPath(t, alice, files, "secret")); err != nil || string(content) != bobsSecret {
+				t.Fatalf("Read through the planted link from the table = %q, %v, want bob's content", content, err)
+			}
+
+			view := mustView(t, alice, table, files)
+			if content, err := view.Read(t.Context(), "/secret"); err == nil {
+				t.Errorf("Read through the view = %q, want the link refused", content)
+			}
+			if found, err := view.Stat(t.Context(), "/secret"); err == nil {
+				t.Errorf("Stat through the view = %+v, want the link refused", found)
+			}
+			if entries, err := view.ReadDir(t.Context(), "/"); err == nil {
+				t.Errorf("ReadDir through the view = %v, want the link refused", entries)
+			}
+			for verb, act := range mutatingVerbs() {
+				if err := act(t.Context(), view, "/secret"); err == nil {
+					t.Errorf("%s through the view succeeded, want the link refused", verb)
+				}
+			}
+			requireBobUntouched(t, life, table, modes, "every verb through a view whose scope path is a link")
+		})
+	}
+}
+
+// replaceWithLink puts a link to target where at stood, which is what a host
+// writer with access to the mount can do to any directory in it.
+func replaceWithLink(t *testing.T, table vfs.FileSystem, at, target string) {
+	t.Helper()
+	if err := table.RemoveAll(t.Context(), at); err != nil {
+		t.Fatalf("RemoveAll(%q): %v", at, err)
+	}
+	links := table.AsSymlinker()
+	if links == nil {
+		t.Fatal("AsSymlinker = nil, want the host-backed area to answer")
+	}
+	if err := links.Symlink(t.Context(), target, at); err != nil {
+		t.Fatalf("planting the link %q -> %q: %v", at, target, err)
+	}
+}
+
+// userRoot is the subtree holding every workspace a user has, which is the
+// component of a scope path standing above the workspace directory.
+func userRoot(t *testing.T, s workspace.Scope) string {
+	t.Helper()
+	return mustPath(t, workspace.Scope{User: s.User}, files, "")
+}
