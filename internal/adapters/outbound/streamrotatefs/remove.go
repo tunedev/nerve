@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"maps"
 	"strings"
+
+	"github.com/tunedev/nerve/internal/adapters/outbound/keyspace"
 )
 
 // Remove deletes the entry at name. A prefix is not an entry, so removing one
@@ -15,7 +17,7 @@ import (
 // their own, so removing the name a log is written to leaves the segments it
 // rotated out; RemoveAll of the prefix above them is what takes those.
 func (f *FS) Remove(_ context.Context, name string) error {
-	at, err := key(name)
+	at, err := keyspace.Key(name)
 	if err != nil {
 		return fmt.Errorf("remove %w", err)
 	}
@@ -34,12 +36,12 @@ func (f *FS) Remove(_ context.Context, name string) error {
 // not there is not an error, and the root is a prefix rather than an entry, so
 // RemoveAll of it empties the mount rather than failing on it.
 func (f *FS) RemoveAll(_ context.Context, name string) error {
-	under := prefix(name)
+	under := keyspace.Prefix(name)
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	if at, err := key(name); err == nil {
+	if at, err := keyspace.Key(name); err == nil {
 		delete(f.logs, at)
 	}
 	maps.DeleteFunc(f.logs, func(at string, _ *stream) bool { return strings.HasPrefix(at, under) })

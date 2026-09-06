@@ -22,20 +22,16 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/keyspace"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
-// dirMode and fileMode are what an entry is described with. A segment is a
-// file; dirMode belongs to a prefix a listing synthesized, which exists only
-// because segments are under it.
-const (
-	dirMode  = fs.ModeDir | 0o755
-	fileMode = 0o644
-)
+// fileMode is what a log and a segment are described with. A prefix a listing
+// synthesized is described with keyspace.DirMode.
+const fileMode = 0o644
 
 // FS is one set of rotating logs, safe for concurrent use.
 //
@@ -84,38 +80,10 @@ func (f *FS) Capabilities(string) vfs.Caps {
 	return vfs.Caps{AppendOnly: true, ObjectStore: true}
 }
 
-// relative resolves name lexically to the part below the mount's root, so a
-// caller is not made to clean paths a mount table would have cleaned. The root
-// is what is left of a path that names nothing below it.
-func relative(name string) string {
-	return strings.TrimPrefix(path.Clean("/"+strings.TrimPrefix(name, "/")), "/")
-}
-
-// key is the log name addresses. The root has none: it is the prefix every log
-// of the mount is under rather than a log itself, which is what makes it the
-// one path no verb reads, removes or moves.
-func key(name string) (string, error) {
-	rest := relative(name)
-	if rest == "" {
-		return "", fmt.Errorf("%q: the root is a prefix and not a log: %w", name, fs.ErrInvalid)
-	}
-	return rest, nil
-}
-
-// prefix is what a listing of name matches: every entry beneath it, and never
-// the entry at it.
-func prefix(name string) string {
-	rest := relative(name)
-	if rest == "" {
-		return ""
-	}
-	return rest + "/"
-}
-
 // find hands back what is at name, or says it is not there. The caller holds
 // the lock.
 func (f *FS) find(name string) (*stream, error) {
-	at, err := key(name)
+	at, err := keyspace.Key(name)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +109,7 @@ func (f *FS) open(at string) *stream {
 // info is what the port says about the entry at name.
 func (s *stream) info(name string) vfs.FileInfo {
 	return vfs.FileInfo{
-		Name:    path.Base(relative(name)),
+		Name:    path.Base(keyspace.Relative(name)),
 		Size:    int64(len(s.content)),
 		Mode:    s.mode,
 		ModTime: s.modTime,

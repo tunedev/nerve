@@ -14,21 +14,16 @@
 package kvfs
 
 import (
-	"fmt"
-	"io/fs"
 	"path"
 	"strings"
 
+	"github.com/tunedev/nerve/internal/adapters/outbound/keyspace"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
-// dirMode and fileMode are what an entry is described with. A key is a file;
-// dirMode belongs to a prefix a listing synthesized, which exists only because
-// keys are under it.
-const (
-	dirMode  = fs.ModeDir | 0o755
-	fileMode = 0o644
-)
+// fileMode is what a key is described with. A prefix a listing synthesized is
+// described with keyspace.DirMode.
+const fileMode = 0o644
 
 // FS is one namespace of a store. Two mounts over one store hold separate
 // entries when their namespaces differ, which is what the namespace is for:
@@ -64,38 +59,26 @@ func namespaceKey(namespace string) string {
 	return clean + "/"
 }
 
-// relative resolves name lexically to the part below the mount's root, so a
-// caller is not made to clean paths a mount table would have cleaned. The root
-// is what is left of a path that names nothing below it.
-func relative(name string) string {
-	return strings.TrimPrefix(path.Clean("/"+strings.TrimPrefix(name, "/")), "/")
-}
-
-// key is the store key name addresses. The root has none: it is the prefix every
-// key of the mount is under rather than a key itself, which is what makes it the
-// one path no verb reads, removes or moves.
+// key is the store key name addresses, which is the mount's namespace and the
+// keyspace key under it.
 func (f *FS) key(name string) (string, error) {
-	rest := relative(name)
-	if rest == "" {
-		return "", fmt.Errorf("%q: the root is a prefix and not a key: %w", name, fs.ErrInvalid)
+	rest, err := keyspace.Key(name)
+	if err != nil {
+		return "", err
 	}
 	return f.under + rest, nil
 }
 
 // prefix is what a listing of name matches: every key beneath it, and never the
-// key at it.
+// key at it. The root's is the namespace, which is every key of the mount.
 func (f *FS) prefix(name string) string {
-	rest := relative(name)
-	if rest == "" {
-		return f.under
-	}
-	return f.under + rest + "/"
+	return f.under + keyspace.Prefix(name)
 }
 
 // info is what the port says about the key stored under name.
 func info(name string, one Entry) vfs.FileInfo {
 	return vfs.FileInfo{
-		Name:    path.Base(relative(name)),
+		Name:    path.Base(keyspace.Relative(name)),
 		Size:    one.Size,
 		Mode:    one.Mode,
 		ModTime: one.ModTime,
