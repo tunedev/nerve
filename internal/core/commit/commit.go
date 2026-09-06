@@ -22,8 +22,8 @@
 // which running it again completes. The other order reduces the transcript
 // first, and the second run extracts from a conversation whose cold half it can
 // no longer see — the facts in it are lost to that run and to every later one.
-// The memories a repeat run writes twice are the duplicate E8.5 exists to
-// resolve; a fact never extracted is not recoverable at all.
+// A repeat run restates facts and the log keeps one of each; a fact never
+// extracted is not recoverable at all.
 package commit
 
 import (
@@ -97,9 +97,10 @@ func New(sessions *session.Store, memories *memory.Store, extract llm.FactExtrac
 // with nothing in it.
 //
 // A conversation with nothing worth remembering commits nothing and is not a
-// failure. Committing the same session twice writes its facts twice — nothing
-// here compares a fact against what is already stored, which is E8.5's job.
-// Reduction is not like that: a second commit over a conversation that has not
+// failure, and neither does one that only said again what the workspace already
+// believes: a fact restating a memory is not written a second time, so
+// committing the same session twice leaves the log as the first commit left it.
+// Reduction is the same shape: a second commit over a conversation that has not
 // grown finds the hot half already within the policy and calls no endpoint.
 func (c *Committer) Commit(ctx context.Context, s workspace.Scope, name string) (Result, error) {
 	transcript, err := c.sessions.Get(ctx, s, name)
