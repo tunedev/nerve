@@ -36,7 +36,7 @@ func TestInterfaceIsTenVerbsPlusDiscovery(t *testing.T) {
 		"Chmod", "Create", "Mkdir", "Read", "ReadDir",
 		"Remove", "RemoveAll", "Rename", "Stat", "Write",
 	}
-	discovery := []string{"Capabilities", "AsSymlinker", "AsStreamer", "AsTruncater"}
+	discovery := []string{"Capabilities", "AsSymlinker", "AsStreamer", "AsTruncater", "AsSubber"}
 
 	want := slices.Sorted(slices.Values(slices.Concat(verbs, discovery)))
 

@@ -139,6 +139,11 @@ func (r areaRoot) AsSymlinker() vfs.Symlinker { return r }
 func (r areaRoot) AsStreamer() vfs.Streamer   { return r }
 func (r areaRoot) AsTruncater() vfs.Truncater { return r }
 
+// AsSubber is the one accessor the root declines. A subtree here is an area,
+// and an area is already a mount of its own in this table; handing one out
+// would be a second way to reach it that no longer passes the scope.
+func (r areaRoot) AsSubber() vfs.Subber { return nil }
+
 func (r areaRoot) Symlink(_ context.Context, _, newPath string) error {
 	return r.refuse("symlink", newPath)
 }

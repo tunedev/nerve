@@ -15,9 +15,12 @@ import (
 	"github.com/tunedev/nerve/internal/core/workspace"
 )
 
-// The escape suite. Three attempts are named — path traversal, symlink escape
-// and handle reuse — and each is made by the party the mount exists to contain:
-// a process holding nothing but a path inside it.
+// The escape suite. Four attempts are named — path traversal, symlink escape,
+// handle reuse, and a link planted behind the mount. The first three are made
+// by the party the mount exists to contain, a process holding nothing but a
+// path inside it; the last is made by the platform, because localfs's backing
+// directory is an ordinary host directory that anything with write access can
+// put a link in.
 //
 // The store here is a host directory rather than a tree in memory, which is the
 // difference from the composition cases next door. memfs resolves a name the
@@ -317,21 +320,22 @@ func TestAWriteThroughARevokedHandleStaysInsideTheScope(t *testing.T) {
 	requireTheNeighbourUntouched(t, table, "a write flushed through a revoked handle")
 }
 
-// Where the symlink boundary is, rather than where it should be. A link
-// standing inside alice's subtree whose target is bob's is followed, and the
-// mount serves what it lands on.
-//
-// Nothing in this file's other cases can prevent it, and neither can the mount:
-// the kernel resolves the link inside the syscall localfs makes, long after any
-// name was derived, and os.Root's containment root is the area rather than the
-// scope subtree. The view sees a link only in Readlink, which it does refuse.
+// Attempt four: have somebody else plant the link. A link standing inside
+// alice's subtree whose target is bob's is not followed, and the mount serves
+// nothing through it.
 //
 // The process inside cannot plant one — Symlink is ENOTSUP through the mount
-// and the view derives the target — so this is not an escape the sandbox emits.
-// It is one the platform can hand it, and localfs's backing directory is an
-// ordinary host directory that says so. Filed as nrv-aeyc; this case is what
-// fails when it is fixed.
-func TestALinkPlantedBehindAWorkspaceMountIsFollowedOutOfTheScope(t *testing.T) {
+// and the view derives the target — so this is an escape the platform can hand
+// the sandbox rather than one the sandbox emits. localfs's backing directory is
+// an ordinary host directory and says so.
+//
+// What refuses it is the scope subtree being localfs's own containment root:
+// the view is over the subtree the plugin handed out, so the kernel resolves
+// the link against alice's workspace and not against the files area. Every
+// verb is asserted, because Readlink is the only one the view sees a link at
+// all through — Read, Stat and ReadDir are answered by a kernel that resolved
+// it inside the syscall.
+func TestALinkPlantedBehindAWorkspaceMountDoesNotLeaveTheScope(t *testing.T) {
 	dir, table := mountHostBackedWorkspace(t)
 
 	planted := table.AsSymlinker()
@@ -345,11 +349,15 @@ func TestALinkPlantedBehindAWorkspaceMountIsFollowedOutOfTheScope(t *testing.T) 
 		t.Fatalf("planting the link behind the mount: %v", err)
 	}
 
-	content, err := os.ReadFile(filepath.Join(dir, "files", "peek", "secret"))
-	if err != nil {
-		t.Fatalf("read through the planted link = %v, want the boundary where this case says it is", err)
+	through := filepath.Join(dir, "files", "peek")
+	if content, err := os.ReadFile(filepath.Join(through, "secret")); err == nil {
+		t.Errorf("read through the planted link = %q, want it refused", content)
 	}
-	if string(content) != theNeighboursSecret {
-		t.Fatalf("read through the planted link = %q, want %q", content, theNeighboursSecret)
+	if _, err := os.Stat(through); err == nil {
+		t.Error("Stat through the planted link succeeded, want it refused")
 	}
+	if entries, err := os.ReadDir(through); err == nil {
+		t.Errorf("ReadDir through the planted link = %v, want it refused", entries)
+	}
+	requireTheNeighbourUntouched(t, table, "a link planted behind the mount")
 }

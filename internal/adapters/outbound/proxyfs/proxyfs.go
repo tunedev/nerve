@@ -146,6 +146,24 @@ func (f *FS) AsTruncater() vfs.Truncater {
 	return nil
 }
 
+// AsSubber forwards the target's subtrees, or nil when it has none. What comes
+// back is the target's own root and no longer this proxy's, so the prefix is
+// spent on the way in and never applied again.
+func (f *FS) AsSubber() vfs.Subber {
+	sub := f.target.AsSubber()
+	if sub == nil {
+		return nil
+	}
+	return subber{fsys: f, sub: sub}
+}
+
+type subber struct {
+	fsys *FS
+	sub  vfs.Subber
+}
+
+func (s subber) Sub(name string) vfs.FileSystem { return s.sub.Sub(s.fsys.at(name)) }
+
 type symlinker struct {
 	fsys *FS
 	link vfs.Symlinker

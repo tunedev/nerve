@@ -32,6 +32,7 @@ type serving struct {
 
 func (s *serving) Capabilities(string) vfs.Caps { return s.caps }
 func (s *serving) AsStreamer() vfs.Streamer     { return s }
+func (s *serving) AsSubber() vfs.Subber         { return nil }
 
 func (s *serving) OpenRead(context.Context, string) (io.ReadCloser, error) {
 	return &source{from: s}, nil

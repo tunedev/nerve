@@ -242,6 +242,13 @@ func (g guarded) AsTruncater() Truncater {
 	return guardedTruncater{cut: cut, circuit: g.circuit}
 }
 
+// AsSubber returns the plugin's subtrees behind the same circuit, or nil if it
+// has none. A subtree is the same dependency, so it is guarded by the same
+// breaker rather than by one of its own.
+func (g guarded) AsSubber() Subber {
+	return SubOf(g.fsys, func(beneath FileSystem) FileSystem { return guarded{fsys: beneath, circuit: g.circuit} })
+}
+
 type guardedSymlinker struct {
 	link    Symlinker
 	circuit *Circuit

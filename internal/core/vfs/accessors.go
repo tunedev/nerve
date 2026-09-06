@@ -36,6 +36,47 @@ type Truncater interface {
 	Truncate(ctx context.Context, path string, size int64) error
 }
 
+// Subber is the verb set of a storage kind that can hand out one of its own
+// subtrees as a filesystem whose root it is. It is what makes a subtree a
+// boundary rather than a prefix: a kind that resolves paths through something
+// other than the name it was given — a host disk, where the kernel follows a
+// symlink long after any name was derived — contains a caller only at the root
+// it was opened on.
+//
+// Sub is not I/O and takes no context, for the reason Capabilities takes none:
+// it narrows the address space and reads nothing. Whether the subtree is there
+// is answered by the verbs called on the result.
+type Subber interface {
+	// Sub returns the subtree at path as a filesystem rooted there, or nil when
+	// there is none to hand out — a dispatcher whose mount at path has no sub
+	// verb, or a kind with nothing narrower than itself to give.
+	Sub(path string) FileSystem
+}
+
+// SubOf is the Subber a wrapper answers with: the tree beneath's subtree,
+// wrapped the same way, so a caller that narrowed onto one keeps whatever the
+// wrapper adds. A tree beneath that hands out no subtree leaves the wrapper
+// handing out none either, which is what keeps the caller's nil guard true.
+func SubOf(fsys FileSystem, wrap func(FileSystem) FileSystem) Subber {
+	sub := fsys.AsSubber()
+	if sub == nil {
+		return nil
+	}
+	return subOf(func(path string) FileSystem {
+		beneath := sub.Sub(path)
+		if beneath == nil {
+			return nil
+		}
+		return wrap(beneath)
+	})
+}
+
+// subOf is a function standing as a Subber, which is all a wrapper needs: the
+// narrowing is the tree beneath's and the wrapping is a closure over it.
+type subOf func(path string) FileSystem
+
+func (f subOf) Sub(path string) FileSystem { return f(path) }
+
 // NoAccessors refuses every optional verb set. A plugin embeds it and then
 // overrides only the accessors it answers, so supporting nothing optional costs
 // no accessor code.
@@ -54,3 +95,6 @@ func (NoAccessors) AsStreamer() Streamer { return nil }
 
 // AsTruncater reports that the plugin has no truncate verb.
 func (NoAccessors) AsTruncater() Truncater { return nil }
+
+// AsSubber reports that the plugin hands out no subtree as a root of its own.
+func (NoAccessors) AsSubber() Subber { return nil }

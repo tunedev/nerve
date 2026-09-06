@@ -36,6 +36,7 @@ func (readOnlyTree) Chmod(context.Context, string, fs.FileMode) error {
 }
 func (r readOnlyTree) AsStreamer() vfs.Streamer   { return r }
 func (r readOnlyTree) AsTruncater() vfs.Truncater { return r }
+func (r readOnlyTree) AsSubber() vfs.Subber       { return nil }
 
 func (r readOnlyTree) OpenRead(ctx context.Context, name string) (io.ReadCloser, error) {
 	return r.FS.AsStreamer().OpenRead(ctx, name)
@@ -52,6 +53,7 @@ type appendOnlyLog struct{ *memfs.FS }
 
 func (appendOnlyLog) Capabilities(string) vfs.Caps { return vfs.Caps{AppendOnly: true} }
 func (appendOnlyLog) AsStreamer() vfs.Streamer     { return nil }
+func (appendOnlyLog) AsSubber() vfs.Subber         { return nil }
 func (appendOnlyLog) AsTruncater() vfs.Truncater   { return nil }
 
 func (a appendOnlyLog) Write(ctx context.Context, name string, data []byte) error {
@@ -67,6 +69,7 @@ type consumingQueue struct{ *memfs.FS }
 
 func (consumingQueue) Capabilities(string) vfs.Caps { return vfs.Caps{ReadDestructive: true} }
 func (consumingQueue) AsStreamer() vfs.Streamer     { return nil }
+func (consumingQueue) AsSubber() vfs.Subber         { return nil }
 func (consumingQueue) AsTruncater() vfs.Truncater   { return nil }
 
 func (q consumingQueue) Read(ctx context.Context, name string) ([]byte, error) {

@@ -276,6 +276,15 @@ func (t *MountTable) AsTruncater() Truncater {
 	return tableTruncater{table: t}
 }
 
+// AsSubber returns a dispatcher over the mounts that hand out subtrees, or nil
+// if none does.
+func (t *MountTable) AsSubber() Subber {
+	if !t.anyMountAnswers(func(f FileSystem) bool { return f.AsSubber() != nil }) {
+		return nil
+	}
+	return tableSubber{table: t}
+}
+
 // anyMountAnswers reports whether some mounted plugin has the verb set.
 //
 // It is what keeps the caller's `if s := fsys.AsStreamer(); s != nil` guard
@@ -285,6 +294,30 @@ func (t *MountTable) AsTruncater() Truncater {
 // so per path, as fs.ErrInvalid.
 func (t *MountTable) anyMountAnswers(has func(FileSystem) bool) bool {
 	return slices.ContainsFunc(t.snapshot(), func(m mount) bool { return has(m.fsys) })
+}
+
+type tableSubber struct {
+	table *MountTable
+}
+
+// Sub is the subtree the mount holding name hands out, in that mount's own
+// vocabulary. It is the one accessor verb that answers per path without an
+// error to say so: a mount with no subtree to give is not a failure but a tree
+// whose containment is already the name it was handed, and nil says exactly
+// that.
+//
+// What comes back has left the table. A subtree is a root of its own, so paths
+// under it are the subtree's and no longer any prefix's.
+func (s tableSubber) Sub(name string) FileSystem {
+	m, rest, err := s.table.resolve(name)
+	if err != nil {
+		return nil
+	}
+	sub := m.fsys.AsSubber()
+	if sub == nil {
+		return nil
+	}
+	return sub.Sub(rest)
 }
 
 type tableSymlinker struct {
