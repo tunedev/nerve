@@ -637,3 +637,66 @@ func userRoot(t *testing.T, s workspace.Scope) string {
 	t.Helper()
 	return mustPath(t, workspace.Scope{User: s.User}, files, "")
 }
+
+// The scope path Lifecycle derives is walked the way a view's is: a link at any
+// component of it is refused rather than followed. Create, Delete and List
+// reach the tree through the mount table and never through a view, so the walk
+// the two cases above hold View to has to be here as well or these three verbs
+// act on whatever a planted link stands for.
+//
+// The link is planted through the table, which is the layer that can spell both
+// ends, and the same table then reads through it — so a refusal below is the
+// lifecycle refusing rather than a world with nothing in it.
+func TestNoLifecycleVerbActsThroughALinkOnTheScopePath(t *testing.T) {
+	for name, act := range map[string]func(context.Context, *workspace.Lifecycle) error{
+		"create": func(ctx context.Context, life *workspace.Lifecycle) error { return life.Create(ctx, alice) },
+		"delete": func(ctx context.Context, life *workspace.Lifecycle) error { return life.Delete(ctx, alice) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			life, table := newIsolated(t)
+			modes := bobsModes(t, table)
+			replaceWithLink(t, table, userRoot(t, alice), userRoot(t, bob))
+			requireLinkIsLive(t, table)
+
+			// The error is not asserted: what the verb answers is the areas
+			// speaking, and what is asserted is that bob's world is the same
+			// afterwards.
+			_ = act(t.Context(), life)
+
+			requireBobUntouched(t, life, table, modes, name+" of a scope whose user directory is a link")
+		})
+	}
+}
+
+// Listing is the third verb, and it is destroyed by nothing, so it has its own
+// case: a name is observable even when the content behind it is not, and every
+// workspace another user has is a name.
+//
+// bob is given a workspace alice does not have, because both users name one
+// "cv" and a leak that reported only that would be indistinguishable from
+// alice's own answer.
+func TestListDoesNotNameAnotherUsersWorkspacesThroughALinkOnTheScopePath(t *testing.T) {
+	life, table := newIsolated(t)
+	mustCreate(t, life, workspace.Scope{User: bob.User, Workspace: "notes"})
+	replaceWithLink(t, table, userRoot(t, alice), userRoot(t, bob))
+	requireLinkIsLive(t, table)
+
+	// The error is not asserted for the reason it is not above: a listing that
+	// refuses the link answers with nothing, and what is asserted is that
+	// nothing of bob's is in what came back.
+	got, _ := life.List(t.Context(), alice.User)
+	if slices.Contains(got, "notes") {
+		t.Errorf("List(%q) = %v, want no workspace of bob's named", alice.User, got)
+	}
+}
+
+// requireLinkIsLive is the positive control the two cases above stand on: the
+// planted link leads where they say it does when the table follows it, so a
+// refusal from the lifecycle is the walk refusing rather than an empty world.
+func requireLinkIsLive(t *testing.T, table vfs.FileSystem) {
+	t.Helper()
+	content, err := table.Read(t.Context(), mustPath(t, alice, files, "secret"))
+	if err != nil || string(content) != bobsSecret {
+		t.Fatalf("Read through the planted link from the table = %q, %v, want bob's content", content, err)
+	}
+}
