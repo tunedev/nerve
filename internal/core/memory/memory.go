@@ -20,6 +20,12 @@
 // against the turn that contradicts it, and cannot be removed when the
 // conversation that produced it is deleted.
 //
+// A memory a workspace has stopped keeping is archived rather than removed: it
+// moves to a directory beside the log, keeping the sequence it was written
+// under, and the verb that names the archive reads it back. Moved aside is not
+// deleted, and a sequence, once handed out, is never handed out again, so the
+// log and the archive can never disagree about which memory is which.
+//
 // Because nothing is edited, every memory has a validity interval: it was
 // believed from the moment it was written until the moment something replaced
 // it, and a memory nothing has replaced is believed still. The interval is

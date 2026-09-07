@@ -133,7 +133,7 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 		return nil, nil
 	}
 
-	seqs, err := st.seqs(ctx, dir)
+	seqs, aside, err := st.logSeqs(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -142,10 +142,7 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 			return nil, fmt.Errorf("memory %d is not in the log: %w", seq, fs.ErrNotExist)
 		}
 	}
-	next := 1
-	if len(seqs) > 0 {
-		next = seqs[len(seqs)-1] + 1
-	}
+	next := nextSeq(seqs, aside)
 	if err := st.fsys.Mkdir(ctx, dir); err != nil {
 		return nil, err
 	}
@@ -166,39 +163,23 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 	return written, nil
 }
 
-// List returns every memory in s, in the order it was written, superseded ones
-// included, each carrying the interval it was believed over. A workspace nobody
-// has committed a conversation into has none, which is not an error.
+// List returns every memory in the log of s, in the order it was written,
+// superseded ones included, each carrying the interval it was believed over. A
+// workspace nobody has committed a conversation into has none, which is not an
+// error.
+//
+// What has been archived is not in it. It is out of every answer the workspace
+// gives, live and as-of alike, and Archived is the verb that reads it back.
 //
 // A memory that will not decode fails the whole call. A short list is
 // indistinguishable from a correct one, and the caller is about to build a
 // turn's context out of it.
 func (st *Store) List(ctx context.Context, s workspace.Scope) ([]Memory, error) {
-	dir, err := st.dir(s)
+	live, _, err := st.load(ctx, s)
 	if err != nil {
 		return nil, fmt.Errorf("list memories: %w", err)
 	}
-	seqs, err := st.seqs(ctx, dir)
-	if err != nil {
-		return nil, fmt.Errorf("list memories %q: %w", dir, err)
-	}
-
-	memories := make([]Memory, 0, len(seqs))
-	for _, seq := range seqs {
-		data, err := st.fsys.Read(ctx, path.Join(dir, name(seq)))
-		if err != nil {
-			return nil, fmt.Errorf("list memories: memory %d: %w", seq, err)
-		}
-		m, err := decode(data)
-		if err != nil {
-			return nil, fmt.Errorf("list memories: memory %d: %w", seq, err)
-		}
-		memories = append(memories, Memory{Seq: seq, Fact: m.Fact, Source: m.Source, At: m.At, Supersedes: m.Supersedes})
-	}
-	if err := closeIntervals(memories); err != nil {
-		return nil, fmt.Errorf("list memories: %w", err)
-	}
-	return memories, nil
+	return live, nil
 }
 
 // AsOf returns the memories s believed at t, in the order they were written:
@@ -272,13 +253,91 @@ func closeIntervals(memories []Memory) error {
 	return nil
 }
 
-// seqs returns the sequence of every memory in dir, ascending. A directory
-// nothing has been written into yet has none.
+// load returns the memories in the log of s and the memories in its archive,
+// each ascending by sequence and each carrying the interval it was believed
+// over.
+//
+// The two are read together and their intervals are closed together, because a
+// supersession reaches across them: a memory still in the log can be the one
+// that replaced an archived memory, and one read without the other would report
+// a supersession naming a memory nobody wrote.
+func (st *Store) load(ctx context.Context, s workspace.Scope) ([]Memory, []Memory, error) {
+	dir, err := st.dir(s)
+	if err != nil {
+		return nil, nil, err
+	}
+	seqs, archived, err := st.logSeqs(ctx, dir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%q: %w", dir, err)
+	}
+
+	all := make([]Memory, 0, len(seqs)+len(archived))
+	for _, seq := range seqs {
+		m, err := st.read(ctx, dir, seq)
+		if err != nil {
+			return nil, nil, err
+		}
+		all = append(all, m)
+	}
+	for _, seq := range archived {
+		m, err := st.read(ctx, path.Join(dir, archiveName), seq)
+		if err != nil {
+			return nil, nil, err
+		}
+		all = append(all, m)
+	}
+	slices.SortFunc(all, func(a, b Memory) int { return a.Seq - b.Seq })
+	if err := closeIntervals(all); err != nil {
+		return nil, nil, err
+	}
+
+	live, aside := make([]Memory, 0, len(seqs)), make([]Memory, 0, len(archived))
+	for _, m := range all {
+		if _, moved := slices.BinarySearch(archived, m.Seq); moved {
+			aside = append(aside, m)
+			continue
+		}
+		live = append(live, m)
+	}
+	return live, aside, nil
+}
+
+// read returns the memory at seq in dir.
+func (st *Store) read(ctx context.Context, dir string, seq int) (Memory, error) {
+	data, err := st.fsys.Read(ctx, path.Join(dir, name(seq)))
+	if err != nil {
+		return Memory{}, fmt.Errorf("memory %d: %w", seq, err)
+	}
+	m, err := decode(data)
+	if err != nil {
+		return Memory{}, fmt.Errorf("memory %d: %w", seq, err)
+	}
+	return Memory{Seq: seq, Fact: m.Fact, Source: m.Source, At: m.At, Supersedes: m.Supersedes}, nil
+}
+
+// logSeqs returns the sequence of every memory in dir and of every memory in
+// its archive, each ascending.
+func (st *Store) logSeqs(ctx context.Context, dir string) ([]int, []int, error) {
+	seqs, err := st.seqsIn(ctx, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	archived, err := st.seqsIn(ctx, path.Join(dir, archiveName))
+	if err != nil {
+		return nil, nil, err
+	}
+	return seqs, archived, nil
+}
+
+// seqsIn returns the sequence of every memory directly in dir, ascending. A
+// directory nothing has been written into yet has none, which is what an
+// archive nobody has moved anything into looks like.
 //
 // The sequences come from the names on the mount rather than from a count
 // something keeps, so a workspace whose caller was interrupted mid-batch still
-// says what it holds.
-func (st *Store) seqs(ctx context.Context, dir string) ([]int, error) {
+// says what it holds. Anything in the directory that is not a memory — the
+// archive, and whatever else a mount put there — is passed over.
+func (st *Store) seqsIn(ctx context.Context, dir string) ([]int, error) {
 	children, err := st.fsys.ReadDir(ctx, dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -294,6 +353,22 @@ func (st *Store) seqs(ctx context.Context, dir string) ([]int, error) {
 	}
 	slices.Sort(seqs)
 	return seqs, nil
+}
+
+// nextSeq is the sequence the next memory takes: one past the highest the
+// workspace has ever handed out, archive included.
+//
+// A sequence handed out twice would put two facts under one name and make every
+// supersession naming it ambiguous, so a workspace whose whole log has been
+// archived counts on from where it left off rather than from one.
+func nextSeq(seqs, archived []int) int {
+	next := 1
+	for _, taken := range [][]int{seqs, archived} {
+		if len(taken) > 0 && taken[len(taken)-1] >= next {
+			next = taken[len(taken)-1] + 1
+		}
+	}
+	return next
 }
 
 // dir is where s keeps its memories.
