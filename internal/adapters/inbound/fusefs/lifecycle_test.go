@@ -24,17 +24,39 @@ import (
 // runs the tests.
 const helperDir = "NERVE_FUSEFS_HELPER_DIR"
 
-// mountBudget bounds the wait for the helper's mount to appear, so a helper
-// that cannot mount fails this test rather than hanging the suite.
+// helperReady names the file the helper creates once it is safe to kill. It is
+// outside the mount, because a path through the mount is exactly what the
+// helper must not be asked for.
+const helperReady = "NERVE_FUSEFS_HELPER_READY"
+
+// mountBudget bounds the wait for the helper to be ready, so a helper that
+// cannot mount fails this test rather than hanging the suite.
 const mountBudget = 10 * time.Second
 
-// serveUntilKilled mounts at dir and blocks. Nothing here unmounts: what this
-// process is for is dying while it holds a mount, which is what SIGKILL, a
-// panic and the OOM killer all leave behind.
-func serveUntilKilled(dir string) {
+// reapBudget bounds the wait for the killed helper to be reaped. A helper
+// killed with a request to its own mount in flight is never reaped at all, so
+// without this the case consumes the package timeout instead of failing.
+const reapBudget = 30 * time.Second
+
+// serveUntilKilled mounts at dir, reports itself ready, and blocks. Nothing
+// here unmounts: what this process is for is dying while it holds a mount,
+// which is what SIGKILL, a panic and the OOM killer all leave behind.
+//
+// Ready means Serve has returned, and that is later than the mount appearing
+// in the mount table. Serve's last act is a request through the mount it just
+// made, and a thread parked in a request to a server that then dies stays
+// parked: the reply never comes, the wait is uninterruptible, and the fuse
+// connection that would release it is only aborted when the last thread of
+// this process exits. Killed in that window the helper is never reaped, and
+// whoever waits on it waits forever.
+func serveUntilKilled(dir, ready string) {
 	mount, err := fusefs.Serve(dir, memfs.New())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "helper: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(ready, nil, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "helper: report ready: %v\n", err)
 		os.Exit(1)
 	}
 	mount.Wait()
@@ -144,9 +166,11 @@ func TestUnmountLeavesTheTableEvenWhileSomethingHoldsIt(t *testing.T) {
 func spawnHelper(t *testing.T, dir string) *exec.Cmd {
 	t.Helper()
 
+	ready := filepath.Join(t.TempDir(), "ready")
+
 	var said bytes.Buffer
 	cmd := exec.Command(os.Args[0])
-	cmd.Env = append(os.Environ(), helperDir+"="+dir)
+	cmd.Env = append(os.Environ(), helperDir+"="+dir, helperReady+"="+ready)
 	cmd.Stdout = &said
 	cmd.Stderr = &said
 	if err := cmd.Start(); err != nil {
@@ -154,27 +178,54 @@ func spawnHelper(t *testing.T, dir string) *exec.Cmd {
 	}
 
 	until := time.Now().Add(mountBudget)
-	for mountsAt(t, dir) == 0 {
+	for !exists(t, ready) {
 		if time.Now().After(until) {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
-			t.Fatalf("the helper did not mount at %s within %s: %s", dir, mountBudget, said.String())
+			t.Fatalf("the helper was not serving %s within %s: %s", dir, mountBudget, said.String())
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	return cmd
 }
 
-// kill ends the helper the way nothing recovers from.
+// exists reports whether the helper has created its ready file.
+func exists(t *testing.T, at string) bool {
+	t.Helper()
+
+	switch _, err := os.Stat(at); {
+	case err == nil:
+		return true
+	case errors.Is(err, fs.ErrNotExist):
+		return false
+	default:
+		t.Fatalf("stat %s: %v", at, err)
+		return false
+	}
+}
+
+// kill ends the helper the way nothing recovers from, and waits for it to be
+// reaped. The wait is bounded because a helper killed with a request to its
+// own mount in flight is never reaped: an unbounded wait there is the package
+// timeout with no diagnosis, and this is the diagnosis.
 func kill(t *testing.T, cmd *exec.Cmd) {
 	t.Helper()
 
 	if err := cmd.Process.Kill(); err != nil {
 		t.Fatalf("kill the helper: %v", err)
 	}
-	var exit *exec.ExitError
-	if err := cmd.Wait(); !errors.As(err, &exit) {
-		t.Fatalf("the helper ended with %v, want a signal", err)
+
+	reaped := make(chan error, 1)
+	go func() { reaped <- cmd.Wait() }()
+
+	select {
+	case err := <-reaped:
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			t.Fatalf("the helper ended with %v, want a signal", err)
+		}
+	case <-time.After(reapBudget):
+		t.Fatalf("the killed helper (pid %d) was not reaped within %s: a thread of it is parked in a request to the mount it served, and nothing is left to answer", cmd.Process.Pid, reapBudget)
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 // beside the case that spawns it.
 func TestMain(m *testing.M) {
 	if dir := os.Getenv(helperDir); dir != "" {
-		serveUntilKilled(dir)
+		serveUntilKilled(dir, os.Getenv(helperReady))
 	}
 	leak.VerifyTestMain(m)
 }
