@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -228,7 +229,7 @@ func TestNoOutboundCallOutlivesItsBound(t *testing.T) {
 func deafTree(t *testing.T, d time.Duration) vfs.FileSystem {
 	t.Helper()
 
-	registry := vfs.NewRegistry(d, vfs.Retry{}, vfs.Breaker{Threshold: 2, Cooldown: time.Minute})
+	registry := vfs.NewRegistry(d, stability.Retry{}, stability.Breaker{Threshold: 2, Cooldown: time.Minute})
 	if err := registry.Register("deaf", func(map[string]string) (vfs.FileSystem, error) {
 		return deaf{}, nil
 	}); err != nil {

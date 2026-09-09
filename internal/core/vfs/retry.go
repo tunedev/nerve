@@ -4,30 +4,9 @@ import (
 	"context"
 	"io"
 	"io/fs"
-	"math/rand/v2"
-	"time"
+
+	"github.com/tunedev/nerve/internal/core/stability"
 )
-
-// Retry is how many times a call may be made and how long the waits between
-// them are. It is a value rather than a behaviour, so the policy an operator
-// configured can be read, printed and compared without running anything.
-type Retry struct {
-	// Attempts is how many times one call may be made, counting the first. One
-	// is retry turned off, and so is the zero value: a call is always made
-	// once.
-	Attempts int
-
-	// Backoff is the ceiling on the wait before the second attempt, doubling
-	// for each attempt after that up to a minute. Each wait is a random
-	// duration up to its ceiling — full jitter — because a burst of callers
-	// that failed together must not come back together and fail together
-	// again.
-	Backoff time.Duration
-}
-
-// maxWait is the ceiling on the ceiling. Doubling with nothing to stop it
-// turns a long retry into a sleep, and eventually overflows the duration.
-const maxWait = time.Minute
 
 // WithRetry returns fsys with every repeatable call attempted again when the
 // failure was transient, which is what stops one dropped connection from
@@ -36,10 +15,10 @@ const maxWait = time.Minute
 // Two things have to be true before an attempt is repeated, and the second is
 // the one that is usually skipped:
 //
-// The error must be retryable. Classify decides, and it fails fast on anything
-// nobody has marked transient — a validation error is never retried, because
-// repeating an invalid call cannot make it valid and the dependency pays for
-// the attempt either way.
+// The error must be retryable. stability.Classify decides, and it fails fast
+// on anything nobody has marked transient — a validation error is never
+// retried, because repeating an invalid call cannot make it valid and the
+// dependency pays for the attempt either way.
 //
 // The call must be repeatable. Remove, Rename and Symlink are made once: each
 // reports a different failure the second time, having already done the work,
@@ -51,71 +30,13 @@ const maxWait = time.Minute
 //
 // The policy bounds the attempts; the caller's context bounds the sequence.
 // Waits end when the caller does, and no attempt is made after that.
-func WithRetry(fsys FileSystem, policy Retry) FileSystem {
+func WithRetry(fsys FileSystem, policy stability.Retry) FileSystem {
 	return retrying{fsys: fsys, policy: policy}
-}
-
-// Do makes the call until it answers, until an error another attempt cannot
-// change, or until the attempts or the caller's time run out. What the caller
-// gets back is the last attempt's error rather than a summary: the failure that
-// ended it is the one worth reading, and errors.Is still works on it.
-//
-// It is exported because the tree is not the only remote thing this process
-// calls. A second retry loop written beside this one would be a second answer
-// to when a failure is worth another attempt, and the two would drift; a caller
-// with its own idea of what may be repeated brings that idea and shares this.
-func (r Retry) Do(ctx context.Context, call func(context.Context) error) error {
-	for made := 1; ; made++ {
-		err := call(ctx)
-		if err == nil || made >= r.Attempts || Classify(err) != Retryable {
-			return err
-		}
-		if wait(ctx, r.delay(made)) != nil {
-			return err
-		}
-	}
-}
-
-// delay is the wait after made attempts: a random duration up to Backoff
-// doubled once for every attempt already made, capped at maxWait.
-func (r Retry) delay(made int) time.Duration {
-	ceiling := r.Backoff
-	for range made - 1 {
-		if ceiling >= maxWait/2 {
-			ceiling = maxWait
-			break
-		}
-		ceiling *= 2
-	}
-
-	if ceiling <= 0 {
-		return 0
-	}
-	return rand.N(ceiling)
-}
-
-// wait blocks for d or until the caller gives up, reporting which. A caller
-// that has gone gets no further attempt, so the error it ends the wait with is
-// what stops the loop.
-func wait(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return ctx.Err()
-	}
-
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
 
 // attempt is Do for a verb that returns a value. The value of the attempt
 // that answered is the one that comes back.
-func attempt[T any](ctx context.Context, policy Retry, call func(context.Context) (T, error)) (T, error) {
+func attempt[T any](ctx context.Context, policy stability.Retry, call func(context.Context) (T, error)) (T, error) {
 	var value T
 	err := policy.Do(ctx, func(ctx context.Context) error {
 		var err error
@@ -130,7 +51,7 @@ func attempt[T any](ctx context.Context, policy Retry, call func(context.Context
 // path, and neither is remembered.
 type retrying struct {
 	fsys   FileSystem
-	policy Retry
+	policy stability.Retry
 }
 
 // rereadable reports whether reading path twice reads the same thing. A
@@ -260,7 +181,7 @@ func (r retrying) AsSubber() Subber {
 
 type retryingSymlinker struct {
 	link   Symlinker
-	policy Retry
+	policy stability.Retry
 }
 
 // Symlink is made once. A Symlink that made the link and then failed to say so
@@ -283,7 +204,7 @@ func (s retryingSymlinker) Lstat(ctx context.Context, path string) (FileInfo, er
 
 type retryingTruncater struct {
 	cut    Truncater
-	policy Retry
+	policy stability.Retry
 }
 
 // Truncate is repeated: cutting a path to a length it already has is the same
@@ -300,7 +221,7 @@ func (c retryingTruncater) Truncate(ctx context.Context, path string, size int64
 type retryingStreamer struct {
 	stream Streamer
 	caps   func(string) Caps
-	policy Retry
+	policy stability.Retry
 }
 
 func (s retryingStreamer) OpenRead(ctx context.Context, path string) (io.ReadCloser, error) {

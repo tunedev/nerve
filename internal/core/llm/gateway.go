@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // Gateway is an ordered chain of named providers that is itself a Provider, the
@@ -33,8 +33,8 @@ type link struct {
 	name     string
 	provider Provider
 	timeout  time.Duration
-	retry    vfs.Retry
-	circuit  *vfs.Circuit
+	retry    stability.Retry
+	circuit  *stability.Circuit
 }
 
 // call makes one call to this provider, bounded, guarded and retried.
@@ -293,5 +293,5 @@ func route[T, R any](ctx context.Context, chain []served[T], call func(context.C
 // degraded reports whether the failure was the endpoint's rather than the
 // call's, which is the one case worth asking a second endpoint.
 func degraded(err error) bool {
-	return vfs.Classify(err) == vfs.Retryable || errors.Is(err, vfs.ErrUnavailable)
+	return stability.Classify(err) == stability.Retryable || errors.Is(err, stability.ErrUnavailable)
 }

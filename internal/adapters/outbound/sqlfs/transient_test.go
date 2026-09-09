@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // The one failure here that another attempt might not see. A second holder of
@@ -35,8 +35,8 @@ func TestALockThatRanOutIsRetryable(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Write(/blocked) against a held lock = nil, want the lock refused")
 	}
-	if got := vfs.Classify(err); got != vfs.Retryable {
-		t.Errorf("Classify(%v) = %v, want %v", err, got, vfs.Retryable)
+	if got := stability.Classify(err); got != stability.Retryable {
+		t.Errorf("Classify(%v) = %v, want %v", err, got, stability.Retryable)
 	}
 }
 
@@ -50,11 +50,11 @@ func TestAnAnswerIsNotMarkedTransient(t *testing.T) {
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("Stat(/missing) = %v, want %v", err, fs.ErrNotExist)
 	}
-	if errors.Is(err, vfs.ErrTransient) {
+	if errors.Is(err, stability.ErrTransient) {
 		t.Errorf("Stat(/missing) = %v, want it unmarked", err)
 	}
-	if got := vfs.Classify(err); got != vfs.FailFast {
-		t.Errorf("Classify(%v) = %v, want %v", err, got, vfs.FailFast)
+	if got := stability.Classify(err); got != stability.FailFast {
+		t.Errorf("Classify(%v) = %v, want %v", err, got, stability.FailFast)
 	}
 }
 

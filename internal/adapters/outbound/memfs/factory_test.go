@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -64,7 +65,7 @@ func TestEachBuildIsItsOwnTree(t *testing.T) {
 // document reaches. A kind that cannot be registered and mounted is not a
 // plugin, whatever it implements.
 func TestMemfsMountsFromAMountSpec(t *testing.T) {
-	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Second, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registry.Register("memfs", memfs.Factory); err != nil {
 		t.Fatalf("Register(memfs) = %v", err)
 	}

@@ -9,17 +9,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
 // steady opens after three transient failures in a row and stays open for
 // longer than any test runs, so nothing here depends on the clock unless it
 // says so.
-var steady = vfs.Breaker{Threshold: 3, Cooldown: time.Minute}
+var steady = stability.Breaker{Threshold: 3, Cooldown: time.Minute}
 
 // brief opens on the first transient failure and reopens for a probe soon
 // enough that a test can wait for it.
-var brief = vfs.Breaker{Threshold: 1, Cooldown: 20 * time.Millisecond}
+var brief = stability.Breaker{Threshold: 1, Cooldown: 20 * time.Millisecond}
 
 // wobbly answers Read with whatever a test has set, counting the calls that
 // reach it. It is how a test moves a far end between failing and answering.
@@ -52,13 +53,13 @@ func TestATransientFailureStreakOpensTheCircuit(t *testing.T) {
 	fsys := vfs.WithBreaker(plugin, steady)
 
 	for range steady.Threshold {
-		if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+		if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 			t.Fatalf("Read = %v, want the plugin's error", err)
 		}
 	}
 
-	if err := read(fsys); !errors.Is(err, vfs.ErrUnavailable) {
-		t.Errorf("Read after %d transient failures = %v, want %v", steady.Threshold, err, vfs.ErrUnavailable)
+	if err := read(fsys); !errors.Is(err, stability.ErrUnavailable) {
+		t.Errorf("Read after %d transient failures = %v, want %v", steady.Threshold, err, stability.ErrUnavailable)
 	}
 	if plugin.calls != steady.Threshold {
 		t.Errorf("the plugin saw %d calls, want %d: the open circuit is still calling it", plugin.calls, steady.Threshold)
@@ -69,8 +70,8 @@ func TestATransientFailureStreakOpensTheCircuit(t *testing.T) {
 // hear. Any other classification spends the remaining attempts on a dependency
 // the breaker has just decided not to call.
 func TestAnOpenCircuitIsFailFast(t *testing.T) {
-	if got := vfs.Classify(vfs.ErrUnavailable); got != vfs.FailFast {
-		t.Errorf("Classify(ErrUnavailable) = %s, want %s", got, vfs.FailFast)
+	if got := stability.Classify(stability.ErrUnavailable); got != stability.FailFast {
+		t.Errorf("Classify(ErrUnavailable) = %s, want %s", got, stability.FailFast)
 	}
 }
 
@@ -100,10 +101,10 @@ func TestAnAnswerStartsTheCountOver(t *testing.T) {
 	plugin := &wobbly{err: errTransient}
 	fsys := vfs.WithBreaker(plugin, steady)
 
-	if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+	if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 		t.Fatalf("Read = %v, want the plugin's error", err)
 	}
-	if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+	if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 		t.Fatalf("Read = %v, want the plugin's error", err)
 	}
 
@@ -114,12 +115,12 @@ func TestAnAnswerStartsTheCountOver(t *testing.T) {
 
 	plugin.err = errTransient
 	for range steady.Threshold - 1 {
-		if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+		if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 			t.Fatalf("Read = %v, want the plugin's error", err)
 		}
 	}
 
-	if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+	if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 		t.Errorf("Read = %v, want the plugin's error: two failures either side of an answer opened the circuit", err)
 	}
 }
@@ -130,11 +131,11 @@ func TestTheCircuitProbesAfterTheCooldownAndAnAnswerClosesIt(t *testing.T) {
 	plugin := &wobbly{err: errTransient}
 	fsys := vfs.WithBreaker(plugin, brief)
 
-	if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+	if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 		t.Fatalf("Read = %v, want the plugin's error", err)
 	}
-	if err := read(fsys); !errors.Is(err, vfs.ErrUnavailable) {
-		t.Fatalf("Read = %v, want %v", err, vfs.ErrUnavailable)
+	if err := read(fsys); !errors.Is(err, stability.ErrUnavailable) {
+		t.Fatalf("Read = %v, want %v", err, stability.ErrUnavailable)
 	}
 
 	time.Sleep(2 * brief.Cooldown)
@@ -157,17 +158,17 @@ func TestAFailedProbeReopensTheCircuit(t *testing.T) {
 	plugin := &wobbly{err: errTransient}
 	fsys := vfs.WithBreaker(plugin, brief)
 
-	if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+	if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 		t.Fatalf("Read = %v, want the plugin's error", err)
 	}
 
 	time.Sleep(2 * brief.Cooldown)
 
-	if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+	if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 		t.Fatalf("the probe after the cooldown = %v, want the plugin's error", err)
 	}
-	if err := read(fsys); !errors.Is(err, vfs.ErrUnavailable) {
-		t.Errorf("Read after a failed probe = %v, want %v", err, vfs.ErrUnavailable)
+	if err := read(fsys); !errors.Is(err, stability.ErrUnavailable) {
+		t.Errorf("Read after a failed probe = %v, want %v", err, stability.ErrUnavailable)
 	}
 	if plugin.calls != 2 {
 		t.Errorf("the plugin saw %d calls, want 2: one to open the circuit and one probe", plugin.calls)
@@ -184,14 +185,14 @@ func TestAnOpenCircuitRefusesEveryVerb(t *testing.T) {
 			fsys := vfs.WithBreaker(plugin, steady)
 
 			for range steady.Threshold {
-				if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+				if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 					t.Fatalf("Read = %v, want the plugin's error", err)
 				}
 			}
 			opened := plugin.calls
 
-			if err := call(context.Background(), fsys); !errors.Is(err, vfs.ErrUnavailable) {
-				t.Errorf("%s with the circuit open = %v, want %v", name, err, vfs.ErrUnavailable)
+			if err := call(context.Background(), fsys); !errors.Is(err, stability.ErrUnavailable) {
+				t.Errorf("%s with the circuit open = %v, want %v", name, err, stability.ErrUnavailable)
 			}
 			if plugin.calls != opened {
 				t.Errorf("%s reached the plugin with the circuit open", name)
@@ -208,17 +209,17 @@ func TestAnOpenCircuitRefusesTheOpens(t *testing.T) {
 	fsys := vfs.WithBreaker(plugin, steady)
 
 	for range steady.Threshold {
-		if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+		if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 			t.Fatalf("Read = %v, want the plugin's error", err)
 		}
 	}
 	opened := plugin.calls
 
-	if _, err := fsys.AsStreamer().OpenRead(context.Background(), "/big"); !errors.Is(err, vfs.ErrUnavailable) {
-		t.Errorf("OpenRead with the circuit open = %v, want %v", err, vfs.ErrUnavailable)
+	if _, err := fsys.AsStreamer().OpenRead(context.Background(), "/big"); !errors.Is(err, stability.ErrUnavailable) {
+		t.Errorf("OpenRead with the circuit open = %v, want %v", err, stability.ErrUnavailable)
 	}
-	if _, err := fsys.AsStreamer().OpenWrite(context.Background(), "/big"); !errors.Is(err, vfs.ErrUnavailable) {
-		t.Errorf("OpenWrite with the circuit open = %v, want %v", err, vfs.ErrUnavailable)
+	if _, err := fsys.AsStreamer().OpenWrite(context.Background(), "/big"); !errors.Is(err, stability.ErrUnavailable) {
+		t.Errorf("OpenWrite with the circuit open = %v, want %v", err, stability.ErrUnavailable)
 	}
 	if plugin.calls != opened {
 		t.Errorf("an open reached the plugin with the circuit open")
@@ -233,7 +234,7 @@ func TestAnOpenCircuitStillDescribesItself(t *testing.T) {
 	fsys := vfs.WithBreaker(plugin, steady)
 
 	for range steady.Threshold {
-		if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+		if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 			t.Fatalf("Read = %v, want the plugin's error", err)
 		}
 	}
@@ -247,11 +248,11 @@ func TestAnOpenCircuitStillDescribesItself(t *testing.T) {
 // policy is called exactly as it was before there was one.
 func TestTheZeroPolicyNeverOpens(t *testing.T) {
 	plugin := &wobbly{err: errTransient}
-	fsys := vfs.WithBreaker(plugin, vfs.Breaker{})
+	fsys := vfs.WithBreaker(plugin, stability.Breaker{})
 
 	const calls = 100
 	for range calls {
-		if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+		if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 			t.Fatalf("Read = %v, want the plugin's error", err)
 		}
 	}
@@ -284,10 +285,10 @@ func TestAnOpenCircuitStopsTheRetries(t *testing.T) {
 	const threshold = 2
 
 	plugin := &wobbly{err: errTransient}
-	fsys := built(t, plugin, vfs.Retry{Attempts: 5, Backoff: time.Millisecond}, vfs.Breaker{Threshold: threshold, Cooldown: time.Minute})
+	fsys := built(t, plugin, stability.Retry{Attempts: 5, Backoff: time.Millisecond}, stability.Breaker{Threshold: threshold, Cooldown: time.Minute})
 
-	if err := read(fsys); !errors.Is(err, vfs.ErrUnavailable) {
-		t.Errorf("Read = %v, want %v", err, vfs.ErrUnavailable)
+	if err := read(fsys); !errors.Is(err, stability.ErrUnavailable) {
+		t.Errorf("Read = %v, want %v", err, stability.ErrUnavailable)
 	}
 	if plugin.calls != threshold {
 		t.Errorf("the plugin saw %d attempts, want %d: the retry kept going after the circuit opened", plugin.calls, threshold)
@@ -303,7 +304,7 @@ func TestABrokenMountLeavesTheRestOfTheTreeAnswering(t *testing.T) {
 	dead := &wobbly{err: errTransient}
 	live := &wobbly{}
 
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{}, vfs.Breaker{Threshold: threshold, Cooldown: time.Minute})
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{}, stability.Breaker{Threshold: threshold, Cooldown: time.Minute})
 	register(t, registry, "dead", dead)
 	register(t, registry, "live", live)
 
@@ -313,13 +314,13 @@ func TestABrokenMountLeavesTheRestOfTheTreeAnswering(t *testing.T) {
 	}
 
 	for range threshold {
-		if _, err := table.Read(context.Background(), "/dead/x"); !errors.Is(err, vfs.ErrTransient) {
+		if _, err := table.Read(context.Background(), "/dead/x"); !errors.Is(err, stability.ErrTransient) {
 			t.Fatalf("Read of the broken mount = %v, want the plugin's error", err)
 		}
 	}
 
-	if _, err := table.Read(context.Background(), "/dead/x"); !errors.Is(err, vfs.ErrUnavailable) {
-		t.Errorf("Read of the broken mount = %v, want %v", err, vfs.ErrUnavailable)
+	if _, err := table.Read(context.Background(), "/dead/x"); !errors.Is(err, stability.ErrUnavailable) {
+		t.Errorf("Read of the broken mount = %v, want %v", err, stability.ErrUnavailable)
 	}
 	if dead.calls != threshold {
 		t.Errorf("the broken mount saw %d calls, want %d", dead.calls, threshold)
@@ -341,7 +342,7 @@ func TestABrokenMountLeavesTheRestOfTheTreeAnswering(t *testing.T) {
 
 // built is one plugin behind the wrappers the registry puts on it, which is
 // the only composition any caller of the tree ever holds.
-func built(t *testing.T, plugin vfs.FileSystem, retry vfs.Retry, breaker vfs.Breaker) vfs.FileSystem {
+func built(t *testing.T, plugin vfs.FileSystem, retry stability.Retry, breaker stability.Breaker) vfs.FileSystem {
 	t.Helper()
 
 	registry := vfs.NewRegistry(time.Minute, retry, breaker)
@@ -387,7 +388,7 @@ func TestABurstAfterTheCooldownIsOneProbe(t *testing.T) {
 	plugin := &counted{}
 	fsys := vfs.WithBreaker(plugin, brief)
 
-	if err := read(fsys); !errors.Is(err, vfs.ErrTransient) {
+	if err := read(fsys); !errors.Is(err, stability.ErrTransient) {
 		t.Fatalf("Read = %v, want the plugin's error", err)
 	}
 	time.Sleep(2 * brief.Cooldown)

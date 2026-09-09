@@ -12,7 +12,7 @@ import (
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/ollama"
 	"github.com/tunedev/nerve/internal/core/llm"
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // generated is what the generation endpoint was sent, recorded so a test checks
@@ -173,7 +173,7 @@ func TestABusyEndpointIsTransientForTheWriterToo(t *testing.T) {
 	}
 	defer writer.CloseIdleConnections()
 
-	if _, err := writer.WriteSQL(context.Background(), "which stages", applications); !errors.Is(err, vfs.ErrTransient) {
-		t.Errorf("WriteSQL against a busy endpoint = %v, want %v", err, vfs.ErrTransient)
+	if _, err := writer.WriteSQL(context.Background(), "which stages", applications); !errors.Is(err, stability.ErrTransient) {
+		t.Errorf("WriteSQL against a busy endpoint = %v, want %v", err, stability.ErrTransient)
 	}
 }

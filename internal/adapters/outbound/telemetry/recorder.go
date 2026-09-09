@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -115,7 +116,7 @@ func outcomeOf(err error) string {
 	if err == nil {
 		return ok
 	}
-	return vfs.Classify(err).String()
+	return stability.Classify(err).String()
 }
 
 // levelOf keeps the log readable at its default level. A transient failure is
@@ -123,7 +124,7 @@ func outcomeOf(err error) string {
 // failure is an answer the caller already has in its return value, and a path
 // that does not exist is not an incident.
 func levelOf(err error) slog.Level {
-	if err != nil && vfs.Classify(err) == vfs.Retryable {
+	if err != nil && stability.Classify(err) == stability.Retryable {
 		return slog.LevelWarn
 	}
 	return slog.LevelDebug

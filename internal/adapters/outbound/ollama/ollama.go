@@ -25,7 +25,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // The endpoints this package reaches. Embedding takes a batch and answers one
@@ -151,7 +151,7 @@ func call(ctx context.Context, client *http.Client, endpoint, where string, body
 
 	answer, err := client.Do(request)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %w", where, err, vfs.ErrTransient)
+		return fmt.Errorf("%s: %w: %w", where, err, stability.ErrTransient)
 	}
 	defer drain(answer)
 
@@ -182,7 +182,7 @@ func statusError(where string, answer *http.Response) error {
 	case answer.StatusCode == http.StatusForbidden, answer.StatusCode == http.StatusUnauthorized:
 		return fmt.Errorf("%s: %w", where, fs.ErrPermission)
 	case answer.StatusCode == http.StatusTooManyRequests, answer.StatusCode >= http.StatusInternalServerError:
-		return fmt.Errorf("%s: %w", where, vfs.ErrTransient)
+		return fmt.Errorf("%s: %w", where, stability.ErrTransient)
 	default:
 		return fmt.Errorf("%s: %w", where, fs.ErrInvalid)
 	}

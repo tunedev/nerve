@@ -12,6 +12,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/nounlink"
 	"github.com/tunedev/nerve/internal/adapters/outbound/vectorfs"
 	"github.com/tunedev/nerve/internal/core/llm"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -122,7 +123,7 @@ func TestASnapshotIsFiledApartFromTheGraph(t *testing.T) {
 // A build whose chain reads no entities has no graph to offer, and the refusal
 // lands where an operator is still watching rather than on the first text.
 func TestGraphfsMountRefusesAChainThatReadsNoEntities(t *testing.T) {
-	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Second, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now),
 		stubEmbedder{}, testCorpus(t), nil, testGraphs(t), nil); err != nil {
 		t.Fatalf("registerKinds(, nil) = %v", err)
@@ -139,7 +140,7 @@ func TestGraphfsMountRefusesAChainThatReadsNoEntities(t *testing.T) {
 // A build that names no corpus has nowhere to keep a graph. It is the same
 // refusal a vectorfs mount gets, because the corpus is the same store.
 func TestGraphfsMountRefusesABuildWithNoCorpus(t *testing.T) {
-	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Second, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now),
 		stubEmbedder{}, nil, stubExtractor{}, graphStore(nil), nil); err != nil {
 		t.Fatalf("registerKinds(, nil) = %v", err)
@@ -177,7 +178,7 @@ func TestAGraphAndAnIndexOfOneNameDoNotShareAKey(t *testing.T) {
 func mountGraph(t *testing.T, documents vectorfs.DocStore) *vfs.MountTable {
 	t.Helper()
 
-	providers := llm.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	providers := llm.NewRegistry(time.Minute, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerProviders(providers); err != nil {
 		t.Fatalf("registerProviders() = %v", err)
 	}
@@ -186,7 +187,7 @@ func mountGraph(t *testing.T, documents vectorfs.DocStore) *vfs.MountTable {
 		t.Fatalf("Gateway() = %v", err)
 	}
 
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now),
 		stubEmbedder{}, documents, gateway.AsEntityExtractor(), graphStore(documents), nil); err != nil {
 		t.Fatalf("registerKinds(, nil) = %v", err)

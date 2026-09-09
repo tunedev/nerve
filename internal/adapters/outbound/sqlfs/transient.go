@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -42,7 +42,7 @@ func held(err error) bool {
 // longer than the timeout, which is exactly the case worth another attempt.
 func transient(err error) error {
 	if held(err) {
-		return fmt.Errorf("%w: %w", err, vfs.ErrTransient)
+		return fmt.Errorf("%w: %w", err, stability.ErrTransient)
 	}
 	return err
 }

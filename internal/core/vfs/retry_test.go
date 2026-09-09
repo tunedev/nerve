@@ -10,12 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
 // brisk retries three times with a wait short enough that a test does not
 // notice it. The jitter is checked where it is computed, not by timing.
-var brisk = vfs.Retry{Attempts: 3, Backoff: time.Millisecond}
+var brisk = stability.Retry{Attempts: 3, Backoff: time.Millisecond}
 
 // flaky fails its first fail calls with err and answers after that, counting
 // everything that reaches it. What a retry does is only visible as the number
@@ -105,7 +106,7 @@ func (s *stalled) Read(ctx context.Context, _ string) ([]byte, error) {
 }
 
 // errTransient is what a plugin returns when the far end wobbled.
-var errTransient = fmt.Errorf("dial the far end: %w", vfs.ErrTransient)
+var errTransient = fmt.Errorf("dial the far end: %w", stability.ErrTransient)
 
 // The acceptance criterion, over every verb: a validation error reaches the
 // plugin once. Repeating an invalid call cannot make it valid, so a retry
@@ -161,8 +162,8 @@ func TestRetryingStopsAtTheAttemptsItWasGiven(t *testing.T) {
 
 	err := vfs.WithRetry(plugin, brisk).Create(context.Background(), "/x")
 
-	if !errors.Is(err, vfs.ErrTransient) {
-		t.Errorf("Create = %v, want %v", err, vfs.ErrTransient)
+	if !errors.Is(err, stability.ErrTransient) {
+		t.Errorf("Create = %v, want %v", err, stability.ErrTransient)
 	}
 	if plugin.calls != brisk.Attempts {
 		t.Errorf("Create reached the plugin %d times, want %d", plugin.calls, brisk.Attempts)
@@ -184,7 +185,7 @@ func TestAVerbThatCannotBeRepeatedIsAttemptedOnce(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			plugin := &flaky{fail: 1, err: errTransient}
 
-			if err := call(context.Background(), vfs.WithRetry(plugin, brisk)); !errors.Is(err, vfs.ErrTransient) {
+			if err := call(context.Background(), vfs.WithRetry(plugin, brisk)); !errors.Is(err, stability.ErrTransient) {
 				t.Errorf("%s = %v, want the plugin's error", name, err)
 			}
 			if plugin.calls != 1 {
@@ -201,7 +202,7 @@ func TestADestructiveReadIsAttemptedOnce(t *testing.T) {
 	plugin := &flaky{fail: 1, err: errTransient, caps: vfs.Caps{ReadDestructive: true}}
 	fsys := vfs.WithRetry(plugin, brisk)
 
-	if _, err := fsys.Read(context.Background(), "/jobs/next"); !errors.Is(err, vfs.ErrTransient) {
+	if _, err := fsys.Read(context.Background(), "/jobs/next"); !errors.Is(err, stability.ErrTransient) {
 		t.Errorf("Read = %v, want the plugin's error", err)
 	}
 	if plugin.calls != 1 {
@@ -223,7 +224,7 @@ func TestAnAppendIsAttemptedOnce(t *testing.T) {
 	plugin := &flaky{fail: 1, err: errTransient, caps: vfs.Caps{AppendOnly: true}}
 	fsys := vfs.WithRetry(plugin, brisk)
 
-	if err := fsys.Write(context.Background(), "/log/today", []byte("line")); !errors.Is(err, vfs.ErrTransient) {
+	if err := fsys.Write(context.Background(), "/log/today", []byte("line")); !errors.Is(err, stability.ErrTransient) {
 		t.Errorf("Write = %v, want the plugin's error", err)
 	}
 	if plugin.calls != 1 {
@@ -279,13 +280,13 @@ func TestACallerThatGaveUpStopsTheRetries(t *testing.T) {
 	defer cancel()
 
 	plugin := &flaky{fail: 99, err: errTransient, onCall: cancel}
-	patient := vfs.Retry{Attempts: 5, Backoff: time.Minute}
+	patient := stability.Retry{Attempts: 5, Backoff: time.Minute}
 
 	start := time.Now()
 	_, err := vfs.WithRetry(plugin, patient).Stat(ctx, "/x")
 	elapsed := time.Since(start)
 
-	if !errors.Is(err, vfs.ErrTransient) {
+	if !errors.Is(err, stability.ErrTransient) {
 		t.Errorf("Stat = %v, want the plugin's error", err)
 	}
 	if plugin.calls != 1 {
@@ -327,7 +328,7 @@ func TestRetryingReadsCapabilitiesFromThePlugin(t *testing.T) {
 // has already been wrapped.
 func TestTheRegistryRetriesWhatItBuilds(t *testing.T) {
 	plugin := &flaky{fail: 2, err: errTransient}
-	registry := vfs.NewRegistry(time.Minute, brisk, vfs.Breaker{})
+	registry := vfs.NewRegistry(time.Minute, brisk, stability.Breaker{})
 	if err := registry.Register("flaky", func(map[string]string) (vfs.FileSystem, error) {
 		return plugin, nil
 	}); err != nil {
@@ -354,7 +355,7 @@ func TestEachAttemptIsBoundedOnItsOwn(t *testing.T) {
 	const bound = 20 * time.Millisecond
 
 	plugin := &stalled{}
-	registry := vfs.NewRegistry(bound, vfs.Retry{Attempts: 3, Backoff: time.Millisecond}, vfs.Breaker{})
+	registry := vfs.NewRegistry(bound, stability.Retry{Attempts: 3, Backoff: time.Millisecond}, stability.Breaker{})
 	if err := registry.Register("stalled", func(map[string]string) (vfs.FileSystem, error) {
 		return plugin, nil
 	}); err != nil {

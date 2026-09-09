@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -232,7 +233,7 @@ type bare struct {
 func tree(t *testing.T, plugin vfs.FileSystem, window int) vfs.FileSystem {
 	t.Helper()
 
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{}, vfs.Breaker{Threshold: 2, Cooldown: time.Minute})
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{}, stability.Breaker{Threshold: 2, Cooldown: time.Minute})
 	registry.ReadAhead(window)
 	if err := registry.Register("serving", func(map[string]string) (vfs.FileSystem, error) {
 		return plugin, nil

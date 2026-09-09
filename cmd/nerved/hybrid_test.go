@@ -10,6 +10,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/kvfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/nounlink"
 	"github.com/tunedev/nerve/internal/core/llm"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -71,7 +72,7 @@ func TestAFusionInTheTableRefusesAWrite(t *testing.T) {
 func mountFusion(t *testing.T) *vfs.MountTable {
 	t.Helper()
 
-	providers := llm.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	providers := llm.NewRegistry(time.Minute, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerProviders(providers); err != nil {
 		t.Fatalf("registerProviders() = %v", err)
 	}
@@ -82,7 +83,7 @@ func mountFusion(t *testing.T) *vfs.MountTable {
 
 	documents := testCorpus(t)
 	fused := &grown{}
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now),
 		stubEmbedder{}, documents, gateway.AsEntityExtractor(), graphStore(documents), fused.tree); err != nil {
 		t.Fatalf("registerKinds() = %v", err)

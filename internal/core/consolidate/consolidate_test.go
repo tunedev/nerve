@@ -13,6 +13,7 @@ import (
 	"github.com/tunedev/nerve/internal/core/consolidate"
 	"github.com/tunedev/nerve/internal/core/llm"
 	"github.com/tunedev/nerve/internal/core/memory"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 	"github.com/tunedev/nerve/internal/core/workspace"
 )
@@ -356,14 +357,14 @@ func TestASecondConsolidationOfTheSameBeliefsMergesNothing(t *testing.T) {
 // A failing endpoint writes nothing. Half a workspace's beliefs merged, with no
 // record of which half, is worse than none of them.
 func TestAFailingEndpointMergesNothing(t *testing.T) {
-	found := &merging{err: fmt.Errorf("endpoint is down: %w", vfs.ErrUnavailable)}
+	found := &merging{err: fmt.Errorf("endpoint is down: %w", stability.ErrUnavailable)}
 	consolidator, memories := newConsolidator(t, found)
 	mustBelieve(t, memories, "monday",
 		memory.Fact{Kind: "preference", Body: "prefers tabs", Priority: memory.Normal},
 		memory.Fact{Kind: "preference", Body: "prefers tabs in Go", Priority: memory.Normal},
 	)
 
-	if _, err := consolidator.Consolidate(t.Context(), here, "tuesday"); !errors.Is(err, vfs.ErrUnavailable) {
+	if _, err := consolidator.Consolidate(t.Context(), here, "tuesday"); !errors.Is(err, stability.ErrUnavailable) {
 		t.Fatalf("Consolidate over a failing endpoint = %v, want the endpoint's failure", err)
 	}
 	if stored, err := memories.List(t.Context(), here); err != nil || len(stored) != 2 {

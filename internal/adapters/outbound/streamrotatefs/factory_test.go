@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamrotatefs"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -99,7 +100,7 @@ func TestFactoryDefaultsToASizeAndAKeep(t *testing.T) {
 // The registry is the only route into a mount, so rotation has to be visible
 // through the dispatcher and not only through the plugin.
 func TestStreamrotatefsMountsFromAMountSpec(t *testing.T) {
-	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Second, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registry.Register(streamrotatefs.Kind, streamrotatefs.Factory, streamrotatefs.Public...); err != nil {
 		t.Fatalf("Register(streamrotatefs) = %v", err)
 	}

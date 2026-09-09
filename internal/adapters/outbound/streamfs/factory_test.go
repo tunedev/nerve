@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/streamfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -93,7 +94,7 @@ func TestFactoryRefusesSettingsItCannotHonour(t *testing.T) {
 // The registry is the only route into a mount, and the streaming verbs are
 // reached through the dispatcher rather than by asserting on the plugin.
 func TestStreamfsMountsFromAMountSpec(t *testing.T) {
-	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Second, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registry.Register(streamfs.Kind, streamfs.Factory, streamfs.Public...); err != nil {
 		t.Fatalf("Register(streamfs) = %v", err)
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/termvec"
 	"github.com/tunedev/nerve/internal/adapters/outbound/vectorfs"
 	"github.com/tunedev/nerve/internal/core/llm"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -50,7 +51,7 @@ const vectorDimension = "768"
 func TestAVectorMountAnswersThroughTheChainTheConfigNames(t *testing.T) {
 	index, endpoint := stack(t)
 
-	providers := llm.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	providers := llm.NewRegistry(time.Minute, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerProviders(providers); err != nil {
 		t.Fatalf("registerProviders() = %v", err)
 	}
@@ -107,7 +108,7 @@ func mountIndex(t *testing.T, index, name, dimension string, embed llm.Embedder)
 		t.Fatalf("corpus() = %v", err)
 	}
 
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test", nil, vfs.NewTraffic(time.Now), embed, documents, stubExtractor{}, graphStore(documents), nil); err != nil {
 		t.Fatalf("registerKinds(, nil) = %v", err)
 	}
@@ -172,7 +173,7 @@ func stack(t *testing.T) (index, endpoint string) {
 func TestALaptopWithNoModelStillMountsAnIndex(t *testing.T) {
 	index := database(t)
 
-	providers := llm.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	providers := llm.NewRegistry(time.Minute, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerProviders(providers); err != nil {
 		t.Fatalf("registerProviders() = %v", err)
 	}

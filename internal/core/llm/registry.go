@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // Factory builds one provider from the settings its config names.
@@ -48,8 +48,8 @@ type Registry struct {
 	factories map[string]Factory
 	public    map[string][]string
 	timeout   time.Duration
-	retry     vfs.Retry
-	breaker   vfs.Breaker
+	retry     stability.Retry
+	breaker   stability.Breaker
 }
 
 // NewRegistry returns a registry holding no kinds, which bounds every provider
@@ -60,7 +60,7 @@ type Registry struct {
 // by. A model answers in seconds where a filesystem answers in milliseconds,
 // and one deadline covering both is either too short to summarise anything or
 // too long to notice a mount that has stopped answering.
-func NewRegistry(timeout time.Duration, retry vfs.Retry, breaker vfs.Breaker) *Registry {
+func NewRegistry(timeout time.Duration, retry stability.Retry, breaker stability.Breaker) *Registry {
 	return &Registry{
 		factories: make(map[string]Factory),
 		public:    make(map[string][]string),
@@ -124,7 +124,7 @@ func (r *Registry) Gateway(specs []ProviderSpec) (*Gateway, error) {
 			provider: provider,
 			timeout:  r.timeout,
 			retry:    r.retry,
-			circuit:  vfs.NewCircuit(r.breaker),
+			circuit:  stability.NewCircuit(r.breaker),
 		})
 	}
 	return gateway, nil
