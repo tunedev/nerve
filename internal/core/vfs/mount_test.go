@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"path"
 	"strings"
 	"sync"
 	"testing"
@@ -501,4 +502,71 @@ func TestMountsAddedWhileTheTableIsBeingReadAreSafe(t *testing.T) {
 	writers.Wait()
 	close(stop)
 	readers.Wait()
+}
+
+// basenamer is a mount that names an entry the way a storage plugin does: the
+// final element of the path it was handed. recorder answers with a fixed name
+// instead, so that a test can tell one mount from another.
+type basenamer struct {
+	linking
+}
+
+func (b *basenamer) AsSymlinker() vfs.Symlinker { return b }
+
+func (b *basenamer) Stat(_ context.Context, name string) (vfs.FileInfo, error) {
+	b.saw("Stat", name)
+	return vfs.FileInfo{Name: path.Base(name), Mode: fs.ModeDir}, nil
+}
+
+func (b *basenamer) Lstat(_ context.Context, name string) (vfs.FileInfo, error) {
+	b.saw("Lstat", name)
+	return vfs.FileInfo{Name: path.Base(name), Mode: fs.ModeDir}, nil
+}
+
+func namedMounts(t *testing.T, prefixes ...string) *vfs.MountTable {
+	t.Helper()
+
+	table := vfs.NewMountTable()
+	for _, prefix := range prefixes {
+		if err := table.Mount(prefix, &basenamer{}); err != nil {
+			t.Fatalf("Mount(%q) = %v, want nil", prefix, err)
+		}
+	}
+	return table
+}
+
+// A name is the final element of the path the caller asked about, and the mount
+// point is the one path where the plugin cannot say that: it was handed its own
+// root and calls it "/". The table knows the mount by its own final element.
+func TestStatNamesAMountPointByItsOwnFinalElement(t *testing.T) {
+	table := namedMounts(t, "/", "/files", "/files/deep")
+
+	for _, tc := range []struct{ path, want string }{
+		{"/", "/"},
+		{"/files", "files"},
+		{"/files/deep", "deep"},
+		{"/files/notes.txt", "notes.txt"},
+	} {
+		found, err := table.Stat(context.Background(), tc.path)
+		if err != nil {
+			t.Fatalf("Stat(%q) = %v, want nil", tc.path, err)
+		}
+		if found.Name != tc.want {
+			t.Errorf("Stat(%q).Name = %q, want %q", tc.path, found.Name, tc.want)
+		}
+	}
+}
+
+// Lstat is the other verb that hands a name back, and a mount point reached
+// through it is named the same way.
+func TestLstatNamesAMountPointByItsOwnFinalElement(t *testing.T) {
+	table := namedMounts(t, "/", "/files")
+
+	found, err := table.AsSymlinker().Lstat(context.Background(), "/files")
+	if err != nil {
+		t.Fatalf("Lstat() = %v, want nil", err)
+	}
+	if found.Name != "files" {
+		t.Errorf("Lstat(%q).Name = %q, want %q", "/files", found.Name, "files")
+	}
 }
