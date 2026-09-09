@@ -1,0 +1,35 @@
+#!/bin/sh
+# List delivered work that is not on main yet, one row per branch.
+#
+# A polecat delivers a branch named polecat/<name>/<bead>+<suffix>. The work has
+# landed when the branch tip is reachable from main, or when a commit subject on
+# main names the same bead -- which is how work that was rebased or applied by
+# hand shows up. Anything else is still owed a merge, and a row that says no-pr
+# is owed a pull request first.
+set -eu
+
+remote=${NERVE_REMOTE:-origin}
+
+git fetch --quiet "$remote" main
+
+# Beads named by a commit subject on main. One scan, reused for every branch.
+landed=$(git log --format='%s' "$remote/main" |
+	grep -oE 'nrv-[a-z0-9]+' | sort -u)
+
+# Head branches of open pull requests, empty when gh cannot reach the forge.
+prs=$(gh pr list --state open --limit 200 --json number,headRefName \
+	--jq '.[] | "\(.headRefName) #\(.number)"' 2>/dev/null || echo "")
+
+git ls-remote --heads "$remote" 'refs/heads/polecat/*' |
+	sort -k2 |
+	while read -r tip branch; do
+		branch=${branch#refs/heads/}
+		# A tip merged into main is present locally and reachable from it; a tip
+		# that never landed is neither, and the check fails rather than lies.
+		git merge-base --is-ancestor "$tip" "$remote/main" 2>/dev/null && continue
+		bead=${branch#polecat/*/}
+		bead=${bead%%+*}
+		echo "$landed" | grep -qx "$bead" && continue
+		pr=$(echo "$prs" | awk -v b="$branch" '$1 == b {print $2}')
+		printf '%-10s %-12s %s\n' "$bead" "${pr:-no-pr}" "$branch"
+	done

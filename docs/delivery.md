@@ -51,3 +51,20 @@ without opening the diff.
   opens. A PR is a request to merge, not a request to start reviewing.
 - Change requests come back as a new commit on the same branch, never a force-push
   over the reviewed history.
+
+## Finding work that has not landed
+
+    make delivered
+
+One row per delivered branch whose work is not on `main`, with the open pull
+request that covers it or `no-pr` where none does. Empty output means every
+completion has landed.
+
+The gate has no artifact of its own, so its absence is invisible: a completion
+that nobody opened a PR for looks exactly like one that was never delivered.
+This listing is that artifact. A `no-pr` row is the mayor's queue.
+
+A branch counts as landed when its tip is reachable from `main`, or when a commit
+subject on `main` names the same bead — work that was rebased or applied by hand
+still counts, so an old branch left behind by a landed completion does not sit in
+the list forever.
