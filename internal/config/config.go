@@ -81,6 +81,26 @@ type Config struct {
 	// and a vectorfs mount is refused rather than booted over nowhere.
 	DocStoreURL string `json:"doc-store-url"`
 
+	// ResourcesRoot is where the resources of every workspace stand on the
+	// tree — the root a resource store derives its paths under, the way a
+	// library names the root its documents are kept under. Empty is a build
+	// that takes no uploads, which is the laptop with no resources mount.
+	ResourcesRoot string `json:"resources-root"`
+
+	// ScratchRoot is where the scratch state of every workspace stands. It is
+	// the same decision ResourcesRoot is — an area of the tree, named once and
+	// derived from on every call — so the two are spelled the same way. Empty
+	// is a build that keeps no scratch state.
+	ScratchRoot string `json:"scratch-root"`
+
+	// DownloadKeyFile is the file holding the key download grants are signed
+	// with. The path is config and the key is not: a secret has its own
+	// lifecycle and its own storage, so it is rotated by replacing a file
+	// rather than by editing this document, and no layer here ever carries it.
+	// It is required once ResourcesRoot names a root, because a store with no
+	// signer is refused where it is built.
+	DownloadKeyFile string `json:"download-key-file"`
+
 	// AdminAddr is where the operator surface listens. It defaults to the
 	// loopback interface because what it answers with — endpoints, hosts, the
 	// shape of the mount table — is for whoever is on the box.
@@ -252,6 +272,9 @@ var fields = []field{
 	{"ollama-url", "Ollama base URL", func(c *Config) *string { return &c.OllamaURL }},
 	{"kv-store-url", "bucket URL holding the keyspace kvfs mounts share; empty keeps it in memory", func(c *Config) *string { return &c.KVStoreURL }},
 	{"doc-store-url", "file:// directory or bucket URL holding the corpus vectorfs mounts share; empty refuses them", func(c *Config) *string { return &c.DocStoreURL }},
+	{"resources-root", "root on the tree the resources of every workspace stand under; empty takes no uploads", func(c *Config) *string { return &c.ResourcesRoot }},
+	{"scratch-root", "root on the tree the scratch state of every workspace stands under; empty keeps none", func(c *Config) *string { return &c.ScratchRoot }},
+	{"download-key-file", "file holding the key download grants are signed with; required with resources-root", func(c *Config) *string { return &c.DownloadKeyFile }},
 	{"admin-addr", "host:port for the operator surface", func(c *Config) *string { return &c.AdminAddr }},
 }
 
