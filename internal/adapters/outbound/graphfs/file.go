@@ -92,8 +92,9 @@ func (f *FS) writeText(ctx context.Context, name, key string, data []byte) error
 //
 // Under the texts it is the text, unchanged and as often as it is asked for.
 // Under the expansions it is what the graph says about the entity of that name,
-// which is the whole point of the mount: a single-hop expansion reached through
-// the same verb that reads a file.
+// and under the mentions it is which texts said it, ranked. All three are the
+// whole point of the mount: a query reached through the same verb that reads a
+// file.
 func (f *FS) Read(ctx context.Context, name string) ([]byte, error) {
 	spot, rest := locate(name)
 	switch spot {
@@ -107,6 +108,8 @@ func (f *FS) Read(ctx context.Context, name string) ([]byte, error) {
 		return bytes.Clone(held.Body), nil
 	case atEntity:
 		return f.expand(rest), nil
+	case atMentioned:
+		return f.mentions(rest), nil
 	case atSnapshot:
 		kept, err := f.fetch(ctx, rest)
 		if err != nil {
@@ -115,7 +118,7 @@ func (f *FS) Read(ctx context.Context, name string) ([]byte, error) {
 		return described(kept), nil
 	case atRestore:
 		return f.standing(), nil
-	case atRoot, atCorpus, atNeighbours, atSnapshots:
+	case atRoot, atCorpus, atNeighbours, atMentions, atSnapshots:
 		return nil, fmt.Errorf("read %q: a directory: %w", name, fs.ErrInvalid)
 	default:
 		return nil, fmt.Errorf("read %q: %w", name, fs.ErrNotExist)

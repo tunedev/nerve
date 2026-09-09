@@ -124,8 +124,8 @@ func TestASnapshotIsFiledApartFromTheGraph(t *testing.T) {
 func TestGraphfsMountRefusesAChainThatReadsNoEntities(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now),
-		stubEmbedder{}, testCorpus(t), nil, testGraphs(t)); err != nil {
-		t.Fatalf("registerKinds() = %v", err)
+		stubEmbedder{}, testCorpus(t), nil, testGraphs(t), nil); err != nil {
+		t.Fatalf("registerKinds(, nil) = %v", err)
 	}
 
 	_, err := registry.Table([]vfs.MountSpec{{
@@ -141,8 +141,8 @@ func TestGraphfsMountRefusesAChainThatReadsNoEntities(t *testing.T) {
 func TestGraphfsMountRefusesABuildWithNoCorpus(t *testing.T) {
 	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now),
-		stubEmbedder{}, nil, stubExtractor{}, graphStore(nil)); err != nil {
-		t.Fatalf("registerKinds() = %v", err)
+		stubEmbedder{}, nil, stubExtractor{}, graphStore(nil), nil); err != nil {
+		t.Fatalf("registerKinds(, nil) = %v", err)
 	}
 
 	_, err := registry.Table([]vfs.MountSpec{{
@@ -188,8 +188,8 @@ func mountGraph(t *testing.T, documents vectorfs.DocStore) *vfs.MountTable {
 
 	registry := vfs.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test", kvfs.NewMemStore(), vfs.NewTraffic(time.Now),
-		stubEmbedder{}, documents, gateway.AsEntityExtractor(), graphStore(documents)); err != nil {
-		t.Fatalf("registerKinds() = %v", err)
+		stubEmbedder{}, documents, gateway.AsEntityExtractor(), graphStore(documents), nil); err != nil {
+		t.Fatalf("registerKinds(, nil) = %v", err)
 	}
 
 	table, err := registry.Table([]vfs.MountSpec{{

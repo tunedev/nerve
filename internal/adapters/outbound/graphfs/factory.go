@@ -22,10 +22,11 @@ const (
 	settingEdges = "edges"
 )
 
-// DefaultEdges is how many claims an expansion is answered with when a mount
-// does not say. It is a context window's worth rather than a graph's: the
-// answer is read by something with room for a handful of statements, and a
-// well-connected entity has more edges than any of them can use.
+// DefaultEdges is how much of an answer a mount hands back when it does not
+// say: the claims an expansion carries, and the texts a mentions answer ranks.
+// It is a context window's worth rather than a graph's: the answer is read by
+// something with room for a handful of rows, and a well-connected entity has
+// more of both than any of them can use.
 const DefaultEdges = 20
 
 // Public names the settings safe to read back to an operator, which is both of
