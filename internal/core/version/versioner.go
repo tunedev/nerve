@@ -8,7 +8,6 @@ import (
 	"path"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/tunedev/nerve/internal/core/cas"
@@ -28,12 +27,6 @@ import (
 // the exception: comparing against nothing is a comparison, and restoring to
 // nothing would be a deletion of the whole tree wearing a restore's name.
 type Versioner struct {
-	// commits excludes a sweep, not each other. Two commits race on the ref and
-	// the loser is told so, but an object a commit has stored must not be swept
-	// between that write and the ref it is named from. Like the local ref
-	// store's compare-and-set, that holds for this process and for no other.
-	commits sync.RWMutex
-
 	work    WorkingCopy
 	objects *cas.Store
 	refs    RefStore
@@ -82,10 +75,24 @@ func (v *Versioner) Status(ctx context.Context, ref string) ([]Change, error) {
 // fresh reading of the ref. A copy taken from a version the ref has since moved
 // off fails with ErrConflict, because committing it would replace a version
 // this copy never saw with a tree that was never told about it.
+//
+// It is retained against a sweep of the object store for as long as it runs,
+// because the content is stored before the ref that names it exists.
 func (v *Versioner) Commit(ctx context.Context, ref, message string) (ID, error) {
-	v.commits.RLock()
-	defer v.commits.RUnlock()
+	var id ID
+	err := v.objects.Retain(func() error {
+		var err error
+		id, err = v.commit(ctx, ref, message)
+		return err
+	})
+	if err != nil {
+		return ID{}, err
+	}
+	return id, nil
+}
 
+// commit is Commit with the store already retained.
+func (v *Versioner) commit(ctx context.Context, ref, message string) (ID, error) {
 	stood, err := v.work.Base(ctx)
 	if err != nil {
 		return ID{}, err
@@ -253,13 +260,24 @@ func (v *Versioner) Reconcile(ctx context.Context, ref string) ([]Change, error)
 // Purge removes every object no version reachable from a ref or from where the
 // working copy stands refers to, and returns how many went.
 //
-// It excludes commits for as long as it runs. A commit stores its content
-// before the ref that will name it exists, so a sweep running between those two
-// would delete content a version is about to claim.
+// It excludes every commit over the object store for as long as it runs, not
+// only this versioner's. A commit stores its content before the ref that will
+// name it exists, so a sweep running between those two would delete content a
+// version is about to claim, and a second copy over one store is what a second
+// versioner is.
 func (v *Versioner) Purge(ctx context.Context) (int, error) {
-	v.commits.Lock()
-	defer v.commits.Unlock()
+	var removed int
+	err := v.objects.Sweep(func() error {
+		var err error
+		removed, err = v.purge(ctx)
+		return err
+	})
+	return removed, err
+}
 
+// purge is Purge with the store already swept, and returns how many objects
+// went even when it stops on one that would not.
+func (v *Versioner) purge(ctx context.Context) (int, error) {
 	reachable, err := v.reachable(ctx)
 	if err != nil {
 		return 0, err
