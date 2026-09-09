@@ -8,6 +8,8 @@
 //	/docs/<key>        the texts. Writing one reads its entities and relations
 //	                   into the graph; reading gives the text back
 //	/neighbours/<name> one hop out of every entity with that name
+//	/mentions/<name>   the texts naming that entity, the ones that say most
+//	                   about it first
 //	/snapshots/<label> the graph as it stood. Writing one takes it, reading one
 //	                   describes it, removing one forgets it
 //	/restore           write a label to set the graph back to that snapshot
@@ -17,9 +19,15 @@
 // query is: the tree has no parameters, so the name of the thing being asked
 // about goes where a name goes and the claims come back the way content does.
 //
-// Nothing under /neighbours is stored. A name there exists because it is a
-// thing that can be asked about, so a listing of /neighbours is empty while a
-// read of any name under it answers.
+// Nothing under /neighbours or /mentions is stored. A name there exists because
+// it is a thing that can be asked about, so a listing of either is empty while a
+// read of any name under one answers.
+//
+// The two answer the same question from opposite ends. An expansion is what the
+// graph says about a thing; the mentions are which texts said it. A retriever
+// filling a context window wants the texts, and it wants them as a ranking it
+// can fuse with another ranking over the same keys, which is why they come back
+// ordered and keyed the way the corpus is keyed.
 //
 // The entities and relations are read through the gateway, so nothing here
 // holds a model client and which endpoint reads a text is a line of config. A
@@ -57,6 +65,7 @@ import (
 const (
 	Docs       = "docs"
 	Neighbours = "neighbours"
+	Mentions   = "mentions"
 	Snapshots  = "snapshots"
 	Restore    = "restore"
 	Config     = "config"
@@ -98,7 +107,8 @@ type FS struct {
 }
 
 // Open returns the graph named name kept in store and snapshotted into
-// snapshots, read by extract, answering an expansion with at most edges claims.
+// snapshots, read by extract, answering an expansion with at most edges claims
+// and a mentions query with at most edges texts.
 //
 // The graph is loaded here, so a store that cannot be read is a graph that
 // cannot be opened. Nothing kept under the name yet is a graph with nothing in
@@ -150,6 +160,11 @@ const (
 	atNeighbours
 	// atEntity is a name under it, which is the entity being asked about.
 	atEntity
+	// atMentions is the mentions directory itself, which holds nothing.
+	atMentions
+	// atMentioned is a name under it, which is the entity the texts are ranked
+	// against.
+	atMentioned
 	// atSnapshots is the snapshots directory itself, which lists the labels.
 	atSnapshots
 	// atSnapshot is a label under it: a graph as it stood, or a label nothing
@@ -175,6 +190,8 @@ func locate(name string) (spot, string) {
 		return atCorpus, ""
 	case clean == separator+Neighbours:
 		return atNeighbours, ""
+	case clean == separator+Mentions:
+		return atMentions, ""
 	case clean == separator+Snapshots:
 		return atSnapshots, ""
 	case clean == separator+Restore:
@@ -183,6 +200,8 @@ func locate(name string) (spot, string) {
 		return atDoc, strings.TrimPrefix(clean, separator+Docs+separator)
 	case strings.HasPrefix(clean, separator+Neighbours+separator):
 		return atEntity, strings.TrimPrefix(clean, separator+Neighbours+separator)
+	case strings.HasPrefix(clean, separator+Mentions+separator):
+		return atMentioned, strings.TrimPrefix(clean, separator+Mentions+separator)
 	case strings.HasPrefix(clean, separator+Snapshots+separator):
 		return atSnapshot, strings.TrimPrefix(clean, separator+Snapshots+separator)
 	default:
@@ -191,8 +210,8 @@ func locate(name string) (spot, string) {
 }
 
 // description is what the config path holds: what the graph is called and how
-// many claims one expansion is answered with. Where the blob is kept is the
-// store's business and reads back through the operator surface, which redacts.
+// much of an answer it hands back. Where the blob is kept is the store's
+// business and reads back through the operator surface, which redacts.
 func (f *FS) description() []byte {
 	return []byte("graph " + f.name + "\nedges " + strconv.Itoa(f.edges) + "\n")
 }
@@ -212,8 +231,8 @@ func base(name string) string { return path.Base(strings.TrimSuffix(name, separa
 // missing entry: there is nothing a caller could create first to make it work.
 func (f *FS) refuse(verb, name string, where spot) error {
 	if where == outside {
-		return fmt.Errorf("%s %q: a graph holds %q, %q, %q, %q and %q: %w",
-			verb, name, Docs, Neighbours, Snapshots, Restore, Config, fs.ErrPermission)
+		return fmt.Errorf("%s %q: a graph holds %q, %q, %q, %q, %q and %q: %w",
+			verb, name, Docs, Neighbours, Mentions, Snapshots, Restore, Config, fs.ErrPermission)
 	}
 	return fmt.Errorf("%s %q: the shape of the mount: %w", verb, name, fs.ErrPermission)
 }

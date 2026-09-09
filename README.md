@@ -194,6 +194,15 @@ so it survives the process that learnt it. It is empty by default, and empty mea
 keeps no documents, so a `vectorfs` or `graphfs` mount is refused at boot rather than mounted
 over nowhere.
 
+A `hybridfs` mount fuses the rankings other mounts answer with. Its `sources` setting names
+them by path — `vector=/index/query;graph=/graph/mentions` — and it reads each through the
+same tree every other caller writes to, so what it fuses is the mounts themselves rather
+than copies of them. The fold is Reciprocal Rank Fusion: a key scores the sum of
+1/(`damping` + its rank) over the rankers that named it, and nothing else about a ranking
+is read. That is why a similarity and a claim count need no calibration between them, and
+why a new sort of index becomes fusible by being mounted somewhere that answers a question
+with a ranking.
+
 `telemetry-endpoint` is where that goes: an OTLP collector URL, `http://` for plaintext and
 `https://` for TLS, as the OTLP exporters read the standard variable. It is empty by
 default and empty means nothing is exported — the recorder still runs, into providers that

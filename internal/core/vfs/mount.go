@@ -23,7 +23,8 @@ import (
 // A path arrives in the table's vocabulary and reaches the plugin in the
 // plugin's: "/queue/jobs/next" is handed to the mount at "/queue" as
 // "/jobs/next", and the mount point itself as "/". Paths a plugin hands back
-// make the same trip in reverse.
+// make the same trip in reverse, and so does the name of a mount point, which
+// the plugin can only call "/" because that is all it was handed.
 //
 // Being the dispatcher is why the port carries Capabilities and the As*
 // accessors instead of leaving callers to type-assert: an assertion would
@@ -138,6 +139,18 @@ func (m mount) restore(name string) string {
 	return m.prefix + name
 }
 
+// restoreName puts the name of an entry the plugin described back into the
+// table's vocabulary. Only the mount point differs: the plugin was handed its
+// own root and named it "/", where the table knows the entry by the final
+// element of the prefix. rest is the path in the plugin's vocabulary.
+func (m mount) restoreName(rest string, info FileInfo) FileInfo {
+	if rest != "/" || m.prefix == "/" {
+		return info
+	}
+	info.Name = path.Base(m.prefix)
+	return info
+}
+
 // pair resolves two paths that one plugin has to handle together. It fails with
 // fs.ErrInvalid when they land on different mounts, because no plugin can act
 // on an entry it does not hold.
@@ -219,7 +232,11 @@ func (t *MountTable) Stat(ctx context.Context, name string) (FileInfo, error) {
 	if err != nil {
 		return FileInfo{}, err
 	}
-	return m.fsys.Stat(ctx, rest)
+	found, err := m.fsys.Stat(ctx, rest)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	return m.restoreName(rest, found), nil
 }
 
 func (t *MountTable) Rename(ctx context.Context, oldPath, newPath string) error {
@@ -362,7 +379,11 @@ func (s tableSymlinker) Lstat(ctx context.Context, name string) (FileInfo, error
 	if err != nil {
 		return FileInfo{}, err
 	}
-	return Lstat(ctx, m.fsys, rest)
+	found, err := Lstat(ctx, m.fsys, rest)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	return m.restoreName(rest, found), nil
 }
 
 type tableStreamer struct {

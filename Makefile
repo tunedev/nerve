@@ -120,3 +120,9 @@ lint: ## Verify the lint config, then run golangci-lint
 # without cgo.
 .PHONY: check
 check: fmt-check lint race repro ## Everything CI runs
+
+# Not part of `check`: this one reads the remote and the forge, and check has to
+# run with nothing started and no network.
+.PHONY: delivered
+delivered: ## List delivered branches that are not on main yet
+	@./scripts/delivered

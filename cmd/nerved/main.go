@@ -130,11 +130,12 @@ func main() {
 		fail(err)
 	}
 
+	fused := &grown{}
 	registry := vfs.NewRegistry(cfg.CallTimeoutDuration(), retry, breaker)
 	registry.Record(vfs.Recorders(signals.Recorder, traffic))
 	registry.ReadAhead(cfg.ReadaheadBytes())
 	if err := registerKinds(registry, version, store, traffic, gateway.AsEmbedder(), documents,
-		gateway.AsEntityExtractor(), graphStore(documents)); err != nil {
+		gateway.AsEntityExtractor(), graphStore(documents), fused.tree); err != nil {
 		fail(err)
 	}
 
@@ -143,6 +144,7 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	fused.table = table
 
 	// The libraries this process serves come from the same document: a kind is
 	// a name and the file that makes a directory one of its documents, and a

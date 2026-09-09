@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"sync"
 
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
@@ -28,6 +29,11 @@ import (
 // The fanout keeps a tree's directories small; over a mount that reports the
 // object-store descriptor the elements are prefix and the layout costs nothing.
 type Store struct {
+	// sweeps excludes a sweep from what is being stored, and lives here rather
+	// than on a caller because the store is the thing swept. Retain and Sweep
+	// are how it is taken.
+	sweeps sync.RWMutex
+
 	fsys vfs.FileSystem
 	root string
 }
