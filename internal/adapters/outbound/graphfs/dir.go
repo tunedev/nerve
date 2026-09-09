@@ -16,10 +16,11 @@ import (
 // differently: a text is what the graph says it is, and a prefix is a directory
 // only for as long as a text sits under it.
 //
-// An expansion has no stored existence, so the size reported for one is the
-// size of the answer. Unlike a similarity query that costs a model call,
-// answering is a walk of what this process already holds, so a caller that
-// stats before reading pays a walk twice and no round trip at all.
+// An expansion and a mentions answer have no stored existence, so the size
+// reported for one is the size of the answer. Unlike a similarity query that
+// costs a model call, answering is a walk of what this process already holds,
+// so a caller that stats before reading pays a walk twice and no round trip at
+// all.
 func (f *FS) Stat(ctx context.Context, name string) (vfs.FileInfo, error) {
 	spot, rest := locate(name)
 	switch spot {
@@ -29,6 +30,8 @@ func (f *FS) Stat(ctx context.Context, name string) (vfs.FileInfo, error) {
 		return dirInfo(Docs), nil
 	case atNeighbours:
 		return dirInfo(Neighbours), nil
+	case atMentions:
+		return dirInfo(Mentions), nil
 	case atSnapshots:
 		return dirInfo(Snapshots), nil
 	case atRestore:
@@ -41,6 +44,8 @@ func (f *FS) Stat(ctx context.Context, name string) (vfs.FileInfo, error) {
 		return f.statDoc(name, rest)
 	case atEntity:
 		return vfs.FileInfo{Name: base(rest), Size: int64(len(f.expand(rest))), Mode: fileMode}, nil
+	case atMentioned:
+		return vfs.FileInfo{Name: base(rest), Size: int64(len(f.mentions(rest))), Mode: fileMode}, nil
 	default:
 		return vfs.FileInfo{}, fmt.Errorf("stat %q: %w", name, fs.ErrNotExist)
 	}
@@ -54,9 +59,10 @@ func (f *FS) Stat(ctx context.Context, name string) (vfs.FileInfo, error) {
 // took it, so there is a set to enumerate and it is the useful thing to read
 // before restoring one.
 //
-// The expansions list nothing, ever. Every name under them answers, so there is
-// nothing to enumerate: a listing would either be empty or be the set of
-// entities somebody happened to ask about, and only the first of those is true.
+// The expansions and the mentions list nothing, ever. Every name under them
+// answers, so there is nothing to enumerate: a listing would either be empty or
+// be the set of entities somebody happened to ask about, and only the first of
+// those is true.
 //
 // A text and a prefix can share a name, which no tree allows, and the text is
 // the one listed: it describes itself, where a prefix is only ever described by
@@ -69,11 +75,12 @@ func (f *FS) ReadDir(ctx context.Context, name string) ([]vfs.FileInfo, error) {
 		return []vfs.FileInfo{
 			{Name: Config, Size: int64(len(f.description())), Mode: fileMode},
 			dirInfo(Docs),
+			dirInfo(Mentions),
 			dirInfo(Neighbours),
 			{Name: Restore, Size: int64(len(f.standing())), Mode: fileMode},
 			dirInfo(Snapshots),
 		}, nil
-	case atNeighbours:
+	case atNeighbours, atMentions:
 		return nil, nil
 	case atCorpus, atDoc:
 		return f.listTexts(prefixOf(key)), nil

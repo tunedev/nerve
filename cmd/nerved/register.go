@@ -10,6 +10,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/heartbeatfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/hellofs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/httpfs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/hybridfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/kvfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/localfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/memfs"
@@ -86,12 +87,19 @@ import (
 // graph and how many claims one expansion carries, which is both of its
 // settings: neither is a credential.
 //
+// hybridfs is given the tree its mounts are in, because a fusion reads its
+// rankings from mounts rather than building them: which paths answer a question
+// with a ranking is config, and the mounts it reads have to be the ones every
+// other caller writes through. A build that names no tree hands over a nil, and
+// the kind refuses a mount rather than booting a fusion that could answer
+// nothing.
+//
 // proxyfs is given the registry's bare build, so the kind behind a proxy comes
 // out of the same table of kinds as any other mount and is wrapped exactly
 // once — by the Build that puts the proxy itself into the table. exportfs is
 // given it for the same reason: the kind holding an export's inputs is a kind
 // like any other, and the export mount over it is what goes into the table.
-func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store, traffic *vfs.Traffic, embed llm.Embedder, corpus vectorfs.DocStore, extract llm.EntityExtractor, graphs graphKeeper) error {
+func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store, traffic *vfs.Traffic, embed llm.Embedder, corpus vectorfs.DocStore, extract llm.EntityExtractor, graphs graphKeeper, tree func() vfs.FileSystem) error {
 	return errors.Join(
 		registry.Register(memfs.Kind, memfs.Factory),
 		registry.Register(localfs.Kind, localfs.Factory, localfs.RootSetting),
@@ -101,6 +109,7 @@ func registerKinds(registry *vfs.Registry, version string, keyspace kvfs.Store, 
 		registry.Register(sqlfs.Kind, sqlfs.Factory, sqlfs.PathSetting),
 		registry.Register(vectorfs.Kind, vectorfs.Factory(embed, corpus), vectorfs.Public...),
 		registry.Register(graphfs.Kind, graphfs.Factory(extract, graphs, graphs), graphfs.Public...),
+		registry.Register(hybridfs.Kind, hybridfs.Factory(tree), hybridfs.Public...),
 		registry.Register(streamfs.Kind, streamfs.Factory, streamfs.Public...),
 		registry.Register(streamrotatefs.Kind, streamrotatefs.Factory, streamrotatefs.Public...),
 		registry.Register(hellofs.Kind, hellofs.Factory, hellofs.MessageSetting),

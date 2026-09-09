@@ -72,7 +72,7 @@ func (f *FS) Chmod(ctx context.Context, name string, mode fs.FileMode) error {
 // its shape and not entries a verb may move.
 func fixed(where spot) bool {
 	switch where {
-	case atRoot, atCorpus, atNeighbours, atSnapshots:
+	case atRoot, atCorpus, atNeighbours, atMentions, atSnapshots:
 		return true
 	default:
 		return false

@@ -31,7 +31,7 @@ func (f *FS) Remove(ctx context.Context, name string) error {
 			return fmt.Errorf("remove %q: %w", name, err)
 		}
 		return nil
-	case atRoot, atCorpus, atNeighbours, atSnapshots:
+	case atRoot, atCorpus, atNeighbours, atMentions, atSnapshots:
 		return fmt.Errorf("remove %q: the mount itself: %w", name, fs.ErrInvalid)
 	default:
 		return f.refuse("remove", name, spot)
