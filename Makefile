@@ -82,7 +82,7 @@ test-store: ## Run the object-store tests against the running MinIO
 test-queue: ## Run the queue tests against the running Postgres and RabbitMQ
 	@$(RUN_ENV) NERVE_QUEUEFS_JOURNAL=$${NERVE_QUEUEFS_JOURNAL:-$${NERVE_POSTGRES_DSN:-postgres://nerve:nerve@127.0.0.1:$${NERVE_POSTGRES_PORT:-5432}/nerve?sslmode=disable}} \
 		NERVE_QUEUEFS_BROKER=$${NERVE_QUEUEFS_BROKER:-$${NERVE_RABBITMQ_URL:-amqp://nerve:nerve@127.0.0.1:$${NERVE_RABBITMQ_PORT:-5672}/}} \
-		$(GO) test ./internal/adapters/outbound/queuefs/
+		$(GO) test ./internal/adapters/outbound/queuefs/ ./cmd/nerved/
 
 .PHONY: test-index
 test-index: ## Run the vector index tests against the running Postgres and Ollama
