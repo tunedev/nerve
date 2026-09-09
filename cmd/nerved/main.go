@@ -157,6 +157,26 @@ func main() {
 		fail(err)
 	}
 
+	// The resources and the scratch state of every workspace stand on the same
+	// tree the mounts present, each under a root this process was configured
+	// with. It is one decision named twice rather than two: an area of the
+	// tree, spelled the way a library's root is spelled, derived from on every
+	// call by the scope that owns it. A build that names neither holds neither.
+	//
+	// The key a download grant is signed with comes from a file the config
+	// names, never from a setting the config carries. A secret has its own
+	// lifecycle — rotated without a config change, stored where the document is
+	// not — and keeping no layer able to hold it is what keeps it out of the
+	// banner below and off the operator surface.
+	resources, err := resourceStore(table, cfg.ResourcesRoot, cfg.DownloadKeyFile)
+	if err != nil {
+		fail(err)
+	}
+	scratch, err := scratchSpace(table, cfg.ScratchRoot)
+	if err != nil {
+		fail(err)
+	}
+
 	// The formats this build can ingest register here for the reason storage
 	// kinds do: this is the only place that knows a concrete processor. What a
 	// resource is read by is the media type it declared, so which types the
@@ -190,6 +210,12 @@ func main() {
 	}
 	for _, spec := range libraries.Specs() {
 		slog.Info("library", "kind", spec.Kind.Name, "root", spec.Root, "file", spec.Kind.Filename)
+	}
+	if resources != nil {
+		slog.Info("resources", "root", cfg.ResourcesRoot, "download-key-file", cfg.DownloadKeyFile)
+	}
+	if scratch != nil {
+		slog.Info("scratch", "root", cfg.ScratchRoot)
 	}
 	slog.Info("ingest", "formats", processors.MediaTypes())
 	slog.Info("gateway", "providers", gateway.Providers(), "serves", gateway.Capabilities())
