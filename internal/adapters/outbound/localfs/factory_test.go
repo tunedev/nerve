@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/localfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -97,7 +98,7 @@ func TestFactoryRefusesSettingsItCannotHonour(t *testing.T) {
 // plugin, whatever it implements.
 func TestLocalfsMountsFromAMountSpec(t *testing.T) {
 	root := t.TempDir()
-	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Second, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registry.Register(localfs.Kind, localfs.Factory, localfs.RootSetting); err != nil {
 		t.Fatalf("Register(localfs) = %v", err)
 	}

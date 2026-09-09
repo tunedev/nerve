@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/httpfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -95,11 +96,11 @@ func TestAServerFailureIsTransient(t *testing.T) {
 	fsys := mustNew(t, server)
 
 	_, err := fsys.Read(t.Context(), "/notes")
-	if !errors.Is(err, vfs.ErrTransient) {
-		t.Errorf("Read against a 503 = %v, want vfs.ErrTransient", err)
+	if !errors.Is(err, stability.ErrTransient) {
+		t.Errorf("Read against a 503 = %v, want stability.ErrTransient", err)
 	}
-	if vfs.Classify(err) != vfs.Retryable {
-		t.Errorf("Classify(503) = %v, want retryable", vfs.Classify(err))
+	if stability.Classify(err) != stability.Retryable {
+		t.Errorf("Classify(503) = %v, want retryable", stability.Classify(err))
 	}
 }
 

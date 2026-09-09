@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/objectfs"
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // What a store answers and what the plugin makes of it can be asserted without
@@ -131,13 +131,13 @@ func TestRefusalsCarryWhatARetryNeedsToKnow(t *testing.T) {
 	refusals := []struct {
 		status int
 		want   error
-		class  vfs.Class
+		class  stability.Class
 	}{
-		{status: http.StatusNotFound, want: fs.ErrNotExist, class: vfs.FailFast},
-		{status: http.StatusForbidden, want: fs.ErrPermission, class: vfs.FailFast},
-		{status: http.StatusBadRequest, want: fs.ErrInvalid, class: vfs.FailFast},
-		{status: http.StatusServiceUnavailable, want: vfs.ErrTransient, class: vfs.Retryable},
-		{status: http.StatusTooManyRequests, want: vfs.ErrTransient, class: vfs.Retryable},
+		{status: http.StatusNotFound, want: fs.ErrNotExist, class: stability.FailFast},
+		{status: http.StatusForbidden, want: fs.ErrPermission, class: stability.FailFast},
+		{status: http.StatusBadRequest, want: fs.ErrInvalid, class: stability.FailFast},
+		{status: http.StatusServiceUnavailable, want: stability.ErrTransient, class: stability.Retryable},
+		{status: http.StatusTooManyRequests, want: stability.ErrTransient, class: stability.Retryable},
 	}
 
 	for _, refusal := range refusals {
@@ -150,7 +150,7 @@ func TestRefusalsCarryWhatARetryNeedsToKnow(t *testing.T) {
 			if !errors.Is(err, refusal.want) {
 				t.Errorf("Head against %d = %v, want %v", refusal.status, err, refusal.want)
 			}
-			if class := vfs.Classify(err); class != refusal.class {
+			if class := stability.Classify(err); class != refusal.class {
 				t.Errorf("Classify = %v, want %v", class, refusal.class)
 			}
 		})

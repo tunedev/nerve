@@ -12,6 +12,7 @@ import (
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/kvfs"
 	"github.com/tunedev/nerve/internal/adapters/outbound/objectfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -116,7 +117,7 @@ func boot(t *testing.T, url string) *vfs.MountTable {
 		t.Fatalf("keyspace(%q) = %v", url, err)
 	}
 
-	registry := vfs.NewRegistry(10*time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(10*time.Second, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test", store, vfs.NewTraffic(time.Now), stubEmbedder{}, testCorpus(t), stubExtractor{}, testGraphs(t)); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}

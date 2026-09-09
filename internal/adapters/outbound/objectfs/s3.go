@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // modeHeader and modTimeHeader are where an object keeps what a bucket has no
@@ -264,7 +264,7 @@ func (s *S3) do(ctx context.Context, method, path string, query map[string]strin
 
 	response, err := s.client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("%s %s: %w: %w", method, path, err, vfs.ErrTransient)
+		return nil, fmt.Errorf("%s %s: %w: %w", method, path, err, stability.ErrTransient)
 	}
 	if response.StatusCode >= http.StatusBadRequest {
 		defer drain(response)
@@ -285,7 +285,7 @@ func statusError(method, path string, response *http.Response) error {
 	case response.StatusCode == http.StatusForbidden, response.StatusCode == http.StatusUnauthorized:
 		return fmt.Errorf("%s: %w", where, fs.ErrPermission)
 	case response.StatusCode == http.StatusTooManyRequests, response.StatusCode >= http.StatusInternalServerError:
-		return fmt.Errorf("%s: %w", where, vfs.ErrTransient)
+		return fmt.Errorf("%s: %w", where, stability.ErrTransient)
 	default:
 		return fmt.Errorf("%s: %s: %w", where, detail(response), fs.ErrInvalid)
 	}

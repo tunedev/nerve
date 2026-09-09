@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -190,7 +191,7 @@ func TestAFailureIsMeasuredUnderItsClass(t *testing.T) {
 		outcome string
 		level   slog.Level
 	}{
-		{"transient", fmt.Errorf("read: %w", vfs.ErrTransient), "retryable", slog.LevelWarn},
+		{"transient", fmt.Errorf("read: %w", stability.ErrTransient), "retryable", slog.LevelWarn},
 		{"answer", fmt.Errorf("read: %w", errors.New("no such file")), "fail-fast", slog.LevelDebug},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

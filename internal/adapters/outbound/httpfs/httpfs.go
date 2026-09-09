@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -86,7 +87,7 @@ func (f *FS) Read(ctx context.Context, name string) ([]byte, error) {
 
 	content, err := io.ReadAll(body)
 	if err != nil {
-		return nil, fmt.Errorf("read %q: %w: %w", name, err, vfs.ErrTransient)
+		return nil, fmt.Errorf("read %q: %w: %w", name, err, stability.ErrTransient)
 	}
 	return content, nil
 }
@@ -185,7 +186,7 @@ func (f *FS) do(ctx context.Context, method, name string) (*http.Response, error
 
 	response, err := f.client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w: %w", method, name, err, vfs.ErrTransient)
+		return nil, fmt.Errorf("%s %q: %w: %w", method, name, err, stability.ErrTransient)
 	}
 	if response.StatusCode >= http.StatusBadRequest {
 		defer drain(response)
@@ -232,7 +233,7 @@ func statusError(method, name string, response *http.Response) error {
 	case response.StatusCode == http.StatusForbidden, response.StatusCode == http.StatusUnauthorized:
 		return fmt.Errorf("%s: %w", where, fs.ErrPermission)
 	case response.StatusCode == http.StatusTooManyRequests, response.StatusCode >= http.StatusInternalServerError:
-		return fmt.Errorf("%s: %w", where, vfs.ErrTransient)
+		return fmt.Errorf("%s: %w", where, stability.ErrTransient)
 	default:
 		return fmt.Errorf("%s: %w", where, fs.ErrInvalid)
 	}

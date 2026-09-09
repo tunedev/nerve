@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // RetryPolicy is the two retry settings in the vocabulary of the code that uses
@@ -15,8 +15,8 @@ import (
 // a usable policy. One built by hand and never validated resolves to a single
 // attempt with no wait, which is retry turned off — which is why Load is the
 // way in.
-func (c Config) RetryPolicy() vfs.Retry {
+func (c Config) RetryPolicy() stability.Retry {
 	attempts, _ := strconv.Atoi(c.RetryAttempts)
 	backoff, _ := time.ParseDuration(c.RetryBackoff)
-	return vfs.Retry{Attempts: attempts, Backoff: backoff}
+	return stability.Retry{Attempts: attempts, Backoff: backoff}
 }

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // Factory builds one plugin from the settings its config names.
@@ -53,8 +55,8 @@ type Registry struct {
 	factories map[string]Factory
 	public    map[string][]string
 	timeout   time.Duration
-	retry     Retry
-	breaker   Breaker
+	retry     stability.Retry
+	breaker   stability.Breaker
 	recorder  Recorder
 	readahead int
 	held      []io.Closer
@@ -74,7 +76,7 @@ type Registry struct {
 //
 // Readahead starts at DefaultReadahead for the same reason, and ReadAhead only
 // changes how far in front of a caller a streaming read runs.
-func NewRegistry(timeout time.Duration, retry Retry, breaker Breaker) *Registry {
+func NewRegistry(timeout time.Duration, retry stability.Retry, breaker stability.Breaker) *Registry {
 	return &Registry{
 		factories: make(map[string]Factory),
 		public:    make(map[string][]string),

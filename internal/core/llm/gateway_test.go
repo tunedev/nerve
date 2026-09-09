@@ -11,21 +11,21 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/core/llm"
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // The policies every test here builds a chain with unless it says otherwise:
 // one attempt so a failure is one call, a circuit that opens on the first
 // transient failure, and a deadline no test reaches.
 var (
-	once     = vfs.Retry{Attempts: 1}
-	prompt   = vfs.Breaker{Threshold: 1, Cooldown: time.Minute}
+	once     = stability.Retry{Attempts: 1}
+	prompt   = stability.Breaker{Threshold: 1, Cooldown: time.Minute}
 	patience = time.Minute
 )
 
 // errTransient is a far end wobbling: the one class another attempt, or another
 // endpoint, might not see.
-var errTransient = fmt.Errorf("connection reset: %w", vfs.ErrTransient)
+var errTransient = fmt.Errorf("connection reset: %w", stability.ErrTransient)
 
 // endpoint answers Summarise with whatever a test set, counting the calls that
 // reached it. It is how a test moves one provider in a chain between failing

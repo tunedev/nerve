@@ -16,7 +16,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/termsum"
 	"github.com/tunedev/nerve/internal/adapters/outbound/termvec"
 	"github.com/tunedev/nerve/internal/core/llm"
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // providerRegistry is one holding every provider kind this build has, under the
@@ -24,7 +24,7 @@ import (
 func providerRegistry(t *testing.T) *llm.Registry {
 	t.Helper()
 
-	registry := llm.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := llm.NewRegistry(time.Second, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerProviders(registry); err != nil {
 		t.Fatalf("registerProviders() = %v", err)
 	}

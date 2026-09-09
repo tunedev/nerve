@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -335,7 +336,7 @@ func TestCapabilitiesComeFromThePlugin(t *testing.T) {
 // through the registry, and the registry hands back a bounded one.
 func TestTheRegistryBuildsNothingUnbounded(t *testing.T) {
 	note := &noting{}
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{}, vfs.Breaker{})
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{}, stability.Breaker{})
 	if err := registry.Register("noting", func(map[string]string) (vfs.FileSystem, error) {
 		return note, nil
 	}); err != nil {

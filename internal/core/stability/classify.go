@@ -1,4 +1,4 @@
-package vfs
+package stability
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 // refused a connection, dropped one mid-call, or answered that it is busy. A
 // plugin wraps it around whatever its driver returned —
 //
-//	fmt.Errorf("read %q: %w: %w", path, err, vfs.ErrTransient)
+//	fmt.Errorf("read %q: %w: %w", path, err, stability.ErrTransient)
 //
 // — and that wrapping is the whole of how a driver's error vocabulary becomes
 // this one. Translating at the plugin's edge is the same move as mapping a

@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/ollama"
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // asked is what the endpoint was sent, recorded so a test can check the wire
@@ -143,8 +143,8 @@ func TestAMissingModelIsAnAnswerAndNotAWobble(t *testing.T) {
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("Embed = %v, want %v", err, fs.ErrNotExist)
 	}
-	if got := vfs.Classify(err); got != vfs.FailFast {
-		t.Errorf("Classify = %s, want %s", got, vfs.FailFast)
+	if got := stability.Classify(err); got != stability.FailFast {
+		t.Errorf("Classify = %s, want %s", got, stability.FailFast)
 	}
 }
 
@@ -162,8 +162,8 @@ func TestABusyEndpointIsTransient(t *testing.T) {
 			})
 
 			_, err := embedder.Embed(context.Background(), []string{"the pumps"})
-			if got := vfs.Classify(err); got != vfs.Retryable {
-				t.Errorf("Embed = %v, classified %s, want %s", err, got, vfs.Retryable)
+			if got := stability.Classify(err); got != stability.Retryable {
+				t.Errorf("Embed = %v, classified %s, want %s", err, got, stability.Retryable)
 			}
 		})
 	}
@@ -183,8 +183,8 @@ func TestAnUnreachableEndpointIsTransient(t *testing.T) {
 	defer embedder.CloseIdleConnections()
 
 	_, err = embedder.Embed(context.Background(), []string{"the pumps"})
-	if got := vfs.Classify(err); got != vfs.Retryable {
-		t.Errorf("Embed = %v, classified %s, want %s", err, got, vfs.Retryable)
+	if got := stability.Classify(err); got != stability.Retryable {
+		t.Errorf("Embed = %v, classified %s, want %s", err, got, stability.Retryable)
 	}
 }
 

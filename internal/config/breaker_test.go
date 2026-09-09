@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/config"
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // A checkout with no config of its own still breaks a failing mount, because
@@ -29,7 +29,7 @@ func TestTheBreakerSettingsResolveToAPolicy(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	want := vfs.Breaker{Threshold: 8, Cooldown: 5 * time.Second}
+	want := stability.Breaker{Threshold: 8, Cooldown: 5 * time.Second}
 	if got := cfg.BreakerPolicy(); got != want {
 		t.Errorf("BreakerPolicy() = %+v, want %+v", got, want)
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/kvfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -68,7 +69,7 @@ func TestFactoryRefusesSettingsItCannotHonour(t *testing.T) {
 // document reaches. Two mounts of one kind over one store is the arrangement
 // the namespace exists for, so it is the one asserted here.
 func TestKvfsMountsFromMountSpecs(t *testing.T) {
-	registry := vfs.NewRegistry(time.Second, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Second, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registry.Register(kvfs.Kind, kvfs.Factory(kvfs.NewMemStore()), kvfs.NamespaceSetting); err != nil {
 		t.Fatalf("Register(kvfs) = %v", err)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/tunedev/nerve/internal/core/llm"
 	"github.com/tunedev/nerve/internal/core/memory"
 	"github.com/tunedev/nerve/internal/core/session"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 	"github.com/tunedev/nerve/internal/core/workspace"
 )
@@ -402,10 +403,10 @@ func TestCommittingASessionNobodyHadFails(t *testing.T) {
 // happen is worse still.
 func TestAFailedExtractionWritesNothing(t *testing.T) {
 	said := &summariser{summary: "they talked"}
-	committer, sessions, memories := newCommitter(t, &extractor{err: fmt.Errorf("endpoint is down: %w", vfs.ErrUnavailable)}, said, 1)
+	committer, sessions, memories := newCommitter(t, &extractor{err: fmt.Errorf("endpoint is down: %w", stability.ErrUnavailable)}, said, 1)
 	mustTalk(t, sessions, "monday", [2]string{"user", "I prefer tabs"}, [2]string{"assistant", "noted"})
 
-	if _, err := committer.Commit(t.Context(), here, "monday"); !errors.Is(err, vfs.ErrUnavailable) {
+	if _, err := committer.Commit(t.Context(), here, "monday"); !errors.Is(err, stability.ErrUnavailable) {
 		t.Fatalf("Commit over a failing endpoint = %v, want the endpoint's failure", err)
 	}
 	if stored, err := memories.List(t.Context(), here); err != nil || len(stored) != 0 {
@@ -425,11 +426,11 @@ func TestAFailedExtractionWritesNothing(t *testing.T) {
 // interrupted the other way round would extract from a transcript it had
 // already narrowed and lose what the cold half said.
 func TestAFailedSummarisationLeavesTheColdHalfWhereItWasSaid(t *testing.T) {
-	said := &summariser{err: fmt.Errorf("endpoint is down: %w", vfs.ErrUnavailable)}
+	said := &summariser{err: fmt.Errorf("endpoint is down: %w", stability.ErrUnavailable)}
 	committer, sessions, memories := newCommitter(t, &extractor{facts: []llm.Fact{{Kind: "preference", Body: "tabs", Priority: llm.Low}}}, said, 1)
 	mustTalk(t, sessions, "monday", [2]string{"user", "I prefer tabs"}, [2]string{"assistant", "noted"})
 
-	if _, err := committer.Commit(t.Context(), here, "monday"); !errors.Is(err, vfs.ErrUnavailable) {
+	if _, err := committer.Commit(t.Context(), here, "monday"); !errors.Is(err, stability.ErrUnavailable) {
 		t.Fatalf("Commit over a failing summariser = %v, want the endpoint's failure", err)
 	}
 	transcript, err := sessions.Get(t.Context(), here, "monday")
@@ -631,7 +632,7 @@ func TestTheConsolidatorIsShownTheFactsThisCommitJustWrote(t *testing.T) {
 // not happen would not be.
 func TestAFailedConsolidationLeavesTheFactsAndTheTranscriptAlone(t *testing.T) {
 	said := &summariser{summary: "they talked"}
-	merge := &consolidator{err: fmt.Errorf("endpoint is down: %w", vfs.ErrUnavailable)}
+	merge := &consolidator{err: fmt.Errorf("endpoint is down: %w", stability.ErrUnavailable)}
 	found := &extractor{facts: []llm.Fact{
 		{Kind: "preference", Body: "prefers tabs", Priority: llm.Normal},
 		{Kind: "preference", Body: "prefers tabs in Go", Priority: llm.Normal},
@@ -639,7 +640,7 @@ func TestAFailedConsolidationLeavesTheFactsAndTheTranscriptAlone(t *testing.T) {
 	committer, sessions, memories, _ := newMergingCommitter(t, found, merge, said, 1)
 	mustTalk(t, sessions, "monday", [2]string{"user", "I prefer tabs, and tabs in Go"}, [2]string{"assistant", "noted"})
 
-	if _, err := committer.Commit(t.Context(), here, "monday"); !errors.Is(err, vfs.ErrUnavailable) {
+	if _, err := committer.Commit(t.Context(), here, "monday"); !errors.Is(err, stability.ErrUnavailable) {
 		t.Fatalf("Commit over a failing consolidator = %v, want the endpoint's failure", err)
 	}
 	if stored, err := memories.List(t.Context(), here); err != nil || len(stored) != 2 {

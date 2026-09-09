@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -22,7 +23,7 @@ func recording(settings map[string]string) (vfs.FileSystem, error) {
 func registered(t *testing.T, name string, factory vfs.Factory) *vfs.Registry {
 	t.Helper()
 
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{}, vfs.Breaker{})
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{}, stability.Breaker{})
 	if err := registry.Register(name, factory); err != nil {
 		t.Fatalf("register %q: %v", name, err)
 	}
@@ -121,7 +122,7 @@ func TestATableRefusesTwoMountsAtOnePrefix(t *testing.T) {
 }
 
 func TestConfigNamingNoMountsMountsNothing(t *testing.T) {
-	table, err := vfs.NewRegistry(time.Minute, vfs.Retry{}, vfs.Breaker{}).Table(nil)
+	table, err := vfs.NewRegistry(time.Minute, stability.Retry{}, stability.Breaker{}).Table(nil)
 	if err != nil {
 		t.Fatalf("build table: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestConfigNamingNoMountsMountsNothing(t *testing.T) {
 
 // A registry with nothing in it still says something an operator can act on.
 func TestAnEmptyRegistryTellsTheOperatorItIsEmpty(t *testing.T) {
-	_, err := vfs.NewRegistry(time.Minute, vfs.Retry{}, vfs.Breaker{}).Table([]vfs.MountSpec{{Prefix: "/", Kind: "disk"}})
+	_, err := vfs.NewRegistry(time.Minute, stability.Retry{}, stability.Breaker{}).Table([]vfs.MountSpec{{Prefix: "/", Kind: "disk"}})
 	if err == nil {
 		t.Fatal("building an unregistered kind succeeded")
 	}
@@ -145,7 +146,7 @@ func TestAnEmptyRegistryTellsTheOperatorItIsEmpty(t *testing.T) {
 // A kind says which of its settings can be read back. Nothing else can tell a
 // bucket name from an access key, so what a kind does not name is not echoed.
 func TestRegistryReportsTheSettingsAKindDeclares(t *testing.T) {
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{}, vfs.Breaker{})
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{}, stability.Breaker{})
 	if err := registry.Register("s3", recording, "endpoint", "bucket"); err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -169,8 +170,8 @@ func TestRegistryReportsTheSettingsAKindDeclares(t *testing.T) {
 // would then be retried by two layers, attempts times attempts against a
 // dependency already failing.
 func TestPluginBuildsWithoutTheWrappers(t *testing.T) {
-	target := &flaky{fail: 9, err: vfs.ErrTransient}
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{Attempts: 3, Backoff: time.Millisecond}, vfs.Breaker{Threshold: 9, Cooldown: time.Minute})
+	target := &flaky{fail: 9, err: stability.ErrTransient}
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{Attempts: 3, Backoff: time.Millisecond}, stability.Breaker{Threshold: 9, Cooldown: time.Minute})
 	if err := registry.Register("flaky", func(map[string]string) (vfs.FileSystem, error) { return target, nil }); err != nil {
 		t.Fatalf("register flaky: %v", err)
 	}
@@ -179,7 +180,7 @@ func TestPluginBuildsWithoutTheWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plugin(/flaky) = %v", err)
 	}
-	if _, err := bare.Read(context.Background(), "/notes"); !errors.Is(err, vfs.ErrTransient) {
+	if _, err := bare.Read(context.Background(), "/notes"); !errors.Is(err, stability.ErrTransient) {
 		t.Fatalf("Read through a bare plugin = %v, want the plugin's own failure", err)
 	}
 	if target.calls != 1 {
@@ -191,7 +192,7 @@ func TestPluginBuildsWithoutTheWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build(/flaky) = %v", err)
 	}
-	if _, err := wrapped.Read(context.Background(), "/notes"); !errors.Is(err, vfs.ErrTransient) {
+	if _, err := wrapped.Read(context.Background(), "/notes"); !errors.Is(err, stability.ErrTransient) {
 		t.Fatalf("Read through a built mount = %v, want the plugin's failure", err)
 	}
 	if target.calls != 3 {

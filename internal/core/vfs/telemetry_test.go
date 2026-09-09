@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -219,7 +220,7 @@ func TestACallThroughTheTreeIsReportedAgainstItsMount(t *testing.T) {
 	t.Parallel()
 
 	rec := &spy{}
-	registry := vfs.NewRegistry(time.Second, vfs.Retry{}, vfs.Breaker{Threshold: 2, Cooldown: time.Minute})
+	registry := vfs.NewRegistry(time.Second, stability.Retry{}, stability.Breaker{Threshold: 2, Cooldown: time.Minute})
 	registry.Record(rec)
 	if err := registry.Register("answering", func(map[string]string) (vfs.FileSystem, error) {
 		return answering{}, nil
@@ -248,7 +249,7 @@ func TestACallThroughTheTreeIsReportedAgainstItsMount(t *testing.T) {
 func TestARegistryWithNoRecorderStillBuilds(t *testing.T) {
 	t.Parallel()
 
-	registry := vfs.NewRegistry(time.Second, vfs.Retry{}, vfs.Breaker{Threshold: 2, Cooldown: time.Minute})
+	registry := vfs.NewRegistry(time.Second, stability.Retry{}, stability.Breaker{Threshold: 2, Cooldown: time.Minute})
 	if err := registry.Register("answering", func(map[string]string) (vfs.FileSystem, error) {
 		return answering{}, nil
 	}); err != nil {

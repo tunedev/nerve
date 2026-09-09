@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/config"
-	"github.com/tunedev/nerve/internal/core/vfs"
+	"github.com/tunedev/nerve/internal/core/stability"
 )
 
 // A checkout with no config of its own still retries, because the bottom layer
@@ -29,7 +29,7 @@ func TestTheRetrySettingsResolveToAPolicy(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	want := vfs.Retry{Attempts: 5, Backoff: 250 * time.Millisecond}
+	want := stability.Retry{Attempts: 5, Backoff: 250 * time.Millisecond}
 	if got := cfg.RetryPolicy(); got != want {
 		t.Errorf("RetryPolicy() = %+v, want %+v", got, want)
 	}

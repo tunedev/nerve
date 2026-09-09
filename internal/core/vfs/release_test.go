@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 )
 
@@ -35,7 +36,7 @@ func held(name string, log *[]string) *holder {
 func holding(t *testing.T, plugins ...*holder) *vfs.Registry {
 	t.Helper()
 
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{}, vfs.Breaker{})
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{}, stability.Breaker{})
 	for _, plugin := range plugins {
 		factory := func(map[string]string) (vfs.FileSystem, error) { return plugin, nil }
 		if err := registry.Register(plugin.name, factory); err != nil {
