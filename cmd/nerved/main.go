@@ -168,7 +168,13 @@ func main() {
 	// lifecycle — rotated without a config change, stored where the document is
 	// not — and keeping no layer able to hold it is what keeps it out of the
 	// banner below and off the operator surface.
-	resources, err := resourceStore(table, cfg.ResourcesRoot, cfg.DownloadKeyFile)
+	//
+	// The resources tree is the one thing here that is written through an
+	// observer. Every write a resource makes is reported to the queue named in
+	// config, which is how ingestion is triggered by the upload rather than by
+	// the uploader remembering to ask; a build that names no queue writes
+	// through the plain table and derives nothing.
+	resources, err := resourceStore(uploads(table, cfg.IngestQueue), cfg.ResourcesRoot, cfg.DownloadKeyFile)
 	if err != nil {
 		fail(err)
 	}
@@ -184,6 +190,24 @@ func main() {
 	// banner.
 	processors := ingest.NewRegistry()
 	if err := registerProcessors(processors); err != nil {
+		fail(err)
+	}
+
+	// The consuming end of ingestion: a ledger to record where a run got to, a
+	// pipeline over the stages this build has, and a worker claiming the jobs
+	// the observed tree queued. It is built here and started below, after the
+	// banner, because a process that failed to compose should say so before it
+	// starts anything.
+	//
+	// The ledger stands under a root of its own rather than beside the resource
+	// it is about: a record written into the observed tree would queue an
+	// ingestion of itself.
+	ledger, err := indexingLedger(table, cfg.IngestRoot)
+	if err != nil {
+		fail(err)
+	}
+	consuming, err := consumer(table, mounts, cfg.IngestQueue, cfg.ResourcesRoot, resources, ledger, processors)
+	if err != nil {
 		fail(err)
 	}
 
@@ -218,6 +242,7 @@ func main() {
 		slog.Info("scratch", "root", cfg.ScratchRoot)
 	}
 	slog.Info("ingest", "formats", processors.MediaTypes())
+	consuming.describe(cfg.IngestQueue, cfg.IngestRoot)
 	slog.Info("gateway", "providers", gateway.Providers(), "serves", gateway.Capabilities())
 	for _, path := range []string{"/config", "/livez", "/readyz"} {
 		slog.Info("admin", "url", fmt.Sprintf("http://%s%s", cfg.AdminAddr, path))
@@ -243,12 +268,18 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// The worker runs beside the server for as long as the process does, on the
+	// context signals cancel. Nothing else stops it: a queue with nobody
+	// publishing is a worker waiting, which is what it should be doing.
+	consuming.start(ctx)
+
 	served := serve(ctx, srv, health, cfg.DrainDelayDuration())
 
-	// The mounts are released after the server has stopped answering, so
-	// nothing is still mid-verb on one. A plugin holding a database connection
-	// or a broker channel gives it up here; before this, the only thing that
-	// ever closed one was the process ending.
+	// The mounts are released after the server has stopped answering and after
+	// the worker has finished the job it was on, so nothing is still mid-verb on
+	// one. A plugin holding a database connection or a broker channel gives it
+	// up here; before this, the only thing that ever closed one was the process
+	// ending.
 	//
 	// The flush comes last, after everything that could record has stopped and
 	// before the process is gone, so what the last requests recorded is
@@ -256,7 +287,7 @@ func main() {
 	// that ended is why we are here.
 	flush, cancel := context.WithTimeout(context.Background(), flushGrace)
 	defer cancel()
-	if err := errors.Join(served, registry.Release(), signals.Shutdown(flush)); err != nil {
+	if err := errors.Join(served, consuming.stop(), registry.Release(), signals.Shutdown(flush)); err != nil {
 		fail(err)
 	}
 }
