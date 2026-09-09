@@ -112,7 +112,7 @@ func (st *Store) Supersede(ctx context.Context, s workspace.Scope, source string
 // Each memory is written once, to a path of its own, and nothing already
 // written is read back and rewritten.
 func (st *Store) write(ctx context.Context, s workspace.Scope, source string, replaced []int, facts []Fact) ([]Memory, error) {
-	dir, err := st.dir(s)
+	scoped, err := st.held(s)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 		return nil, nil
 	}
 
-	seqs, aside, err := st.logSeqs(ctx, dir)
+	seqs, aside, err := logSeqs(ctx, scoped, logDir)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +143,7 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 		}
 	}
 	next := nextSeq(seqs, aside)
-	if err := st.fsys.Mkdir(ctx, dir); err != nil {
+	if err := scoped.Mkdir(ctx, logDir); err != nil {
 		return nil, err
 	}
 
@@ -155,7 +155,7 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 			return nil, err
 		}
 		seq := next + i
-		if err := st.fsys.Write(ctx, path.Join(dir, name(seq)), data); err != nil {
+		if err := scoped.Write(ctx, path.Join(logDir, name(seq)), data); err != nil {
 			return nil, fmt.Errorf("memory %d: %w", seq, err)
 		}
 		written = append(written, Memory{Seq: seq, Fact: fact, Source: source, At: m.At, Supersedes: replaced})
@@ -262,25 +262,25 @@ func closeIntervals(memories []Memory) error {
 // that replaced an archived memory, and one read without the other would report
 // a supersession naming a memory nobody wrote.
 func (st *Store) load(ctx context.Context, s workspace.Scope) ([]Memory, []Memory, error) {
-	dir, err := st.dir(s)
+	scoped, err := st.held(s)
 	if err != nil {
 		return nil, nil, err
 	}
-	seqs, archived, err := st.logSeqs(ctx, dir)
+	seqs, archived, err := logSeqs(ctx, scoped, logDir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%q: %w", dir, err)
+		return nil, nil, err
 	}
 
 	all := make([]Memory, 0, len(seqs)+len(archived))
 	for _, seq := range seqs {
-		m, err := st.read(ctx, dir, seq)
+		m, err := readMemory(ctx, scoped, logDir, seq)
 		if err != nil {
 			return nil, nil, err
 		}
 		all = append(all, m)
 	}
 	for _, seq := range archived {
-		m, err := st.read(ctx, path.Join(dir, archiveName), seq)
+		m, err := readMemory(ctx, scoped, path.Join(logDir, archiveName), seq)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -302,9 +302,9 @@ func (st *Store) load(ctx context.Context, s workspace.Scope) ([]Memory, []Memor
 	return live, aside, nil
 }
 
-// read returns the memory at seq in dir.
-func (st *Store) read(ctx context.Context, dir string, seq int) (Memory, error) {
-	data, err := st.fsys.Read(ctx, path.Join(dir, name(seq)))
+// readMemory returns the memory at seq in dir.
+func readMemory(ctx context.Context, fsys vfs.FileSystem, dir string, seq int) (Memory, error) {
+	data, err := fsys.Read(ctx, path.Join(dir, name(seq)))
 	if err != nil {
 		return Memory{}, fmt.Errorf("memory %d: %w", seq, err)
 	}
@@ -317,12 +317,12 @@ func (st *Store) read(ctx context.Context, dir string, seq int) (Memory, error) 
 
 // logSeqs returns the sequence of every memory in dir and of every memory in
 // its archive, each ascending.
-func (st *Store) logSeqs(ctx context.Context, dir string) ([]int, []int, error) {
-	seqs, err := st.seqsIn(ctx, dir)
+func logSeqs(ctx context.Context, fsys vfs.FileSystem, dir string) ([]int, []int, error) {
+	seqs, err := seqsIn(ctx, fsys, dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	archived, err := st.seqsIn(ctx, path.Join(dir, archiveName))
+	archived, err := seqsIn(ctx, fsys, path.Join(dir, archiveName))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -337,8 +337,8 @@ func (st *Store) logSeqs(ctx context.Context, dir string) ([]int, []int, error) 
 // something keeps, so a workspace whose caller was interrupted mid-batch still
 // says what it holds. Anything in the directory that is not a memory — the
 // archive, and whatever else a mount put there — is passed over.
-func (st *Store) seqsIn(ctx context.Context, dir string) ([]int, error) {
-	children, err := st.fsys.ReadDir(ctx, dir)
+func seqsIn(ctx context.Context, fsys vfs.FileSystem, dir string) ([]int, error) {
+	children, err := fsys.ReadDir(ctx, dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -371,14 +371,25 @@ func nextSeq(seqs, archived []int) int {
 	return next
 }
 
-// dir is where s keeps its memories.
+// logDir is where a scope keeps its memories seen from inside it, which is the
+// ground of the view and so the whole of it.
+const logDir = "/"
+
+// held is the store as a caller inside s sees it: the memories s keeps are
+// names in it rather than a path derived down to them.
+//
+// The view is what makes the scope a boundary rather than a prefix: a name is
+// resolved by the subtree the tree beneath hands out, so a link standing at any
+// component of the scope path is refused instead of followed. A path derived
+// down to the log and handed to the whole area is resolved by the whole area,
+// which follows that link.
 //
 // User scope is refused here and so everywhere below it. A scope with no
 // workspace derives the path holding every workspace that user has, so a memory
 // written there would stand where a workspace belongs.
-func (st *Store) dir(s workspace.Scope) (string, error) {
+func (st *Store) held(s workspace.Scope) (vfs.FileSystem, error) {
 	if s.Workspace == "" {
-		return "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
+		return nil, fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
 	}
-	return s.Path(st.root, "")
+	return s.View(st.fsys, st.root)
 }

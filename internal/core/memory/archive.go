@@ -79,33 +79,33 @@ const (
 // Every sequence is checked before any memory moves, so a batch naming one that
 // is not where it was said to be leaves the workspace as it found it.
 func (st *Store) move(ctx context.Context, s workspace.Scope, seqs []int, way direction) error {
-	dir, err := st.dir(s)
+	scoped, err := st.held(s)
 	if err != nil {
 		return err
 	}
 	if err := validArchival(seqs); err != nil {
 		return err
 	}
-	live, archived, err := st.logSeqs(ctx, dir)
+	live, archived, err := logSeqs(ctx, scoped, logDir)
 	if err != nil {
 		return err
 	}
 
-	from, to := dir, path.Join(dir, archiveName)
-	holding := live
+	from, to := logDir, path.Join(logDir, archiveName)
+	holding, where := live, "the log"
 	if way == fromArchive {
-		from, to, holding = to, dir, archived
+		from, to, holding, where = to, from, archived, "the archive"
 	}
 	for _, seq := range seqs {
 		if !slices.Contains(holding, seq) {
-			return fmt.Errorf("memory %d is not in %q: %w", seq, from, fs.ErrNotExist)
+			return fmt.Errorf("memory %d is not in %s: %w", seq, where, fs.ErrNotExist)
 		}
 	}
-	if err := st.fsys.Mkdir(ctx, to); err != nil {
+	if err := scoped.Mkdir(ctx, to); err != nil {
 		return err
 	}
 	for _, seq := range seqs {
-		if err := st.fsys.Rename(ctx, path.Join(from, name(seq)), path.Join(to, name(seq))); err != nil {
+		if err := scoped.Rename(ctx, path.Join(from, name(seq)), path.Join(to, name(seq))); err != nil {
 			return fmt.Errorf("memory %d: %w", seq, err)
 		}
 	}

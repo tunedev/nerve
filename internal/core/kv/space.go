@@ -33,11 +33,11 @@ func NewSpace(fsys vfs.FileSystem, root string) (*Space, error) {
 // Get returns the whole value key holds in s under namespace. A key nothing was
 // put under reports fs.ErrNotExist, which is what "there is no such state" is.
 func (sp *Space) Get(ctx context.Context, s workspace.Scope, namespace, key string) ([]byte, error) {
-	at, err := sp.at(s, namespace, key)
+	held, at, err := sp.held(s, namespace, key)
 	if err != nil {
 		return nil, fmt.Errorf("get %q/%q: %w", namespace, key, err)
 	}
-	value, err := sp.fsys.Read(ctx, at)
+	value, err := held.Read(ctx, at)
 	if err != nil {
 		return nil, fmt.Errorf("get %q/%q: %w", namespace, key, err)
 	}
@@ -51,14 +51,14 @@ func (sp *Space) Get(ctx context.Context, s workspace.Scope, namespace, key stri
 // holds is to put it again. The namespace is made before the write, which is
 // what a tree needs and what a keyspace has nothing to do about.
 func (sp *Space) Put(ctx context.Context, s workspace.Scope, namespace, key string, value []byte) error {
-	at, err := sp.at(s, namespace, key)
+	held, at, err := sp.held(s, namespace, key)
 	if err != nil {
 		return fmt.Errorf("put %q/%q: %w", namespace, key, err)
 	}
-	if err := sp.fsys.Mkdir(ctx, path.Dir(at)); err != nil {
+	if err := held.Mkdir(ctx, path.Dir(at)); err != nil {
 		return fmt.Errorf("put %q/%q: %w", namespace, key, err)
 	}
-	if err := sp.fsys.Write(ctx, at, value); err != nil {
+	if err := held.Write(ctx, at, value); err != nil {
 		return fmt.Errorf("put %q/%q: %w", namespace, key, err)
 	}
 	return nil
@@ -72,30 +72,41 @@ func (sp *Space) Put(ctx context.Context, s workspace.Scope, namespace, key stri
 // share a name, so reaching beneath the key would take out state something else
 // on the same mount put there under a longer name.
 func (sp *Space) Delete(ctx context.Context, s workspace.Scope, namespace, key string) error {
-	at, err := sp.at(s, namespace, key)
+	held, at, err := sp.held(s, namespace, key)
 	if err != nil {
 		return fmt.Errorf("delete %q/%q: %w", namespace, key, err)
 	}
-	if err := sp.fsys.Remove(ctx, at); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := held.Remove(ctx, at); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("delete %q/%q: %w", namespace, key, err)
 	}
 	return nil
 }
 
-// at is where key stands in s under namespace.
+// held is the space as a caller inside s sees it, and where key stands in it
+// under namespace.
+//
+// The view is what makes the scope a boundary rather than a prefix: the name is
+// resolved by the subtree the tree beneath hands out, so a link standing at any
+// component of the scope path is refused instead of followed. A path derived
+// down to the key and handed to the whole area is resolved by the whole area,
+// which follows that link.
 //
 // User scope is refused: a scope with no workspace derives the path holding
 // every workspace that user has, so a namespace written there would stand where
 // a workspace belongs and be listed as one.
-func (sp *Space) at(s workspace.Scope, namespace, key string) (string, error) {
+func (sp *Space) held(s workspace.Scope, namespace, key string) (vfs.FileSystem, string, error) {
 	if err := vfs.ValidSegment("namespace", namespace); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if err := vfs.ValidSegment("key", key); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if s.Workspace == "" {
-		return "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
+		return nil, "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
 	}
-	return s.Path(sp.root, path.Join(namespace, key))
+	held, err := s.View(sp.fsys, sp.root)
+	if err != nil {
+		return nil, "", err
+	}
+	return held, path.Join("/", namespace, key), nil
 }
