@@ -41,16 +41,23 @@ things deliberately refused.
 
 ## Status
 
-Scaffolding, plus the first three storage kinds. The binary boots on a validated config,
-mounts whatever the config names, prints the mount table it resolved, and serves a
-read-only operator surface until it is signalled, then drains. `memfs` keeps a tree in
-memory: a plain read-write tree that claims no descriptor, which is what makes it the
-reference every later plugin is read against. `localfs` passes the same verbs through to a
-host directory. `kvfs` is a namespaced key-value store over one keyspace, and the first
-kind that claims a descriptor: object-store, so a name is a prefix and nothing is a
-directory. `queuefs` is a job queue: read-destructive under its job path and read-only one
-path up, and the first kind whose durable state is a Postgres row and whose broker is only
-transport. The roadmap is the work.
+The binary boots on a validated config, mounts whatever the config names, logs each mount
+with the prefix, kind and capabilities it resolved, and serves a read-only operator surface
+until it is signalled, then drains. `docs/roadmap.md` is the work that remains.
+
+The kinds the shipped composition root registers group by what they promise, and what a
+caller reads is the descriptor each claims per path rather than its type. A build is its
+own authority on the list: mounting a kind it does not have stops the boot naming the ones
+it does.
+
+| Group | Kinds | What they promise |
+|---|---|---|
+| Trees | `memfs`, `localfs`, `sqlfs` | Read-write directories; no descriptor claimed. `memfs` is the reference the rest are read against |
+| Object stores | `kvfs`, `objectfs`, `httpfs` | A name is a prefix, nothing is a directory; `httpfs` is read-only over an origin |
+| Logs and queues | `streamfs`, `streamrotatefs`, `queuefs` | Append-only writes; `streamfs` broadcasts to every follower, `queuefs` reads destructively under its job path |
+| Retrieval | `vectorfs`, `graphfs`, `hybridfs` | A question is a path: similarity, claims about an entity, and the two fused |
+| Composed | `proxyfs`, `exportfs` | Another mount at a different name, and content derived from other paths, remade when they move |
+| Synthetic | `hellofs`, `heartbeatfs`, `serverinfofs`, `devfs` | The process answering about itself; `devfs` is where capability varies inside one mount |
 
 ## Running the stack
 
