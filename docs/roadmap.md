@@ -160,6 +160,12 @@ what it supports.
 
 In scope. Sandboxing user-authored code is a correctness requirement, not hardening.
 
+Two boundaries, and E11 owns one of them. The scoped VFS served by `fusefs` is the data
+boundary; the process boundary is a container, owned by whatever runs user code. What E11
+owns besides the mount is the contract between the two —
+`docs/notes/nrv-sd43-the-container-closes-the-process-boundary.md`, decided and not yet
+measured.
+
 | ID | Ticket | Done when |
 |---|---|---|
 | E11.1 | Mount the scoped VFS as a real filesystem | Agent code sees an ordinary directory tree |
