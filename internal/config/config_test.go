@@ -104,6 +104,13 @@ func TestInvalidConfigFailsAtBoot(t *testing.T) {
 		// silently exports somewhere else.
 		"telemetry endpoint not a URL": {Args: []string{"-telemetry-endpoint", "://nope"}},
 		"telemetry endpoint scheme":    {Args: []string{"-telemetry-endpoint", "grpc://collector:4317"}},
+		"resources root is relative":   {Args: []string{"-resources-root", "resources"}},
+		"resources root is unclean":    {Args: []string{"-resources-root", "/resources/"}},
+		"scratch root is relative":     {Args: []string{"-scratch-root", "scratch"}},
+		// A store with no signer is refused where it is built, so a root named
+		// without a key file is a process that cannot boot. Saying so here is
+		// what puts it beside the rest rather than one restart later.
+		"resources root with no key file": {Args: []string{"-resources-root", "/resources"}},
 	}
 
 	for name, src := range cases {
@@ -265,5 +272,45 @@ func TestValidateAcceptsABucketURL(t *testing.T) {
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("Validate(%q) = %v", url, err)
 		}
+	}
+}
+
+// The two roots and the file the download key is read from are unset by
+// default, because a checkout with no mounts has nowhere to put a resource and
+// no secret to read. Naming them is how the areas are turned on.
+func TestTheRootsAreUnsetByDefault(t *testing.T) {
+	cfg, err := config.Load(config.Sources{})
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	for name, value := range map[string]string{
+		"resources-root":    cfg.ResourcesRoot,
+		"scratch-root":      cfg.ScratchRoot,
+		"download-key-file": cfg.DownloadKeyFile,
+	} {
+		if value != "" {
+			t.Errorf("%s = %q, want it unset", name, value)
+		}
+	}
+}
+
+// The key itself never stands in the config document: what is configured is
+// where to read it from, so rotating the secret does not edit this file and no
+// layer here can carry it.
+func TestTheDownloadKeyIsNamedByFileNotByValue(t *testing.T) {
+	key := filepath.Join(t.TempDir(), "download.key")
+	cfg, err := config.Load(config.Sources{Args: []string{
+		"-resources-root", "/resources",
+		"-scratch-root", "/scratch",
+		"-download-key-file", key,
+	}})
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	if cfg.ResourcesRoot != "/resources" || cfg.ScratchRoot != "/scratch" {
+		t.Errorf("roots = %q and %q, want /resources and /scratch", cfg.ResourcesRoot, cfg.ScratchRoot)
+	}
+	if cfg.DownloadKeyFile != key {
+		t.Errorf("download-key-file = %q, want %q", cfg.DownloadKeyFile, key)
 	}
 }

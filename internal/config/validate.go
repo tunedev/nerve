@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net"
 	"net/url"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -41,6 +42,9 @@ func (c Config) Validate() error {
 		reachable("ollama-url", c.OllamaURL, "http", "https"),
 		optional("kv-store-url", c.KVStoreURL, bucketURL),
 		optional("doc-store-url", c.DocStoreURL, corpusURL),
+		optional("resources-root", c.ResourcesRoot, rootedPath),
+		optional("scratch-root", c.ScratchRoot, rootedPath),
+		signable(c.ResourcesRoot, c.DownloadKeyFile),
 		listenable("admin-addr", c.AdminAddr),
 	)
 }
@@ -191,6 +195,28 @@ func corpusURL(name, value string, _ ...string) error {
 		return fmt.Errorf("%s has path %q, want an absolute directory", name, parsed.Path)
 	}
 	return nil
+}
+
+// rootedPath accepts where an area of the tree begins: a rooted, clean path
+// such as "/resources". It is the mount table's rule for a prefix, because a
+// root is where a mount was put, and the stores built over one refuse anything
+// else — checking here is what turns that into a boot failure an operator can
+// read beside the rest.
+func rootedPath(name, value string, _ ...string) error {
+	if !strings.HasPrefix(value, "/") || path.Clean(value) != value {
+		return fmt.Errorf("%s is %q, want a rooted clean path such as /resources", name, value)
+	}
+	return nil
+}
+
+// signable refuses a resources root with nowhere to read the download key
+// from. The key never stands in this document — a secret has its own storage —
+// so what is checked is that the file holding it has been named.
+func signable(root, keyFile string) error {
+	if root == "" || keyFile != "" {
+		return nil
+	}
+	return fmt.Errorf("resources-root is %q but download-key-file names no file to read the signing key from", root)
 }
 
 // listenable accepts a host:port a server can bind. An empty host means every

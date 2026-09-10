@@ -210,6 +210,20 @@ is read. That is why a similarity and a claim count need no calibration between 
 why a new sort of index becomes fusible by being mounted somewhere that answers a question
 with a ranking.
 
+`resources-root` and `scratch-root` name where the resources and the scratch state of
+every workspace stand on the tree: an area of it, spelled the way a library's root is
+spelled, with the path under it derived from the scope that owns it. Both are empty by
+default, and empty is a build that takes no uploads and keeps no scratch state.
+
+`download-key-file` is the file holding the key a download grant is signed with, and it is
+required once `resources-root` names a root. The path is config and the key is not: a
+secret rotates on its own schedule and is stored where this document is not — a mounted
+file in a cluster, a file the operator wrote on the laptop — so replacing it takes no
+config change, and no layer here can carry it into a log or onto `/config`. A key that
+cannot be read is a boot failure rather than a store signing with nothing, and because the
+key outlives the process, a grant handed out before a restart is still redeemable after
+one.
+
 `telemetry-endpoint` is where that goes: an OTLP collector URL, `http://` for plaintext and
 `https://` for TLS, as the OTLP exporters read the standard variable. It is empty by
 default and empty means nothing is exported — the recorder still runs, into providers that
