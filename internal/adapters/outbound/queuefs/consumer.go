@@ -3,6 +3,8 @@ package queuefs
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"strings"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -141,4 +143,27 @@ func (c *Consumer) deliver(ctx context.Context, delivery amqp.Delivery, notify N
 		return fmt.Errorf("ack %q on %q: %w", delivery.MessageId, c.queue, err)
 	}
 	return nil
+}
+
+// Consuming returns a listener on the broker a mount built from settings
+// publishes to, for the consumer group named group.
+//
+// It takes the mount's settings rather than a URL and an exchange because the
+// two ends have to agree on both, and the rule that names an exchange a mount
+// did not name lives here. A composition root spelling that rule again would be
+// the second place that knows it.
+//
+// The durable queue is the exchange and the group, so every process running the
+// same group competes for the same messages and a second group hears the same
+// messages independently.
+func Consuming(settings map[string]string, group, pattern string) (*Consumer, error) {
+	if missing := missingSettings(settings); len(missing) > 0 {
+		return nil, fmt.Errorf("listening on kind %q needs %s: %w", Kind, strings.Join(missing, ", "), fs.ErrInvalid)
+	}
+
+	exchange := settings[settingExchange]
+	if exchange == "" {
+		exchange = exchangePrefix + settings[settingName]
+	}
+	return DialConsumer(settings[settingBroker], exchange, exchange+"."+group, pattern)
 }

@@ -101,6 +101,18 @@ type Config struct {
 	// signer is refused where it is built.
 	DownloadKeyFile string `json:"download-key-file"`
 
+	// IngestQueue is the prefix of the queue mount the writes to the resources
+	// tree are queued under, and the mount the ingest worker claims them from.
+	// Empty is a build that ingests nothing: uploads are still taken and
+	// nothing is derived from them.
+	IngestQueue string `json:"ingest-queue"`
+
+	// IngestRoot is where the indexing ledger stands on the tree — where a
+	// caller reads whether its document is searchable yet. It is its own root
+	// rather than a file beside the resource, because a record written into the
+	// resources tree would queue an ingestion of itself.
+	IngestRoot string `json:"ingest-root"`
+
 	// AdminAddr is where the operator surface listens. It defaults to the
 	// loopback interface because what it answers with — endpoints, hosts, the
 	// shape of the mount table — is for whoever is on the box.
@@ -275,6 +287,8 @@ var fields = []field{
 	{"resources-root", "root on the tree the resources of every workspace stand under; empty takes no uploads", func(c *Config) *string { return &c.ResourcesRoot }},
 	{"scratch-root", "root on the tree the scratch state of every workspace stands under; empty keeps none", func(c *Config) *string { return &c.ScratchRoot }},
 	{"download-key-file", "file holding the key download grants are signed with; required with resources-root", func(c *Config) *string { return &c.DownloadKeyFile }},
+	{"ingest-queue", "prefix of the queue mount resource writes are queued under; empty ingests nothing", func(c *Config) *string { return &c.IngestQueue }},
+	{"ingest-root", "root on the tree the indexing ledger stands under; required with ingest-queue", func(c *Config) *string { return &c.IngestRoot }},
 	{"admin-addr", "host:port for the operator surface", func(c *Config) *string { return &c.AdminAddr }},
 }
 
