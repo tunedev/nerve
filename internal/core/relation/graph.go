@@ -38,14 +38,14 @@ func NewGraph(fsys vfs.FileSystem, root string) (*Graph, error) {
 // The subject is made before the write, which is what a tree needs and what a
 // keyspace has nothing to do about.
 func (g *Graph) Link(ctx context.Context, s workspace.Scope, e Edge) error {
-	at, err := g.at(s, e)
+	held, at, err := g.at(s, e)
 	if err != nil {
 		return fmt.Errorf("link: %w", err)
 	}
-	if err := g.fsys.Mkdir(ctx, path.Dir(at)); err != nil {
+	if err := held.Mkdir(ctx, path.Dir(at)); err != nil {
 		return fmt.Errorf("link %s: %w", e, err)
 	}
-	if err := g.fsys.Write(ctx, at, nil); err != nil {
+	if err := held.Write(ctx, at, nil); err != nil {
 		return fmt.Errorf("link %s: %w", e, err)
 	}
 	return nil
@@ -58,11 +58,11 @@ func (g *Graph) Link(ctx context.Context, s workspace.Scope, e Edge) error {
 // prefix share a name, so reaching beneath the edge would withdraw edges
 // something else on the same mount asserted.
 func (g *Graph) Unlink(ctx context.Context, s workspace.Scope, e Edge) error {
-	at, err := g.at(s, e)
+	held, at, err := g.at(s, e)
 	if err != nil {
 		return fmt.Errorf("unlink: %w", err)
 	}
-	if err := g.fsys.Remove(ctx, at); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := held.Remove(ctx, at); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("unlink %s: %w", e, err)
 	}
 	return nil
@@ -76,23 +76,23 @@ func (g *Graph) Unlink(ctx context.Context, s workspace.Scope, e Edge) error {
 // asked: what this resource is related to. The other direction — what is
 // related to this — is a second index and not this verb read backwards.
 func (g *Graph) List(ctx context.Context, s workspace.Scope, from Ref) ([]Edge, error) {
-	subject, err := g.subject(s, from)
+	held, subject, err := g.subject(s, from)
 	if err != nil {
 		return nil, fmt.Errorf("list relations: %w", err)
 	}
 
 	var edges []Edge
-	predicates, err := g.dirsIn(ctx, subject)
+	predicates, err := dirsIn(ctx, held, subject)
 	if err != nil {
 		return nil, fmt.Errorf("list relations of %s: %w", from, err)
 	}
 	for _, predicate := range predicates {
-		kinds, err := g.dirsIn(ctx, path.Join(subject, predicate))
+		kinds, err := dirsIn(ctx, held, path.Join(subject, predicate))
 		if err != nil {
 			return nil, fmt.Errorf("list relations of %s: %w", from, err)
 		}
 		for _, kind := range kinds {
-			names, err := g.filesIn(ctx, path.Join(subject, predicate, kind))
+			names, err := filesIn(ctx, held, path.Join(subject, predicate, kind))
 			if err != nil {
 				return nil, fmt.Errorf("list relations of %s: %w", from, err)
 			}
@@ -105,35 +105,47 @@ func (g *Graph) List(ctx context.Context, s workspace.Scope, from Ref) ([]Edge, 
 	return edges, nil
 }
 
-// at is where e stands in s: the whole edge spelled as a path, which is what
-// makes two writers asserting different edges write different files.
-func (g *Graph) at(s workspace.Scope, e Edge) (string, error) {
+// at is the graph as a caller inside s sees it, and where e stands in it: the
+// whole edge spelled as a path, which is what makes two writers asserting
+// different edges write different files.
+func (g *Graph) at(s workspace.Scope, e Edge) (vfs.FileSystem, string, error) {
 	if err := vfs.ValidSegment("predicate", e.Predicate); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if err := e.To.valid(); err != nil {
-		return "", err
+		return nil, "", err
 	}
-	subject, err := g.subject(s, e.From)
+	held, subject, err := g.subject(s, e.From)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return path.Join(subject, e.Predicate, e.To.Kind, e.To.Name), nil
+	return held, path.Join(subject, e.Predicate, e.To.Kind, e.To.Name), nil
 }
 
-// subject is where the edges out of from stand in s.
+// subject is the graph as a caller inside s sees it, and where the edges out of
+// from stand in it.
+//
+// The view is what makes the scope a boundary rather than a prefix: the name is
+// resolved by the subtree the tree beneath hands out, so a link standing at any
+// component of the scope path is refused instead of followed. A path derived
+// down to the subject and handed to the whole area is resolved by the whole
+// area, which follows that link.
 //
 // User scope is refused: a scope with no workspace derives the path holding
 // every workspace that user has, so an edge written there would stand where a
 // workspace belongs and be listed as one.
-func (g *Graph) subject(s workspace.Scope, from Ref) (string, error) {
+func (g *Graph) subject(s workspace.Scope, from Ref) (vfs.FileSystem, string, error) {
 	if err := from.valid(); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if s.Workspace == "" {
-		return "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
+		return nil, "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
 	}
-	return s.Path(g.root, path.Join(from.Kind, from.Name))
+	held, err := s.View(g.fsys, g.root)
+	if err != nil {
+		return nil, "", err
+	}
+	return held, path.Join("/", from.Kind, from.Name), nil
 }
 
 // dirsIn returns the names of the directories directly under dir; filesIn, the
@@ -144,17 +156,17 @@ func (g *Graph) subject(s workspace.Scope, from Ref) (string, error) {
 // What is not of the shape its level expects is passed over rather than
 // refused: the tree under a mount is a tree, and something else standing in it
 // is not a broken edge.
-func (g *Graph) dirsIn(ctx context.Context, dir string) ([]string, error) {
-	return g.namesIn(ctx, dir, true)
+func dirsIn(ctx context.Context, fsys vfs.FileSystem, dir string) ([]string, error) {
+	return namesIn(ctx, fsys, dir, true)
 }
 
-func (g *Graph) filesIn(ctx context.Context, dir string) ([]string, error) {
-	return g.namesIn(ctx, dir, false)
+func filesIn(ctx context.Context, fsys vfs.FileSystem, dir string) ([]string, error) {
+	return namesIn(ctx, fsys, dir, false)
 }
 
 // namesIn is the child names of dir of one shape or the other.
-func (g *Graph) namesIn(ctx context.Context, dir string, wantDirs bool) ([]string, error) {
-	entries, err := g.fsys.ReadDir(ctx, dir)
+func namesIn(ctx context.Context, fsys vfs.FileSystem, dir string, wantDirs bool) ([]string, error) {
+	entries, err := fsys.ReadDir(ctx, dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}

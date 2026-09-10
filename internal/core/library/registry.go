@@ -54,17 +54,17 @@ func NewRegistry(fsys vfs.FileSystem, kind Kind, root string, match Matcher) (*R
 // its own file is written, so the files beside it survive a rewrite that does
 // not mention them.
 func (r *Registry) Create(ctx context.Context, s workspace.Scope, doc Document) error {
-	dir, err := r.dir(s, doc.Name)
+	held, dir, err := r.dir(s, doc.Name)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", r.kind.Name, err)
 	}
 	if err := validDescription(doc.Description); err != nil {
 		return fmt.Errorf("create %s %q: %w", r.kind.Name, doc.Name, err)
 	}
-	if err := r.fsys.Mkdir(ctx, dir); err != nil {
+	if err := held.Mkdir(ctx, dir); err != nil {
 		return fmt.Errorf("create %s %q: %w", r.kind.Name, doc.Name, err)
 	}
-	if err := r.fsys.Write(ctx, path.Join(dir, r.kind.Filename), encode(doc)); err != nil {
+	if err := held.Write(ctx, path.Join(dir, r.kind.Filename), encode(doc)); err != nil {
 		return fmt.Errorf("create %s %q: %w", r.kind.Name, doc.Name, err)
 	}
 	return nil
@@ -72,11 +72,11 @@ func (r *Registry) Create(ctx context.Context, s workspace.Scope, doc Document) 
 
 // Get returns the whole document named name in s.
 func (r *Registry) Get(ctx context.Context, s workspace.Scope, name string) (Document, error) {
-	dir, err := r.dir(s, name)
+	held, dir, err := r.dir(s, name)
 	if err != nil {
 		return Document{}, fmt.Errorf("get %s: %w", r.kind.Name, err)
 	}
-	doc, err := r.read(ctx, dir, name)
+	doc, err := r.read(ctx, held, dir, name)
 	if err != nil {
 		return Document{}, fmt.Errorf("get %s %q: %w", r.kind.Name, name, err)
 	}
@@ -92,17 +92,17 @@ func (r *Registry) Get(ctx context.Context, s workspace.Scope, name string) (Doc
 // indistinguishable from a correct one, and the caller is about to choose from
 // the ones it was not told about.
 func (r *Registry) List(ctx context.Context, s workspace.Scope) ([]Card, error) {
-	dir, err := r.base(s)
+	held, err := r.held(s)
 	if err != nil {
 		return nil, fmt.Errorf("list %s: %w", r.kind.Name, err)
 	}
 
-	entries, err := r.fsys.ReadDir(ctx, dir)
+	entries, err := held.ReadDir(ctx, "/")
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("list %q: %w", dir, err)
+		return nil, fmt.Errorf("list %s: %w", r.kind.Name, err)
 	}
 
 	cards := make([]Card, 0, len(entries))
@@ -110,7 +110,7 @@ func (r *Registry) List(ctx context.Context, s workspace.Scope) ([]Card, error) 
 		if !entry.IsDir() {
 			continue
 		}
-		doc, err := r.read(ctx, path.Join(dir, entry.Name), entry.Name)
+		doc, err := r.read(ctx, held, path.Join("/", entry.Name), entry.Name)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -129,11 +129,11 @@ func (r *Registry) List(ctx context.Context, s workspace.Scope) ([]Card, error) 
 // is completed by running it again. That is RemoveAll's promise and this verb is
 // RemoveAll.
 func (r *Registry) Delete(ctx context.Context, s workspace.Scope, name string) error {
-	dir, err := r.dir(s, name)
+	held, dir, err := r.dir(s, name)
 	if err != nil {
 		return fmt.Errorf("delete %s: %w", r.kind.Name, err)
 	}
-	if err := r.fsys.RemoveAll(ctx, dir); err != nil {
+	if err := held.RemoveAll(ctx, dir); err != nil {
 		return fmt.Errorf("delete %s %q: %w", r.kind.Name, name, err)
 	}
 	return nil
@@ -166,16 +166,16 @@ func (r *Registry) Search(ctx context.Context, s workspace.Scope, task string, l
 // Tree returns every file the document named name is made of, as paths relative
 // to its directory, sorted. Its own file is among them: a tree is what is there.
 func (r *Registry) Tree(ctx context.Context, s workspace.Scope, name string) ([]string, error) {
-	dir, err := r.dir(s, name)
+	held, dir, err := r.dir(s, name)
 	if err != nil {
 		return nil, fmt.Errorf("tree %s: %w", r.kind.Name, err)
 	}
-	if _, err := r.fsys.Stat(ctx, path.Join(dir, r.kind.Filename)); err != nil {
+	if _, err := held.Stat(ctx, path.Join(dir, r.kind.Filename)); err != nil {
 		return nil, fmt.Errorf("tree %s %q: %w", r.kind.Name, name, err)
 	}
 
 	var found []string
-	if err := r.walk(ctx, dir, "", &found); err != nil {
+	if err := walk(ctx, held, dir, "", &found); err != nil {
 		return nil, fmt.Errorf("tree %s %q: %w", r.kind.Name, name, err)
 	}
 	slices.Sort(found)
@@ -194,7 +194,7 @@ func (r *Registry) Bundle(ctx context.Context, s workspace.Scope, name string) (
 	if err != nil {
 		return Bundle{}, fmt.Errorf("bundle: %w", err)
 	}
-	dir, err := r.dir(s, name)
+	held, dir, err := r.dir(s, name)
 	if err != nil {
 		return Bundle{}, fmt.Errorf("bundle: %w", err)
 	}
@@ -204,7 +204,7 @@ func (r *Registry) Bundle(ctx context.Context, s workspace.Scope, name string) (
 		if rel == r.kind.Filename {
 			continue
 		}
-		data, err := r.fsys.Read(ctx, path.Join(dir, rel))
+		data, err := held.Read(ctx, path.Join(dir, rel))
 		if err != nil {
 			return Bundle{}, fmt.Errorf("bundle %s %q: %w", r.kind.Name, name, err)
 		}
@@ -222,15 +222,18 @@ func (r *Registry) Bundle(ctx context.Context, s workspace.Scope, name string) (
 // merged. Writing one document's files over another's leaves a directory
 // holding both, and neither of them is the document anybody asked for.
 func (r *Registry) Copy(ctx context.Context, from workspace.Scope, name string, to workspace.Scope, into string) error {
-	source, err := r.dir(from, name)
+	held, source, err := r.dir(from, name)
 	if err != nil {
 		return fmt.Errorf("copy %s: %w", r.kind.Name, err)
 	}
-	dest, err := r.dir(to, into)
+	holding, dest, err := r.dir(to, into)
 	if err != nil {
 		return fmt.Errorf("copy %s: %w", r.kind.Name, err)
 	}
-	if source == dest {
+	// The two ends are the same document when they stand in one scope under
+	// one name. Comparing the derived paths would say the same thing, and
+	// there are no derived paths here to compare.
+	if from == to && name == into {
 		return fmt.Errorf("copy %s %q onto itself: %w", r.kind.Name, name, fs.ErrInvalid)
 	}
 
@@ -238,22 +241,22 @@ func (r *Registry) Copy(ctx context.Context, from workspace.Scope, name string, 
 	if err != nil {
 		return fmt.Errorf("copy: %w", err)
 	}
-	if _, err := r.fsys.Stat(ctx, dest); err == nil {
+	if _, err := holding.Stat(ctx, dest); err == nil {
 		return fmt.Errorf("copy %s %q to %q: %w", r.kind.Name, name, into, fs.ErrExist)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("copy %s %q to %q: %w", r.kind.Name, name, into, err)
 	}
 
 	for _, rel := range names {
-		data, err := r.fsys.Read(ctx, path.Join(source, rel))
+		data, err := held.Read(ctx, path.Join(source, rel))
 		if err != nil {
 			return fmt.Errorf("copy %s %q: %w", r.kind.Name, name, err)
 		}
 		target := path.Join(dest, rel)
-		if err := r.fsys.Mkdir(ctx, path.Dir(target)); err != nil {
+		if err := holding.Mkdir(ctx, path.Dir(target)); err != nil {
 			return fmt.Errorf("copy %s %q: %w", r.kind.Name, into, err)
 		}
-		if err := r.fsys.Write(ctx, target, data); err != nil {
+		if err := holding.Write(ctx, target, data); err != nil {
 			return fmt.Errorf("copy %s %q: %w", r.kind.Name, into, err)
 		}
 	}
@@ -263,8 +266,8 @@ func (r *Registry) Copy(ctx context.Context, from workspace.Scope, name string, 
 // read returns the document whose directory is dir. A directory with no file of
 // this kind in it reports fs.ErrNotExist, which is what "there is none of these
 // here" is.
-func (r *Registry) read(ctx context.Context, dir, name string) (Document, error) {
-	data, err := r.fsys.Read(ctx, path.Join(dir, r.kind.Filename))
+func (r *Registry) read(ctx context.Context, fsys vfs.FileSystem, dir, name string) (Document, error) {
+	data, err := fsys.Read(ctx, path.Join(dir, r.kind.Filename))
 	if err != nil {
 		return Document{}, err
 	}
@@ -278,8 +281,8 @@ func (r *Registry) read(ctx context.Context, dir, name string) (Document, error)
 
 // walk collects the files beneath dir into found, with their paths relative to
 // it.
-func (r *Registry) walk(ctx context.Context, dir, prefix string, found *[]string) error {
-	entries, err := r.fsys.ReadDir(ctx, path.Join(dir, prefix))
+func walk(ctx context.Context, fsys vfs.FileSystem, dir, prefix string, found *[]string) error {
+	entries, err := fsys.ReadDir(ctx, path.Join(dir, prefix))
 	if err != nil {
 		return err
 	}
@@ -289,34 +292,42 @@ func (r *Registry) walk(ctx context.Context, dir, prefix string, found *[]string
 			*found = append(*found, rel)
 			continue
 		}
-		if err := r.walk(ctx, dir, rel, found); err != nil {
+		if err := walk(ctx, fsys, dir, rel, found); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// base is where s keeps its documents of this kind.
+// held is the registry as a caller inside s sees it: the documents s keeps of
+// this kind are names in it rather than a path derived down to them.
+//
+// The view is what makes the scope a boundary rather than a prefix: a name is
+// resolved by the subtree the tree beneath hands out, so a link standing at any
+// component of the scope path is refused instead of followed. A path derived
+// down to the document and handed to the whole area is resolved by the whole
+// area, which follows that link.
 //
 // User scope is refused here and so everywhere below it. A scope with no
 // workspace derives the path holding every workspace that user has, so listing
 // it would report workspaces as documents and creating in it would put a
 // document where a workspace belongs.
-func (r *Registry) base(s workspace.Scope) (string, error) {
+func (r *Registry) held(s workspace.Scope) (vfs.FileSystem, error) {
 	if s.Workspace == "" {
-		return "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
+		return nil, fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
 	}
-	return s.Path(r.root, "")
+	return s.View(r.fsys, r.root)
 }
 
-// dir is where the document named name stands in s.
-func (r *Registry) dir(s workspace.Scope, name string) (string, error) {
+// dir is the registry as a caller inside s sees it, and where the document
+// named name stands in it.
+func (r *Registry) dir(s workspace.Scope, name string) (vfs.FileSystem, string, error) {
 	if err := vfs.ValidSegment("document name", name); err != nil {
-		return "", err
+		return nil, "", err
 	}
-	base, err := r.base(s)
+	held, err := r.held(s)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return path.Join(base, name), nil
+	return held, path.Join("/", name), nil
 }

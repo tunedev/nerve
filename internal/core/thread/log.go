@@ -37,16 +37,16 @@ func NewLog(fsys vfs.FileSystem, root string) (*Log, error) {
 // runs sharing a thread would interleave their output into one record, and
 // neither of them is the run anybody asked about.
 func (l *Log) Start(ctx context.Context, s workspace.Scope, name string) error {
-	dir, err := l.dir(s, name)
+	held, dir, err := l.dir(s, name)
 	if err != nil {
 		return fmt.Errorf("start thread: %w", err)
 	}
-	if _, err := l.fsys.Stat(ctx, path.Join(dir, recordName)); err == nil {
+	if _, err := held.Stat(ctx, path.Join(dir, recordName)); err == nil {
 		return fmt.Errorf("start thread %q: %w", name, fs.ErrExist)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("start thread %q: %w", name, err)
 	}
-	if err := l.writeRun(ctx, dir, Run{Status: Running}); err != nil {
+	if err := writeRun(ctx, held, dir, Run{Status: Running}); err != nil {
 		return fmt.Errorf("start thread %q: %w", name, err)
 	}
 	return nil
@@ -63,11 +63,11 @@ func (l *Log) Start(ctx context.Context, s workspace.Scope, name string) error {
 // is read back and rewritten. A run interrupted between two appends has lost
 // the entry it was making and nothing else.
 func (l *Log) Append(ctx context.Context, s workspace.Scope, name string, data []byte) error {
-	dir, err := l.dir(s, name)
+	held, dir, err := l.dir(s, name)
 	if err != nil {
 		return fmt.Errorf("append to thread: %w", err)
 	}
-	run, entries, err := l.readDir(ctx, dir)
+	run, entries, err := readDir(ctx, held, dir)
 	if err != nil {
 		return fmt.Errorf("append to thread %q: %w", name, err)
 	}
@@ -78,7 +78,7 @@ func (l *Log) Append(ctx context.Context, s workspace.Scope, name string, data [
 	if len(entries) > 0 {
 		next = entries[len(entries)-1] + 1
 	}
-	if err := l.fsys.Write(ctx, path.Join(dir, entryName(next)), data); err != nil {
+	if err := held.Write(ctx, path.Join(dir, entryName(next)), data); err != nil {
 		return fmt.Errorf("append to thread %q: %w", name, err)
 	}
 	return nil
@@ -105,11 +105,11 @@ func (l *Log) Fail(ctx context.Context, s workspace.Scope, name, because string)
 // the cheap question — is there more coming — asked without reading a run's
 // worth of entries to answer it.
 func (l *Log) Get(ctx context.Context, s workspace.Scope, name string) (Run, error) {
-	dir, err := l.dir(s, name)
+	held, dir, err := l.dir(s, name)
 	if err != nil {
 		return Run{}, fmt.Errorf("get thread: %w", err)
 	}
-	run, err := l.readRun(ctx, dir)
+	run, err := readRun(ctx, held, dir)
 	if err != nil {
 		return Run{}, fmt.Errorf("get thread %q: %w", name, err)
 	}
@@ -126,11 +126,11 @@ func (l *Log) Get(ctx context.Context, s workspace.Scope, name string) (Run, err
 // is still going, and the wrong guess is a truncated result reported as a whole
 // one.
 func (l *Log) Read(ctx context.Context, s workspace.Scope, name string) (Result, error) {
-	dir, err := l.dir(s, name)
+	held, dir, err := l.dir(s, name)
 	if err != nil {
 		return Result{}, fmt.Errorf("read thread: %w", err)
 	}
-	run, seqs, err := l.readDir(ctx, dir)
+	run, seqs, err := readDir(ctx, held, dir)
 	if err != nil {
 		return Result{}, fmt.Errorf("read thread %q: %w", name, err)
 	}
@@ -138,7 +138,7 @@ func (l *Log) Read(ctx context.Context, s workspace.Scope, name string) (Result,
 
 	entries := make([]Entry, 0, len(seqs))
 	for _, seq := range seqs {
-		data, err := l.fsys.Read(ctx, path.Join(dir, entryName(seq)))
+		data, err := held.Read(ctx, path.Join(dir, entryName(seq)))
 		if err != nil {
 			return Result{}, fmt.Errorf("read thread %q entry %d: %w", name, seq, err)
 		}
@@ -160,17 +160,17 @@ func (l *Log) Read(ctx context.Context, s workspace.Scope, name string) (Result,
 // short list is indistinguishable from a correct one, and the caller is about
 // to conclude something about a run it was not told about.
 func (l *Log) List(ctx context.Context, s workspace.Scope) ([]Run, error) {
-	base, err := l.base(s)
+	held, err := l.held(s)
 	if err != nil {
 		return nil, fmt.Errorf("list threads: %w", err)
 	}
 
-	children, err := l.fsys.ReadDir(ctx, base)
+	children, err := held.ReadDir(ctx, "/")
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("list threads %q: %w", base, err)
+		return nil, fmt.Errorf("list threads: %w", err)
 	}
 
 	runs := make([]Run, 0, len(children))
@@ -178,7 +178,7 @@ func (l *Log) List(ctx context.Context, s workspace.Scope) ([]Run, error) {
 		if !child.IsDir() {
 			continue
 		}
-		run, err := l.readRun(ctx, path.Join(base, child.Name))
+		run, err := readRun(ctx, held, path.Join("/", child.Name))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -196,11 +196,11 @@ func (l *Log) List(ctx context.Context, s workspace.Scope) ([]Run, error) {
 // thread that is not there is not an error, so a delete that failed halfway is
 // completed by running it again.
 func (l *Log) Delete(ctx context.Context, s workspace.Scope, name string) error {
-	dir, err := l.dir(s, name)
+	held, dir, err := l.dir(s, name)
 	if err != nil {
 		return fmt.Errorf("delete thread: %w", err)
 	}
-	if err := l.fsys.RemoveAll(ctx, dir); err != nil {
+	if err := held.RemoveAll(ctx, dir); err != nil {
 		return fmt.Errorf("delete thread %q: %w", name, err)
 	}
 	return nil
@@ -210,18 +210,18 @@ func (l *Log) Delete(ctx context.Context, s workspace.Scope, name string) error 
 // stopped is refused with fs.ErrPermission, so the first ending is the one that
 // stands and a late Fail cannot overwrite the Finish a reader has acted on.
 func (l *Log) end(ctx context.Context, s workspace.Scope, name string, ended Run) error {
-	dir, err := l.dir(s, name)
+	held, dir, err := l.dir(s, name)
 	if err != nil {
 		return fmt.Errorf("end thread: %w", err)
 	}
-	run, err := l.readRun(ctx, dir)
+	run, err := readRun(ctx, held, dir)
 	if err != nil {
 		return fmt.Errorf("end thread %q: %w", name, err)
 	}
 	if run.Status != Running {
 		return fmt.Errorf("end thread %q, which is already %s: %w", name, run.Status, fs.ErrPermission)
 	}
-	if err := l.writeRun(ctx, dir, ended); err != nil {
+	if err := writeRun(ctx, held, dir, ended); err != nil {
 		return fmt.Errorf("end thread %q: %w", name, err)
 	}
 	return nil
@@ -229,8 +229,8 @@ func (l *Log) end(ctx context.Context, s workspace.Scope, name string, ended Run
 
 // readRun returns the record standing in dir. A directory with no record in it
 // reports fs.ErrNotExist, which is what "no run was started here" is.
-func (l *Log) readRun(ctx context.Context, dir string) (Run, error) {
-	data, err := l.fsys.Read(ctx, path.Join(dir, recordName))
+func readRun(ctx context.Context, fsys vfs.FileSystem, dir string) (Run, error) {
+	data, err := fsys.Read(ctx, path.Join(dir, recordName))
 	if err != nil {
 		return Run{}, err
 	}
@@ -240,11 +240,11 @@ func (l *Log) readRun(ctx context.Context, dir string) (Run, error) {
 // writeRun replaces the record standing in dir, making the thread's directory
 // first — which is what a tree needs and what a keyspace has nothing to do
 // about.
-func (l *Log) writeRun(ctx context.Context, dir string, run Run) error {
-	if err := l.fsys.Mkdir(ctx, dir); err != nil {
+func writeRun(ctx context.Context, fsys vfs.FileSystem, dir string, run Run) error {
+	if err := fsys.Mkdir(ctx, dir); err != nil {
 		return err
 	}
-	return l.fsys.Write(ctx, path.Join(dir, recordName), encodeRun(run))
+	return fsys.Write(ctx, path.Join(dir, recordName), encodeRun(run))
 }
 
 // readDir returns the record standing in dir and the sequence of every entry
@@ -254,12 +254,12 @@ func (l *Log) writeRun(ctx context.Context, dir string, run Run) error {
 // record keeps, so a run that was interrupted leaves a log that still says what
 // it holds. Anything in the directory that is not an entry — the record, and
 // whatever else a mount put there — is passed over.
-func (l *Log) readDir(ctx context.Context, dir string) (Run, []int, error) {
-	run, err := l.readRun(ctx, dir)
+func readDir(ctx context.Context, fsys vfs.FileSystem, dir string) (Run, []int, error) {
+	run, err := readRun(ctx, fsys, dir)
 	if err != nil {
 		return Run{}, nil, err
 	}
-	children, err := l.fsys.ReadDir(ctx, dir)
+	children, err := fsys.ReadDir(ctx, dir)
 	if err != nil {
 		return Run{}, nil, err
 	}
@@ -273,26 +273,34 @@ func (l *Log) readDir(ctx context.Context, dir string) (Run, []int, error) {
 	return run, seqs, nil
 }
 
-// base is where s keeps its threads.
+// held is the log as a caller inside s sees it: the threads s keeps are names
+// in it rather than a path derived down to them.
+//
+// The view is what makes the scope a boundary rather than a prefix: a name is
+// resolved by the subtree the tree beneath hands out, so a link standing at any
+// component of the scope path is refused instead of followed. A path derived
+// down to the thread and handed to the whole area is resolved by the whole
+// area, which follows that link.
 //
 // User scope is refused here and so everywhere below it. A scope with no
 // workspace derives the path holding every workspace that user has, so a thread
 // started there would stand where a workspace belongs and be listed as one.
-func (l *Log) base(s workspace.Scope) (string, error) {
+func (l *Log) held(s workspace.Scope) (vfs.FileSystem, error) {
 	if s.Workspace == "" {
-		return "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
+		return nil, fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
 	}
-	return s.Path(l.root, "")
+	return s.View(l.fsys, l.root)
 }
 
-// dir is where the thread named name stands in s.
-func (l *Log) dir(s workspace.Scope, name string) (string, error) {
+// dir is the log as a caller inside s sees it, and where the thread named name
+// stands in it.
+func (l *Log) dir(s workspace.Scope, name string) (vfs.FileSystem, string, error) {
 	if err := vfs.ValidSegment("thread name", name); err != nil {
-		return "", err
+		return nil, "", err
 	}
-	base, err := l.base(s)
+	held, err := l.held(s)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return path.Join(base, name), nil
+	return held, path.Join("/", name), nil
 }

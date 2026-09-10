@@ -23,11 +23,11 @@ import (
 // there is whatever the upload has managed so far, and a reader would take that
 // for the whole file.
 func (st *Store) Content(ctx context.Context, s workspace.Scope, name string) (io.ReadCloser, error) {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return nil, fmt.Errorf("read resource: %w", err)
 	}
-	held, err := st.read(ctx, dir)
+	held, err := read(ctx, scoped, dir)
 	if err != nil {
 		return nil, fmt.Errorf("read resource %q: %w", name, err)
 	}
@@ -35,7 +35,7 @@ func (st *Store) Content(ctx context.Context, s workspace.Scope, name string) (i
 		return nil, fmt.Errorf("read resource %q: it has not been completed: %w", name, fs.ErrNotExist)
 	}
 
-	stream := st.fsys.AsStreamer()
+	stream := scoped.AsStreamer()
 	if stream == nil {
 		return nil, fmt.Errorf("read resource %q: the mount has no streaming verbs: %w", name, fs.ErrInvalid)
 	}
@@ -50,11 +50,11 @@ func (st *Store) Content(ctx context.Context, s workspace.Scope, name string) (i
 // name in s. A sidecar nothing has written reports fs.ErrNotExist, which is how
 // a caller tells a resource whose ingestion has run from one whose has not.
 func (st *Store) Derived(ctx context.Context, s workspace.Scope, name, kind string) ([]byte, error) {
-	at, err := st.sidecar(s, name, kind)
+	scoped, at, err := st.sidecar(s, name, kind)
 	if err != nil {
 		return nil, fmt.Errorf("read %q of resource: %w", kind, err)
 	}
-	data, err := st.fsys.Read(ctx, at)
+	data, err := scoped.Read(ctx, at)
 	if err != nil {
 		return nil, fmt.Errorf("read %q of resource %q: %w", kind, name, err)
 	}
@@ -71,14 +71,14 @@ func (st *Store) Derived(ctx context.Context, s workspace.Scope, name, kind stri
 // The sidecar is not a resource, so writing one queues no second ingestion of
 // the same file — only a resource's meta file declares one.
 func (st *Store) SetDerived(ctx context.Context, s workspace.Scope, name, kind string, data []byte) error {
-	at, err := st.sidecar(s, name, kind)
+	scoped, at, err := st.sidecar(s, name, kind)
 	if err != nil {
 		return fmt.Errorf("write %q of resource: %w", kind, err)
 	}
-	if _, err := st.read(ctx, path.Dir(at)); err != nil {
+	if _, err := read(ctx, scoped, path.Dir(at)); err != nil {
 		return fmt.Errorf("write %q of resource %q: %w", kind, name, err)
 	}
-	if err := st.fsys.Write(ctx, at, data); err != nil {
+	if err := scoped.Write(ctx, at, data); err != nil {
 		return fmt.Errorf("write %q of resource %q: %w", kind, name, err)
 	}
 	return nil
@@ -91,18 +91,18 @@ func (st *Store) SetDerived(ctx context.Context, s workspace.Scope, name, kind s
 // separator names a place inside another file. The two files a resource is
 // made of are refused on top of that, because a sidecar named after either
 // would write over the content or over what the resource says about itself.
-func (st *Store) sidecar(s workspace.Scope, name, kind string) (string, error) {
-	dir, err := st.dir(s, name)
+func (st *Store) sidecar(s workspace.Scope, name, kind string) (vfs.FileSystem, string, error) {
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if err := vfs.ValidSegment("sidecar name", kind); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if kind == metaFile || kind == contentFile {
-		return "", fmt.Errorf("sidecar %q is a file the resource is made of: %w", kind, fs.ErrInvalid)
+		return nil, "", fmt.Errorf("sidecar %q is a file the resource is made of: %w", kind, fs.ErrInvalid)
 	}
-	return path.Join(dir, kind), nil
+	return scoped, path.Join(dir, kind), nil
 }
 
 // Derivations lists the sidecars standing beside the resource named name in s,
@@ -117,11 +117,11 @@ func (st *Store) sidecar(s workspace.Scope, name, kind string) (string, error) {
 // A resource that is not there reports fs.ErrNotExist. One whose ingestion has
 // not run has no sidecars, which is an empty list rather than a refusal.
 func (st *Store) Derivations(ctx context.Context, s workspace.Scope, name string) ([]string, error) {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return nil, fmt.Errorf("list derivations of resource: %w", err)
 	}
-	entries, err := st.fsys.ReadDir(ctx, dir)
+	entries, err := scoped.ReadDir(ctx, dir)
 	if err != nil {
 		return nil, fmt.Errorf("list derivations of resource %q: %w", name, err)
 	}

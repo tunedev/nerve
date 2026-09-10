@@ -40,22 +40,22 @@ func NewStore(fsys vfs.FileSystem, root string, now func() time.Time) (*Store, e
 // conversations sharing a session would interleave their turns into one
 // transcript, and neither of them is the conversation anybody had.
 func (st *Store) Create(ctx context.Context, s workspace.Scope, name string, meta Meta) error {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
 	}
 	if err := validMeta(meta); err != nil {
 		return fmt.Errorf("create session %q: %w", name, err)
 	}
-	if _, err := st.fsys.Stat(ctx, path.Join(dir, recordName)); err == nil {
+	if _, err := scoped.Stat(ctx, path.Join(dir, recordName)); err == nil {
 		return fmt.Errorf("create session %q: %w", name, fs.ErrExist)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("create session %q: %w", name, err)
 	}
-	if err := st.fsys.Mkdir(ctx, dir); err != nil {
+	if err := scoped.Mkdir(ctx, dir); err != nil {
 		return fmt.Errorf("create session %q: %w", name, err)
 	}
-	if err := st.writeRecord(ctx, dir, record{Meta: meta, Created: st.now().UTC()}); err != nil {
+	if err := writeRecord(ctx, scoped, dir, record{Meta: meta, Created: st.now().UTC()}); err != nil {
 		return fmt.Errorf("create session %q: %w", name, err)
 	}
 	return nil
@@ -76,17 +76,17 @@ func (st *Store) Create(ctx context.Context, s workspace.Scope, name string, met
 // a short list is indistinguishable from a correct one, and the caller is about
 // to conclude something about a conversation it was not told about.
 func (st *Store) List(ctx context.Context, s workspace.Scope) ([]Session, error) {
-	base, err := st.base(s)
+	scoped, err := st.held(s)
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
 
-	children, err := st.fsys.ReadDir(ctx, base)
+	children, err := scoped.ReadDir(ctx, "/")
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("list sessions %q: %w", base, err)
+		return nil, fmt.Errorf("list sessions: %w", err)
 	}
 
 	sessions := make([]Session, 0, len(children))
@@ -94,7 +94,7 @@ func (st *Store) List(ctx context.Context, s workspace.Scope) ([]Session, error)
 		if !child.IsDir() {
 			continue
 		}
-		held, err := st.readRecord(ctx, path.Join(base, child.Name))
+		held, err := readRecord(ctx, scoped, path.Join("/", child.Name))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -118,16 +118,16 @@ func (st *Store) List(ctx context.Context, s workspace.Scope) ([]Session, error)
 // What has been archived is not in the messages. It is what the session's
 // summary stands for, and Archived is the verb that reads it back.
 func (st *Store) Get(ctx context.Context, s workspace.Scope, name string) (Transcript, error) {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return Transcript{}, fmt.Errorf("get session: %w", err)
 	}
-	held, seqs, err := st.readDir(ctx, dir)
+	held, seqs, err := readDir(ctx, scoped, dir)
 	if err != nil {
 		return Transcript{}, fmt.Errorf("get session %q: %w", name, err)
 	}
 
-	messages, err := st.messages(ctx, dir, seqs)
+	messages, err := messagesIn(ctx, scoped, dir, seqs)
 	if err != nil {
 		return Transcript{}, fmt.Errorf("get session %q: %w", name, err)
 	}
@@ -138,11 +138,11 @@ func (st *Store) Get(ctx context.Context, s workspace.Scope, name string) (Trans
 // session that is not there is not an error, so a delete that failed halfway is
 // completed by running it again.
 func (st *Store) Delete(ctx context.Context, s workspace.Scope, name string) error {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}
-	if err := st.fsys.RemoveAll(ctx, dir); err != nil {
+	if err := scoped.RemoveAll(ctx, dir); err != nil {
 		return fmt.Errorf("delete session %q: %w", name, err)
 	}
 	return nil
@@ -162,14 +162,14 @@ func (st *Store) Delete(ctx context.Context, s workspace.Scope, name string) err
 // from, and numbering the next turn one again would put two different messages
 // under one sequence.
 func (st *Store) Append(ctx context.Context, s workspace.Scope, name, role, body string) error {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return fmt.Errorf("append to session: %w", err)
 	}
 	if err := validRole(role); err != nil {
 		return fmt.Errorf("append to session %q: %w", name, err)
 	}
-	held, seqs, err := st.readDir(ctx, dir)
+	held, seqs, err := readDir(ctx, scoped, dir)
 	if err != nil {
 		return fmt.Errorf("append to session %q: %w", name, err)
 	}
@@ -178,7 +178,7 @@ func (st *Store) Append(ctx context.Context, s workspace.Scope, name, role, body
 	if err != nil {
 		return fmt.Errorf("append to session %q: %w", name, err)
 	}
-	if err := st.fsys.Write(ctx, path.Join(dir, messageName(next)), data); err != nil {
+	if err := scoped.Write(ctx, path.Join(dir, messageName(next)), data); err != nil {
 		return fmt.Errorf("append to session %q: %w", name, err)
 	}
 	return nil
@@ -204,14 +204,14 @@ func (st *Store) Append(ctx context.Context, s workspace.Scope, name, role, body
 // way it leaves cold messages still in the transcript, which running the same
 // archival again completes.
 func (st *Store) Archive(ctx context.Context, s workspace.Scope, name string, through int, summary string) error {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return fmt.Errorf("archive session: %w", err)
 	}
 	if err := validArchive(through, summary); err != nil {
 		return fmt.Errorf("archive session %q: %w", name, err)
 	}
-	held, seqs, err := st.readDir(ctx, dir)
+	held, seqs, err := readDir(ctx, scoped, dir)
 	if err != nil {
 		return fmt.Errorf("archive session %q: %w", name, err)
 	}
@@ -223,11 +223,11 @@ func (st *Store) Archive(ctx context.Context, s workspace.Scope, name string, th
 	}
 
 	held.Summary, held.Archived = summary, through
-	if err := st.writeRecord(ctx, dir, held); err != nil {
+	if err := writeRecord(ctx, scoped, dir, held); err != nil {
 		return fmt.Errorf("archive session %q: %w", name, err)
 	}
 	archive := path.Join(dir, archiveName)
-	if err := st.fsys.Mkdir(ctx, archive); err != nil {
+	if err := scoped.Mkdir(ctx, archive); err != nil {
 		return fmt.Errorf("archive session %q: %w", name, err)
 	}
 	for _, seq := range seqs {
@@ -235,7 +235,7 @@ func (st *Store) Archive(ctx context.Context, s workspace.Scope, name string, th
 			break
 		}
 		from := path.Join(dir, messageName(seq))
-		if err := st.fsys.Rename(ctx, from, path.Join(archive, messageName(seq))); err != nil {
+		if err := scoped.Rename(ctx, from, path.Join(archive, messageName(seq))); err != nil {
 			return fmt.Errorf("archive session %q message %d: %w", name, seq, err)
 		}
 	}
@@ -250,19 +250,19 @@ func (st *Store) Archive(ctx context.Context, s workspace.Scope, name string, th
 // a conversation is out of the way of every caller that only wants the live
 // one, and still there for the caller that asks for it.
 func (st *Store) Archived(ctx context.Context, s workspace.Scope, name string) ([]Message, error) {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return nil, fmt.Errorf("read archive: %w", err)
 	}
-	if _, err := st.readRecord(ctx, dir); err != nil {
+	if _, err := readRecord(ctx, scoped, dir); err != nil {
 		return nil, fmt.Errorf("read archive of session %q: %w", name, err)
 	}
 	archive := path.Join(dir, archiveName)
-	seqs, err := st.seqsIn(ctx, archive)
+	seqs, err := seqsIn(ctx, scoped, archive)
 	if err != nil {
 		return nil, fmt.Errorf("read archive of session %q: %w", name, err)
 	}
-	messages, err := st.messages(ctx, archive, seqs)
+	messages, err := messagesIn(ctx, scoped, archive, seqs)
 	if err != nil {
 		return nil, fmt.Errorf("read archive of session %q: %w", name, err)
 	}
@@ -271,8 +271,8 @@ func (st *Store) Archived(ctx context.Context, s workspace.Scope, name string) (
 
 // readRecord returns the record standing in dir. A directory with no record in
 // it reports fs.ErrNotExist, which is what "no session was created here" is.
-func (st *Store) readRecord(ctx context.Context, dir string) (record, error) {
-	data, err := st.fsys.Read(ctx, path.Join(dir, recordName))
+func readRecord(ctx context.Context, fsys vfs.FileSystem, dir string) (record, error) {
+	data, err := fsys.Read(ctx, path.Join(dir, recordName))
 	if err != nil {
 		return record{}, err
 	}
@@ -283,22 +283,22 @@ func (st *Store) readRecord(ctx context.Context, dir string) (record, error) {
 // this package makes to a file it has already written, and it touches nothing
 // in the transcript: the record is its own file precisely so that retaining a
 // summary does not rewrite a single message.
-func (st *Store) writeRecord(ctx context.Context, dir string, held record) error {
+func writeRecord(ctx context.Context, fsys vfs.FileSystem, dir string, held record) error {
 	data, err := encodeRecord(held)
 	if err != nil {
 		return err
 	}
-	return st.fsys.Write(ctx, path.Join(dir, recordName), data)
+	return fsys.Write(ctx, path.Join(dir, recordName), data)
 }
 
 // readDir returns the record standing in dir and the sequence of every message
 // beside it, ascending, in one listing rather than one call per question.
-func (st *Store) readDir(ctx context.Context, dir string) (record, []int, error) {
-	held, err := st.readRecord(ctx, dir)
+func readDir(ctx context.Context, fsys vfs.FileSystem, dir string) (record, []int, error) {
+	held, err := readRecord(ctx, fsys, dir)
 	if err != nil {
 		return record{}, nil, err
 	}
-	seqs, err := st.seqsIn(ctx, dir)
+	seqs, err := seqsIn(ctx, fsys, dir)
 	if err != nil {
 		return record{}, nil, err
 	}
@@ -313,8 +313,8 @@ func (st *Store) readDir(ctx context.Context, dir string) (record, []int, error)
 // record keeps, so a session whose caller was interrupted still says what it
 // holds. Anything in the directory that is not a message — the record, the
 // archive, and whatever else a mount put there — is passed over.
-func (st *Store) seqsIn(ctx context.Context, dir string) ([]int, error) {
-	children, err := st.fsys.ReadDir(ctx, dir)
+func seqsIn(ctx context.Context, fsys vfs.FileSystem, dir string) ([]int, error) {
+	children, err := fsys.ReadDir(ctx, dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -331,11 +331,11 @@ func (st *Store) seqsIn(ctx context.Context, dir string) ([]int, error) {
 	return seqs, nil
 }
 
-// messages reads the message at each of seqs out of dir, in the order given.
-func (st *Store) messages(ctx context.Context, dir string, seqs []int) ([]Message, error) {
+// messagesIn reads the message at each of seqs out of dir, in the order given.
+func messagesIn(ctx context.Context, fsys vfs.FileSystem, dir string, seqs []int) ([]Message, error) {
 	messages := make([]Message, 0, len(seqs))
 	for _, seq := range seqs {
-		data, err := st.fsys.Read(ctx, path.Join(dir, messageName(seq)))
+		data, err := fsys.Read(ctx, path.Join(dir, messageName(seq)))
 		if err != nil {
 			return nil, fmt.Errorf("message %d: %w", seq, err)
 		}
@@ -359,29 +359,37 @@ func (st *Store) nextSeq(held record, seqs []int) int {
 	return last + 1
 }
 
-// base is where s keeps its sessions.
+// held is the store as a caller inside s sees it: the sessions s keeps are
+// names in it rather than a path derived down to them.
+//
+// The view is what makes the scope a boundary rather than a prefix: a name is
+// resolved by the subtree the tree beneath hands out, so a link standing at any
+// component of the scope path is refused instead of followed. A path derived
+// down to the session and handed to the whole area is resolved by the whole
+// area, which follows that link.
 //
 // User scope is refused here and so everywhere below it. A scope with no
 // workspace derives the path holding every workspace that user has, so a
 // session created there would stand where a workspace belongs and be listed as
 // one.
-func (st *Store) base(s workspace.Scope) (string, error) {
+func (st *Store) held(s workspace.Scope) (vfs.FileSystem, error) {
 	if s.Workspace == "" {
-		return "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
+		return nil, fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
 	}
-	return s.Path(st.root, "")
+	return s.View(st.fsys, st.root)
 }
 
-// dir is where the session named name stands in s.
-func (st *Store) dir(s workspace.Scope, name string) (string, error) {
+// dir is the store as a caller inside s sees it, and where the session named
+// name stands in it.
+func (st *Store) dir(s workspace.Scope, name string) (vfs.FileSystem, string, error) {
 	if err := vfs.ValidSegment("session name", name); err != nil {
-		return "", err
+		return nil, "", err
 	}
-	base, err := st.base(s)
+	scoped, err := st.held(s)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return path.Join(base, name), nil
+	return scoped, path.Join("/", name), nil
 }
 
 // sessionOf names a record, which is the one thing a record does not carry.

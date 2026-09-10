@@ -54,23 +54,23 @@ func NewStore(fsys vfs.FileSystem, root string, signer *Signer) (*Store, error) 
 // because replacing would put this upload's bytes under a declaration another
 // caller is still uploading against.
 func (st *Store) Create(ctx context.Context, s workspace.Scope, name, contentType string) (Resource, error) {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return Resource{}, fmt.Errorf("create resource: %w", err)
 	}
 
-	switch _, err := st.read(ctx, dir); {
+	switch _, err := read(ctx, scoped, dir); {
 	case err == nil:
 		return Resource{}, fmt.Errorf("create resource %q: %w", name, fs.ErrExist)
 	case !errors.Is(err, fs.ErrNotExist):
 		return Resource{}, fmt.Errorf("create resource %q: %w", name, err)
 	}
 
-	if err := st.fsys.Mkdir(ctx, dir); err != nil {
+	if err := scoped.Mkdir(ctx, dir); err != nil {
 		return Resource{}, fmt.Errorf("create resource %q: %w", name, err)
 	}
 	held := meta{ContentType: contentType}
-	if err := st.write(ctx, dir, held); err != nil {
+	if err := write(ctx, scoped, dir, held); err != nil {
 		return Resource{}, fmt.Errorf("create resource %q: %w", name, err)
 	}
 	return resourceOf(name, held), nil
@@ -88,11 +88,11 @@ func (st *Store) Create(ctx context.Context, s workspace.Scope, name, contentTyp
 // names the content it was completed with, and a second upload would leave the
 // resource saying one thing and holding another.
 func (st *Store) Upload(ctx context.Context, s workspace.Scope, name string, content io.Reader) (int64, error) {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return 0, fmt.Errorf("upload resource: %w", err)
 	}
-	held, err := st.read(ctx, dir)
+	held, err := read(ctx, scoped, dir)
 	if err != nil {
 		return 0, fmt.Errorf("upload resource %q: %w", name, err)
 	}
@@ -100,7 +100,7 @@ func (st *Store) Upload(ctx context.Context, s workspace.Scope, name string, con
 		return 0, fmt.Errorf("upload resource %q: it was completed as %s: %w", name, held.Digest, fs.ErrExist)
 	}
 
-	stream := st.fsys.AsStreamer()
+	stream := scoped.AsStreamer()
 	if stream == nil {
 		return 0, fmt.Errorf("upload resource %q: the mount has no streaming verbs: %w", name, fs.ErrInvalid)
 	}
@@ -133,11 +133,11 @@ func (st *Store) Upload(ctx context.Context, s workspace.Scope, name string, con
 // client repeats when it did not hear the answer, and doing the work twice
 // would compute the same digest for the same bytes.
 func (st *Store) Complete(ctx context.Context, s workspace.Scope, name string) (Resource, error) {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return Resource{}, fmt.Errorf("complete resource: %w", err)
 	}
-	held, err := st.read(ctx, dir)
+	held, err := read(ctx, scoped, dir)
 	if err != nil {
 		return Resource{}, fmt.Errorf("complete resource %q: %w", name, err)
 	}
@@ -145,7 +145,7 @@ func (st *Store) Complete(ctx context.Context, s workspace.Scope, name string) (
 		return resourceOf(name, held), nil
 	}
 
-	digest, size, err := st.digest(ctx, path.Join(dir, contentFile))
+	digest, size, err := digestOf(ctx, scoped, path.Join(dir, contentFile))
 	if err != nil {
 		return Resource{}, fmt.Errorf("complete resource %q: %w", name, err)
 	}
@@ -153,7 +153,7 @@ func (st *Store) Complete(ctx context.Context, s workspace.Scope, name string) (
 	held.Size = size
 	held.Digest = digest.String()
 	held.Complete = true
-	if err := st.write(ctx, dir, held); err != nil {
+	if err := write(ctx, scoped, dir, held); err != nil {
 		return Resource{}, fmt.Errorf("complete resource %q: %w", name, err)
 	}
 	return resourceOf(name, held), nil
@@ -166,11 +166,11 @@ func (st *Store) Complete(ctx context.Context, s workspace.Scope, name string) (
 // resource that has not been finalised reports itself incomplete rather than
 // being refused, because "it is not ready yet" is what the caller asked.
 func (st *Store) Stat(ctx context.Context, s workspace.Scope, name string) (Resource, error) {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return Resource{}, fmt.Errorf("stat resource: %w", err)
 	}
-	held, err := st.read(ctx, dir)
+	held, err := read(ctx, scoped, dir)
 	if err != nil {
 		return Resource{}, fmt.Errorf("stat resource %q: %w", name, err)
 	}
@@ -184,11 +184,11 @@ func (st *Store) Stat(ctx context.Context, s workspace.Scope, name string) (Reso
 // whatever the upload managed so far, and a holder of a grant would read that
 // as the whole file.
 func (st *Store) SignedDownload(ctx context.Context, s workspace.Scope, name string, ttl time.Duration) (Grant, error) {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return Grant{}, fmt.Errorf("sign download: %w", err)
 	}
-	held, err := st.read(ctx, dir)
+	held, err := read(ctx, scoped, dir)
 	if err != nil {
 		return Grant{}, fmt.Errorf("sign download of %q: %w", name, err)
 	}
@@ -208,12 +208,12 @@ func (st *Store) Download(ctx context.Context, token string) (io.ReadCloser, err
 	if err != nil {
 		return nil, fmt.Errorf("download: %w", err)
 	}
-	dir, err := st.dir(granted.Scope, granted.Name)
+	scoped, dir, err := st.dir(granted.Scope, granted.Name)
 	if err != nil {
 		return nil, fmt.Errorf("download: %w", err)
 	}
 
-	stream := st.fsys.AsStreamer()
+	stream := scoped.AsStreamer()
 	if stream == nil {
 		return nil, fmt.Errorf("download %q: the mount has no streaming verbs: %w", granted.Name, fs.ErrInvalid)
 	}
@@ -232,11 +232,11 @@ func (st *Store) Download(ctx context.Context, token string) (io.ReadCloser, err
 // tracked and are not revoked: what they name is gone, and redeeming one
 // reports that.
 func (st *Store) Delete(ctx context.Context, s workspace.Scope, name string) error {
-	dir, err := st.dir(s, name)
+	scoped, dir, err := st.dir(s, name)
 	if err != nil {
 		return fmt.Errorf("delete resource: %w", err)
 	}
-	if err := st.fsys.RemoveAll(ctx, dir); err != nil {
+	if err := scoped.RemoveAll(ctx, dir); err != nil {
 		return fmt.Errorf("delete resource %q: %w", name, err)
 	}
 	return nil
@@ -248,8 +248,8 @@ func (st *Store) Delete(ctx context.Context, s workspace.Scope, name string) err
 // The length comes from the same pass as the hash, so the two always describe
 // the same bytes. Asking the mount how big the content is would be a second
 // answer, taken at a second moment.
-func (st *Store) digest(ctx context.Context, at string) (cas.Digest, int64, error) {
-	stream := st.fsys.AsStreamer()
+func digestOf(ctx context.Context, fsys vfs.FileSystem, at string) (cas.Digest, int64, error) {
+	stream := fsys.AsStreamer()
 	if stream == nil {
 		return cas.Digest{}, 0, fmt.Errorf("hash %q: the mount has no streaming verbs: %w", at, fs.ErrInvalid)
 	}
@@ -282,8 +282,8 @@ func (c *counting) Read(p []byte) (int, error) {
 // read returns what the resource in dir says about itself. A directory with no
 // meta file reports fs.ErrNotExist, which is what "no resource was declared
 // here" is.
-func (st *Store) read(ctx context.Context, dir string) (meta, error) {
-	data, err := st.fsys.Read(ctx, path.Join(dir, metaFile))
+func read(ctx context.Context, fsys vfs.FileSystem, dir string) (meta, error) {
+	data, err := fsys.Read(ctx, path.Join(dir, metaFile))
 	if err != nil {
 		return meta{}, err
 	}
@@ -295,27 +295,38 @@ func (st *Store) read(ctx context.Context, dir string) (meta, error) {
 }
 
 // write replaces what the resource in dir says about itself.
-func (st *Store) write(ctx context.Context, dir string, held meta) error {
+func write(ctx context.Context, fsys vfs.FileSystem, dir string, held meta) error {
 	data, err := json.Marshal(held)
 	if err != nil {
 		return err
 	}
-	return st.fsys.Write(ctx, path.Join(dir, metaFile), data)
+	return fsys.Write(ctx, path.Join(dir, metaFile), data)
 }
 
-// dir is where the resource named name stands in s.
+// dir is the store as a caller inside s sees it, and where the resource named
+// name stands in it.
+//
+// The view is what makes the scope a boundary rather than a prefix: the name is
+// resolved by the subtree the tree beneath hands out, so a link standing at any
+// component of the scope path is refused instead of followed. A path derived
+// down to the resource and handed to the whole area is resolved by the whole
+// area, which follows that link.
 //
 // User scope is refused: a scope with no workspace derives the path holding
 // every workspace that user has, so a resource written there would stand where
 // a workspace belongs.
-func (st *Store) dir(s workspace.Scope, name string) (string, error) {
+func (st *Store) dir(s workspace.Scope, name string) (vfs.FileSystem, string, error) {
 	if err := vfs.ValidSegment("resource name", name); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if s.Workspace == "" {
-		return "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
+		return nil, "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
 	}
-	return s.Path(st.root, name)
+	scoped, err := s.View(st.fsys, st.root)
+	if err != nil {
+		return nil, "", err
+	}
+	return scoped, path.Join("/", name), nil
 }
 
 // Resolve returns the resource the changed path declares: the scope it stands

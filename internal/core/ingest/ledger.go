@@ -75,11 +75,11 @@ func (l *Ledger) Failed(ctx context.Context, s workspace.Scope, name, stage, bec
 // translate. That is also all the ledger can say: whether the document exists
 // at all is the resource store's answer.
 func (l *Ledger) Get(ctx context.Context, s workspace.Scope, name string) (Indexing, error) {
-	at, err := l.at(s, name)
+	fsys, at, err := l.at(s, name)
 	if err != nil {
 		return Indexing{}, fmt.Errorf("get indexing: %w", err)
 	}
-	data, err := l.fsys.Read(ctx, at)
+	data, err := fsys.Read(ctx, at)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Indexing{Name: name, Status: Pending}, nil
 	}
@@ -103,7 +103,7 @@ func (l *Ledger) Get(ctx context.Context, s workspace.Scope, name string) (Index
 // was written, making the scope's directory first — which is what a tree needs
 // and what a key space has nothing to do about.
 func (l *Ledger) write(ctx context.Context, s workspace.Scope, name string, held record) error {
-	at, err := l.at(s, name)
+	fsys, at, err := l.at(s, name)
 	if err != nil {
 		return fmt.Errorf("record indexing: %w", err)
 	}
@@ -112,26 +112,37 @@ func (l *Ledger) write(ctx context.Context, s workspace.Scope, name string, held
 	if err != nil {
 		return fmt.Errorf("record indexing of %q: %w", name, err)
 	}
-	if err := l.fsys.Mkdir(ctx, path.Dir(at)); err != nil {
+	if err := fsys.Mkdir(ctx, path.Dir(at)); err != nil {
 		return fmt.Errorf("record indexing of %q: %w", name, err)
 	}
-	if err := l.fsys.Write(ctx, at, data); err != nil {
+	if err := fsys.Write(ctx, at, data); err != nil {
 		return fmt.Errorf("record indexing of %q: %w", name, err)
 	}
 	return nil
 }
 
-// at is where the record for the document named name stands in s.
+// at is the ledger as a caller inside s sees it, and where the record for the
+// document named name stands in it.
+//
+// The view is what makes the scope a boundary rather than a prefix: the name is
+// resolved by the subtree the tree beneath hands out, so a link standing at any
+// component of the scope path is refused instead of followed. A path derived
+// down to the record and handed to the whole area is resolved by the whole
+// area, which follows that link.
 //
 // User scope is refused: a scope with no workspace derives the path holding
 // every workspace that user has, so a record written there would stand where a
 // workspace belongs.
-func (l *Ledger) at(s workspace.Scope, name string) (string, error) {
+func (l *Ledger) at(s workspace.Scope, name string) (vfs.FileSystem, string, error) {
 	if err := vfs.ValidSegment("document name", name); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if s.Workspace == "" {
-		return "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
+		return nil, "", fmt.Errorf("scope names no workspace: %w", fs.ErrInvalid)
 	}
-	return s.Path(l.root, name)
+	held, err := s.View(l.fsys, l.root)
+	if err != nil {
+		return nil, "", err
+	}
+	return held, path.Join("/", name), nil
 }
