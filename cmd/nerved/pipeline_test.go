@@ -12,6 +12,7 @@ import (
 	"github.com/tunedev/nerve/internal/adapters/outbound/termmatch"
 	"github.com/tunedev/nerve/internal/core/ingest"
 	"github.com/tunedev/nerve/internal/core/search"
+	"github.com/tunedev/nerve/internal/core/stability"
 	"github.com/tunedev/nerve/internal/core/vfs"
 	"github.com/tunedev/nerve/internal/core/workspace"
 )
@@ -175,7 +176,7 @@ func composed(t *testing.T) (*vfs.MountTable, []vfs.MountSpec) {
 		}},
 	}
 
-	registry := vfs.NewRegistry(time.Minute, vfs.Retry{Attempts: 1}, vfs.Breaker{Threshold: 1, Cooldown: time.Second})
+	registry := vfs.NewRegistry(time.Minute, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerKinds(registry, "test", nil, vfs.NewTraffic(time.Now), nil, nil, nil, nil, nil); err != nil {
 		t.Fatalf("registerKinds() = %v", err)
 	}
