@@ -45,6 +45,9 @@ func (c Config) Validate() error {
 		optional("resources-root", c.ResourcesRoot, rootedPath),
 		optional("scratch-root", c.ScratchRoot, rootedPath),
 		signable(c.ResourcesRoot, c.DownloadKeyFile),
+		optional("ingest-queue", c.IngestQueue, rootedPath),
+		optional("ingest-root", c.IngestRoot, rootedPath),
+		ingestible(c.IngestQueue, c.ResourcesRoot, c.IngestRoot),
 		listenable("admin-addr", c.AdminAddr),
 	)
 }
@@ -217,6 +220,30 @@ func signable(root, keyFile string) error {
 		return nil
 	}
 	return fmt.Errorf("resources-root is %q but download-key-file names no file to read the signing key from", root)
+}
+
+// ingestible refuses an ingest queue with nothing to ingest from and nowhere to
+// record what it did. A worker with no resource store resolves every job it
+// claims to nothing, and one with no ledger runs the stages and leaves no
+// answer to the only question a caller asks afterwards.
+func ingestible(queue, resources, ledger string) error {
+	if queue == "" {
+		return nil
+	}
+	return errors.Join(
+		named("ingest-queue names a queue but resources-root names no tree to ingest from", resources),
+		named("ingest-queue names a queue but ingest-root names no root to record indexing under", ledger),
+	)
+}
+
+// named refuses an empty value with the sentence describing what its emptiness
+// costs. It is the shape a setting required by another setting takes: what is
+// wrong is the pair, so the message is about the pair.
+func named(because, value string) error {
+	if value != "" {
+		return nil
+	}
+	return errors.New(because)
 }
 
 // listenable accepts a host:port a server can bind. An empty host means every
