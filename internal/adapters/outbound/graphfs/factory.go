@@ -16,10 +16,11 @@ import (
 // Kind is the name a mount config uses to ask for a knowledge graph.
 const Kind = "graphfs"
 
-// The settings one mount takes. Neither carries a credential.
+// The settings one mount takes. None carries a credential.
 const (
 	settingName  = "name"
 	settingEdges = "edges"
+	settingDepth = "depth"
 )
 
 // DefaultEdges is how much of an answer a mount hands back when it does not
@@ -29,14 +30,19 @@ const (
 // more of both than any of them can use.
 const DefaultEdges = 20
 
-// Public names the settings safe to read back to an operator, which is both of
-// them: what a graph is called and how much of it one answer carries are an
-// operator's business, and where the blob is kept is the store's.
-var Public = []string{settingName, settingEdges}
+// DefaultDepth is how far out an expansion reaches when a mount does not say:
+// the claims about the entity itself and nothing beyond them.
+const DefaultDepth = 1
+
+// Public names the settings safe to read back to an operator, which is all of
+// them: what a graph is called and how much of it one answer carries and
+// reaches are an operator's business, and where the blob is kept is the
+// store's.
+var Public = []string{settingName, settingEdges, settingDepth}
 
 // known is every setting this kind accepts, which is what makes a misspelling a
 // boot failure instead of a silently ignored line.
-var known = []string{settingName, settingEdges}
+var known = []string{settingName, settingEdges, settingDepth}
 
 // Factory builds graphs kept in one store that are read by one chain, which is
 // what keeps both a model client and a bucket out of the plugin: the
@@ -81,9 +87,13 @@ func Factory(extract llm.EntityExtractor, store Store, snapshots SnapshotStore) 
 		if err != nil {
 			return nil, err
 		}
+		depth, err := countSetting(settingDepth, settings[settingDepth], DefaultDepth)
+		if err != nil {
+			return nil, err
+		}
 
 		name := settings[settingName]
-		graph, err := Open(context.Background(), name, edges, store, snapshots, extract)
+		graph, err := Open(context.Background(), name, edges, depth, store, snapshots, extract)
 		if err != nil {
 			return nil, fmt.Errorf("kind %q: %w", Kind, err)
 		}

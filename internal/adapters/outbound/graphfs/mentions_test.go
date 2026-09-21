@@ -36,7 +36,7 @@ func TestMentionsRankTheTextsThatSayMostFirst(t *testing.T) {
 // of them, which is what the real extractor is here to show.
 func TestMentionsIncludeATextThatOnlyNamesTheEntity(t *testing.T) {
 	store := newMemStore()
-	graph, err := graphfs.Open(t.Context(), "notes", edges, store, store, nounlink.New())
+	graph, err := graphfs.Open(t.Context(), "notes", edges, 1, store, store, nounlink.New())
 	if err != nil {
 		t.Fatalf("Open = %v", err)
 	}

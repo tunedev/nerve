@@ -39,6 +39,37 @@ func TestAGraphMountAnswersThroughTheChainTheConfigNames(t *testing.T) {
 	}
 }
 
+// The acceptance of E7.6, through the wiring the composition root uses: a mount
+// whose config says depth 2 answers for Nerve with Disk, two hops out, and with
+// nothing about the Rig, which Furiosa owns and no text joins to Nerve.
+func TestAGraphMountOfDepthTwoAnswersTwoHopsOut(t *testing.T) {
+	table := mountGraphWith(t, testCorpus(t), map[string]string{"name": "notes", "depth": "2"})
+	for key, text := range map[string]string{
+		"stack": "Nerve uses Postgres for storage.",
+		"disk":  "Postgres runs on Disk.",
+		"crew":  "Furiosa owns Rig.",
+	} {
+		if err := table.Write(t.Context(), "/graph/docs/"+key, []byte(text)); err != nil {
+			t.Fatalf("Write(/graph/docs/%s) = %v", key, err)
+		}
+	}
+
+	answered, err := table.Read(t.Context(), "/graph/neighbours/Nerve")
+	if err != nil {
+		t.Fatalf("Read(/graph/neighbours/Nerve) = %v", err)
+	}
+	t.Logf("Read(/graph/neighbours/Nerve) =\n%s", answered)
+	if !strings.Contains(string(answered), "Disk") {
+		t.Errorf("the expansion was %q, want Disk, two hops out", answered)
+	}
+	if strings.Contains(string(answered), "Rig") {
+		t.Errorf("the expansion was %q, want nothing about the Rig", answered)
+	}
+	if crew, _ := table.Read(t.Context(), "/graph/neighbours/Furiosa"); !strings.Contains(string(crew), "Rig") {
+		t.Errorf("the expansion of Furiosa was %q, want the Rig, or the case above proves nothing", crew)
+	}
+}
+
 // Blob-persisted, through the wiring the composition root actually uses: a
 // second mount table over the same corpus opens the graph the first one left.
 func TestAGraphMountedAgainOverTheSameCorpusKeepsWhatItLearnt(t *testing.T) {
@@ -177,6 +208,12 @@ func TestAGraphAndAnIndexOfOneNameDoNotShareAKey(t *testing.T) {
 // the endpoint a laptop with no model has.
 func mountGraph(t *testing.T, documents vectorfs.DocStore) *vfs.MountTable {
 	t.Helper()
+	return mountGraphWith(t, documents, map[string]string{"name": "notes"})
+}
+
+// mountGraphWith is mountGraph with the mount's settings spelled by the case.
+func mountGraphWith(t *testing.T, documents vectorfs.DocStore, settings map[string]string) *vfs.MountTable {
+	t.Helper()
 
 	providers := llm.NewRegistry(time.Minute, stability.Retry{Attempts: 1}, stability.Breaker{Threshold: 1, Cooldown: time.Second})
 	if err := registerProviders(providers); err != nil {
@@ -194,7 +231,7 @@ func mountGraph(t *testing.T, documents vectorfs.DocStore) *vfs.MountTable {
 	}
 
 	table, err := registry.Table([]vfs.MountSpec{{
-		Prefix: "/graph", Kind: graphfs.Kind, Settings: map[string]string{"name": "notes"},
+		Prefix: "/graph", Kind: graphfs.Kind, Settings: settings,
 	}})
 	if err != nil {
 		t.Fatalf("Table(/graph) = %v", err)
