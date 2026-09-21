@@ -53,11 +53,6 @@ const (
 	asked    = 50 * time.Millisecond
 )
 
-// This case is the one place the defect in nrv-93kh is visible: a job the broker
-// acknowledged is dropped when the relay's carried_at update still holds the row
-// the worker is claiming. The failure below names it, because a red run here is
-// otherwise a wiring hunt for something that is wired.
-//
 // The acceptance for this wiring, as a running build actually composes it: a
 // document finalised through the resource store is ingested by a worker on the
 // far end of a real queue, and the words it left are what a question in the
@@ -155,8 +150,7 @@ func waitForIndexing(t *testing.T, ledger *ingest.Ledger, s workspace.Scope, nam
 			return indexing
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("nothing ingested %q in %s: either the observer, the queue and the worker are not wired, "+
-				"or the job was lost to nrv-93kh - the carried_at update racing the claim", name, ingested)
+			t.Fatalf("nothing ingested %q in %s: the observer, the queue and the worker are not wired", name, ingested)
 		}
 		time.Sleep(asked)
 	}

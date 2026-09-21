@@ -111,9 +111,9 @@ DO UPDATE SET body = EXCLUDED.body, mode = EXCLUDED.mode, recorded_at = now(), c
 
 // Claim takes the message pending under key out of the queue.
 //
-// The lock skips a row another reader already holds rather than waiting behind
-// it, so two consumers of one queue take different messages instead of taking
-// turns.
+// A key addresses one pending row, so the claim waits for whatever holds that
+// row and then looks again: behind another claim it finds nothing, behind the
+// relay marking the row carried or a write replacing it, it takes the message.
 func (p *Postgres) Claim(ctx context.Context, key string) ([]byte, error) {
 	const claim = `
 UPDATE queue_messages SET claimed_at = now()
@@ -121,7 +121,7 @@ WHERE id = (
 	SELECT id FROM queue_messages
 	WHERE queue = $1 AND key = $2 AND claimed_at IS NULL
 	ORDER BY id LIMIT 1
-	FOR UPDATE SKIP LOCKED
+	FOR UPDATE
 )
 RETURNING body
 `
