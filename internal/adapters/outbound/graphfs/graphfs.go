@@ -7,7 +7,8 @@
 //
 //	/docs/<key>        the texts. Writing one reads its entities and relations
 //	                   into the graph; reading gives the text back
-//	/neighbours/<name> one hop out of every entity with that name
+//	/neighbours/<name> every claim within depth hops of the entities with that
+//	                   name, the best supported first
 //	/mentions/<name>   the texts naming that entity, the ones that say most
 //	                   about it first
 //	/snapshots/<label> the graph as it stood. Writing one takes it, reading one
@@ -94,6 +95,7 @@ type FS struct {
 
 	name      string
 	edges     int
+	depth     int
 	store     Store
 	snapshots SnapshotStore
 	extract   llm.EntityExtractor
@@ -108,17 +110,17 @@ type FS struct {
 
 // Open returns the graph named name kept in store and snapshotted into
 // snapshots, read by extract, answering an expansion with at most edges claims
-// and a mentions query with at most edges texts.
+// from up to depth hops out, and a mentions query with at most edges texts.
 //
 // The graph is loaded here, so a store that cannot be read is a graph that
 // cannot be opened. Nothing kept under the name yet is a graph with nothing in
 // it, which is the first boot.
-func Open(ctx context.Context, name string, edges int, store Store, snapshots SnapshotStore, extract llm.EntityExtractor) (*FS, error) {
+func Open(ctx context.Context, name string, edges, depth int, store Store, snapshots SnapshotStore, extract llm.EntityExtractor) (*FS, error) {
 	held, err := load(ctx, store, name)
 	if err != nil {
 		return nil, err
 	}
-	return &FS{name: name, edges: edges, store: store, snapshots: snapshots, extract: extract, graph: held}, nil
+	return &FS{name: name, edges: edges, depth: depth, store: store, snapshots: snapshots, extract: extract, graph: held}, nil
 }
 
 // Capabilities reports three different things inside one mount, which is what
@@ -209,11 +211,12 @@ func locate(name string) (spot, string) {
 	}
 }
 
-// description is what the config path holds: what the graph is called and how
-// much of an answer it hands back. Where the blob is kept is the store's
-// business and reads back through the operator surface, which redacts.
+// description is what the config path holds: what the graph is called, how
+// much of an answer it hands back and how far out an expansion reaches. Where
+// the blob is kept is the store's business and reads back through the operator
+// surface, which redacts.
 func (f *FS) description() []byte {
-	return []byte("graph " + f.name + "\nedges " + strconv.Itoa(f.edges) + "\n")
+	return []byte("graph " + f.name + "\nedges " + strconv.Itoa(f.edges) + "\ndepth " + strconv.Itoa(f.depth) + "\n")
 }
 
 // dirInfo is what a prefix reads back as: a directory that exists only because

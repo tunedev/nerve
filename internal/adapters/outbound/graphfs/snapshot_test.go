@@ -24,7 +24,7 @@ func TestASnapshotTakenBeforeARestartIsWhatARestoreGivesBack(t *testing.T) {
 
 	// The extractor refuses, so nothing this graph answers can have come from a
 	// second reading of a text.
-	again, err := graphfs.Open(t.Context(), "notes", edges, store, store, statements{refuse: errors.New("no endpoint")})
+	again, err := graphfs.Open(t.Context(), "notes", edges, 1, store, store, statements{refuse: errors.New("no endpoint")})
 	if err != nil {
 		t.Fatalf("Open = %v", err)
 	}
@@ -58,7 +58,7 @@ func TestARestoredGraphIsWhatOpensAgain(t *testing.T) {
 	write(t, graph, "/docs/stack", "Nerve uses Neo4j")
 	write(t, graph, "/restore", "before")
 
-	again, err := graphfs.Open(t.Context(), "notes", edges, store, store, statements{refuse: errors.New("no endpoint")})
+	again, err := graphfs.Open(t.Context(), "notes", edges, 1, store, store, statements{refuse: errors.New("no endpoint")})
 	if err != nil {
 		t.Fatalf("Open = %v", err)
 	}

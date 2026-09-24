@@ -20,7 +20,7 @@ const edges = 10
 func newGraph(t *testing.T, store *memStore, extract statements) *graphfs.FS {
 	t.Helper()
 
-	graph, err := graphfs.Open(t.Context(), "notes", edges, store, store, extract)
+	graph, err := graphfs.Open(t.Context(), "notes", edges, 1, store, store, extract)
 	if err != nil {
 		t.Fatalf("Open = %v", err)
 	}
@@ -51,9 +51,9 @@ func TestExpansionAnswersWithTheNeighboursOfTheEntity(t *testing.T) {
 
 	answer := read(t, graph, "/neighbours/Nerve")
 
-	want := "from\tfrom_kind\tpredicate\tto\tto_kind\tsupport\n" +
-		"Nerve\tmention\tuses\tPostgres\tmention\t1\n" +
-		"Nerve\tmention\tpublishes\tRabbitMQ\tmention\t1\n"
+	want := "from\tfrom_kind\tpredicate\tto\tto_kind\tsupport\thop\n" +
+		"Nerve\tmention\tuses\tPostgres\tmention\t1\t1\n" +
+		"Nerve\tmention\tpublishes\tRabbitMQ\tmention\t1\t1\n"
 	if answer != want {
 		t.Errorf("Read(/neighbours/Nerve) =\n%q\nwant\n%q", answer, want)
 	}
@@ -99,9 +99,9 @@ func TestTwoTextsStatingOneClaimMakeOneEdge(t *testing.T) {
 
 	answer := read(t, graph, "/neighbours/Nerve")
 
-	want := "from\tfrom_kind\tpredicate\tto\tto_kind\tsupport\n" +
-		"Nerve\tmention\tuses\tPostgres\tmention\t2\n" +
-		"Nerve\tmention\tuses\tRabbitMQ\tmention\t1\n"
+	want := "from\tfrom_kind\tpredicate\tto\tto_kind\tsupport\thop\n" +
+		"Nerve\tmention\tuses\tPostgres\tmention\t2\t1\n" +
+		"Nerve\tmention\tuses\tRabbitMQ\tmention\t1\t1\n"
 	if answer != want {
 		t.Errorf("Read(/neighbours/Nerve) =\n%q\nwant the better-supported claim first,\n%q", answer, want)
 	}
@@ -113,7 +113,7 @@ func TestANameWithNothingSaidAboutItStillAnswers(t *testing.T) {
 	graph := newGraph(t, newMemStore(), statements{})
 	write(t, graph, "/docs/stack", "Nerve uses Postgres")
 
-	if answer := read(t, graph, "/neighbours/Furiosa"); answer != "from\tfrom_kind\tpredicate\tto\tto_kind\tsupport\n" {
+	if answer := read(t, graph, "/neighbours/Furiosa"); answer != "from\tfrom_kind\tpredicate\tto\tto_kind\tsupport\thop\n" {
 		t.Errorf("Read(/neighbours/Furiosa) = %q, want the heading and no claims", answer)
 	}
 }
@@ -123,7 +123,7 @@ func TestANameWithNothingSaidAboutItStillAnswers(t *testing.T) {
 func TestAnExpansionIsBoundedByTheEdgesSetting(t *testing.T) {
 	graph, err := func() (*graphfs.FS, error) {
 		store := newMemStore()
-		return graphfs.Open(t.Context(), "notes", 2, store, store, statements{})
+		return graphfs.Open(t.Context(), "notes", 2, 1, store, store, statements{})
 	}()
 	if err != nil {
 		t.Fatalf("Open = %v", err)
@@ -146,8 +146,8 @@ func TestRemovingATextTakesWhatItSaid(t *testing.T) {
 		t.Fatalf("Remove = %v", err)
 	}
 
-	want := "from\tfrom_kind\tpredicate\tto\tto_kind\tsupport\n" +
-		"Nerve\tmention\tuses\tPostgres\tmention\t1\n"
+	want := "from\tfrom_kind\tpredicate\tto\tto_kind\tsupport\thop\n" +
+		"Nerve\tmention\tuses\tPostgres\tmention\t1\t1\n"
 	if answer := read(t, graph, "/neighbours/Nerve"); answer != want {
 		t.Errorf("Read(/neighbours/Nerve) =\n%q\nwant\n%q", answer, want)
 	}
@@ -178,7 +178,7 @@ func TestAGraphOpensAgainOutOfItsBlob(t *testing.T) {
 
 	// The extractor refuses, so anything this graph answers came out of the
 	// blob rather than out of a second reading.
-	again, err := graphfs.Open(t.Context(), "notes", edges, store, store, statements{refuse: errors.New("no endpoint")})
+	again, err := graphfs.Open(t.Context(), "notes", edges, 1, store, store, statements{refuse: errors.New("no endpoint")})
 	if err != nil {
 		t.Fatalf("Open = %v", err)
 	}
@@ -279,7 +279,7 @@ func TestTheExpansionsListNothing(t *testing.T) {
 func TestConfigSaysWhatTheGraphIs(t *testing.T) {
 	graph := newGraph(t, newMemStore(), statements{})
 
-	if got, want := read(t, graph, "/config"), "graph notes\nedges 10\n"; got != want {
+	if got, want := read(t, graph, "/config"), "graph notes\nedges 10\ndepth 1\n"; got != want {
 		t.Errorf("Read(/config) = %q, want %q", got, want)
 	}
 }
@@ -288,7 +288,7 @@ func TestConfigSaysWhatTheGraphIs(t *testing.T) {
 // model, no network, nothing started.
 func TestTheLaptopChainAnswersAnExpansion(t *testing.T) {
 	store := newMemStore()
-	graph, err := graphfs.Open(t.Context(), "notes", edges, store, store, nounlink.New())
+	graph, err := graphfs.Open(t.Context(), "notes", edges, 1, store, store, nounlink.New())
 	if err != nil {
 		t.Fatalf("Open = %v", err)
 	}

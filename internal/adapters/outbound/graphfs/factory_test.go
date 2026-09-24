@@ -13,7 +13,7 @@ import (
 func TestFactoryBuildsAGraphFromItsSettings(t *testing.T) {
 	build := graphfs.Factory(statements{}, newMemStore(), newMemStore())
 
-	mount, err := build(map[string]string{"name": "notes", "edges": "3"})
+	mount, err := build(map[string]string{"name": "notes", "edges": "3", "depth": "2"})
 	if err != nil {
 		t.Fatalf("Factory = %v", err)
 	}
@@ -22,7 +22,7 @@ func TestFactoryBuildsAGraphFromItsSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read(/config) = %v", err)
 	}
-	if got, want := string(body), "graph notes\nedges 3\n"; got != want {
+	if got, want := string(body), "graph notes\nedges 3\ndepth 2\n"; got != want {
 		t.Errorf("Read(/config) = %q, want %q", got, want)
 	}
 }
@@ -38,6 +38,9 @@ func TestFactoryDefaultsTheBoundAMountDoesNotName(t *testing.T) {
 	body, _ := mount.Read(t.Context(), "/config")
 	if !strings.Contains(string(body), "edges 20") {
 		t.Errorf("Read(/config) = %q, want the default bound", body)
+	}
+	if !strings.Contains(string(body), "depth 1") {
+		t.Errorf("Read(/config) = %q, want the default depth", body)
 	}
 }
 
@@ -83,9 +86,11 @@ func TestAGraphWithNoNameIsRefused(t *testing.T) {
 func TestABoundThatIsNotACountIsRefused(t *testing.T) {
 	build := graphfs.Factory(statements{}, newMemStore(), newMemStore())
 
-	for _, spelled := range []string{"many", "0", "-1"} {
-		if _, err := build(map[string]string{"name": "notes", "edges": spelled}); !errors.Is(err, fs.ErrInvalid) {
-			t.Errorf("edges = %q built a mount: %v", spelled, err)
+	for _, setting := range []string{"edges", "depth"} {
+		for _, spelled := range []string{"many", "0", "-1"} {
+			if _, err := build(map[string]string{"name": "notes", setting: spelled}); !errors.Is(err, fs.ErrInvalid) {
+				t.Errorf("%s = %q built a mount: %v", setting, spelled, err)
+			}
 		}
 	}
 }
