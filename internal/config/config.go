@@ -118,6 +118,11 @@ type Config struct {
 	// shape of the mount table — is for whoever is on the box.
 	AdminAddr string `json:"admin-addr"`
 
+	// APIAddr is where the service contract listens: the resource store over
+	// Connect, gRPC and gRPC-Web on one port. Empty serves nothing. It takes
+	// no identity from a caller, so it belongs on loopback.
+	APIAddr string `json:"api-addr"`
+
 	// Mounts is the mount table: which plugin answers for which subtree. It is
 	// a list, so unlike the settings above it comes from the file layer alone.
 	Mounts []Mount `json:"mounts"`
@@ -290,6 +295,7 @@ var fields = []field{
 	{"ingest-queue", "prefix of the queue mount resource writes are queued under; empty ingests nothing", func(c *Config) *string { return &c.IngestQueue }},
 	{"ingest-root", "root on the tree the indexing ledger stands under; required with ingest-queue", func(c *Config) *string { return &c.IngestRoot }},
 	{"admin-addr", "host:port for the operator surface", func(c *Config) *string { return &c.AdminAddr }},
+	{"api-addr", "host:port for the resource service over Connect, gRPC and gRPC-Web; empty serves nothing", func(c *Config) *string { return &c.APIAddr }},
 }
 
 // envName is the environment spelling of a setting: NERVE_ before it, upper

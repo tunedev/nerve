@@ -111,6 +111,10 @@ func TestInvalidConfigFailsAtBoot(t *testing.T) {
 		// without a key file is a process that cannot boot. Saying so here is
 		// what puts it beside the rest rather than one restart later.
 		"resources root with no key file": {Args: []string{"-resources-root", "/resources"}},
+		"api addr with no resources root": {Args: []string{"-api-addr", "127.0.0.1:7778"}},
+		"api addr no port": {Args: []string{
+			"-api-addr", "127.0.0.1", "-resources-root", "/resources", "-download-key-file", "/key",
+		}},
 	}
 
 	for name, src := range cases {

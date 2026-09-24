@@ -49,6 +49,7 @@ func (c Config) Validate() error {
 		optional("ingest-root", c.IngestRoot, rootedPath),
 		ingestible(c.IngestQueue, c.ResourcesRoot, c.IngestRoot),
 		listenable("admin-addr", c.AdminAddr),
+		servable(c.APIAddr, c.ResourcesRoot),
 	)
 }
 
@@ -233,6 +234,18 @@ func ingestible(queue, resources, ledger string) error {
 	return errors.Join(
 		named("ingest-queue names a queue but resources-root names no tree to ingest from", resources),
 		named("ingest-queue names a queue but ingest-root names no root to record indexing under", ledger),
+	)
+}
+
+// servable refuses a service address a server cannot bind, and one with no
+// resource store behind it to serve.
+func servable(addr, resources string) error {
+	if addr == "" {
+		return nil
+	}
+	return errors.Join(
+		listenable("api-addr", addr),
+		named("api-addr names an address but resources-root names no store to serve", resources),
 	)
 }
 

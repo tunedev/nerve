@@ -59,6 +59,21 @@ it does.
 | Composed | `proxyfs`, `exportfs` | Another mount at a different name, and content derived from other paths, remade when they move |
 | Synthetic | `hellofs`, `heartbeatfs`, `serverinfofs`, `devfs` | The process answering about itself; `devfs` is where capability varies inside one mount |
 
+## Service contract
+
+`proto/` is the versioned contract, served by connect-go on `api-addr` (empty by default,
+so nothing is served). One port answers Connect JSON over HTTP/1.1, gRPC over unencrypted
+HTTP/2 and gRPC-Web. `ResourceService` is the resource store, one RPC per verb:
+
+```
+curl -H 'Content-Type: application/json' \
+  -d '{"scope":{"user":"ada","workspace":"hunt"},"name":"cv.txt"}' \
+  http://127.0.0.1:7931/nerve.resource.v1.ResourceService/Content
+```
+
+It takes no identity from a caller: the scope is whatever the request names. Keep it on
+loopback. `make generate` rebuilds `internal/gen` with the pinned generators.
+
 ## Running the stack
 
 Everything runs locally, free, with no cloud account. If it does not work on a plane, it is
