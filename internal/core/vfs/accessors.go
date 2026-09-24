@@ -86,7 +86,10 @@ type Subber interface {
 // wrapped the same way, so a caller that narrowed onto one keeps whatever the
 // wrapper adds. A tree beneath that hands out no subtree leaves the wrapper
 // handing out none either, which is what keeps the caller's nil guard true.
-func SubOf(fsys FileSystem, wrap func(FileSystem) FileSystem) Subber {
+//
+// wrap is given the path the subtree was asked for, in the wrapper's own
+// vocabulary, for a wrapper that names paths to anyone outside the subtree.
+func SubOf(fsys FileSystem, wrap func(at string, beneath FileSystem) FileSystem) Subber {
 	sub := fsys.AsSubber()
 	if sub == nil {
 		return nil
@@ -96,7 +99,7 @@ func SubOf(fsys FileSystem, wrap func(FileSystem) FileSystem) Subber {
 		if beneath == nil {
 			return nil
 		}
-		return wrap(beneath)
+		return wrap(path, beneath)
 	})
 }
 

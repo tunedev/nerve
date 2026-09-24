@@ -119,7 +119,7 @@ func (r readingAhead) AsStreamer() Streamer {
 // AsSubber returns the plugin's subtrees reading ahead by the same window, or
 // nil if it has none.
 func (r readingAhead) AsSubber() Subber {
-	return SubOf(r.fsys, func(beneath FileSystem) FileSystem { return readingAhead{fsys: beneath, window: r.window} })
+	return SubOf(r.fsys, func(_ string, beneath FileSystem) FileSystem { return readingAhead{fsys: beneath, window: r.window} })
 }
 
 // aheadStreamer is the plugin's streaming verbs with the read pulled ahead. The

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"path"
 )
 
 // WriteObserver is told what a write changed, once it has changed. It is the
@@ -47,9 +48,14 @@ func WithWriteObserver(fsys FileSystem, observer WriteObserver) FileSystem {
 // observed is one plugin with one observer behind it. It stores nothing: what
 // changed is the verb's own arguments, and whether it is worth reporting is
 // asked of the mount at the path.
+//
+// base is where fsys stands in the observed tree, and is empty when fsys is
+// that tree. A subtree's paths are its own, and the observer is told them
+// under base because it watches the whole tree.
 type observed struct {
 	fsys     FileSystem
 	observer WriteObserver
+	base     string
 }
 
 // report tells the observer about every path that changed, on the caller's
@@ -60,8 +66,16 @@ func (o observed) report(ctx context.Context, paths ...string) {
 		if o.fsys.Capabilities(path).ReadDestructive {
 			continue
 		}
-		_ = o.observer.Wrote(ctx, path)
+		_ = o.observer.Wrote(ctx, o.named(path))
 	}
+}
+
+// named is name as the observed tree names it.
+func (o observed) named(name string) string {
+	if o.base == "" {
+		return name
+	}
+	return path.Join(o.base, name)
 }
 
 // after reports what the call changed if it changed anything, and hands back
@@ -159,9 +173,12 @@ func (o observed) AsTruncater() Truncater {
 
 // AsSubber returns the plugin's subtrees with their writes reported, or nil if
 // it has none. A caller that narrowed onto a subtree is still writing to the
-// tree the observer watches.
+// tree the observer watches, and its writes are reported under the path the
+// subtree was asked for.
 func (o observed) AsSubber() Subber {
-	return SubOf(o.fsys, func(beneath FileSystem) FileSystem { return observed{fsys: beneath, observer: o.observer} })
+	return SubOf(o.fsys, func(at string, beneath FileSystem) FileSystem {
+		return observed{fsys: beneath, observer: o.observer, base: o.named(at)}
+	})
 }
 
 type observedSymlinker struct {
