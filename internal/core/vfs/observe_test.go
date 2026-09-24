@@ -316,3 +316,33 @@ func TestAPluginWithNoOptionalVerbsStillHasNone(t *testing.T) {
 		t.Errorf("AsTruncater of a plugin with no truncate = %v, want nil", cut)
 	}
 }
+
+// subbable is writable with its subtrees handed out, each one writable too.
+type subbable struct{ writable }
+
+func (s subbable) AsSubber() vfs.Subber      { return s }
+func (s subbable) Sub(string) vfs.FileSystem { return s }
+
+// A write through a subtree changed the tree the observer watches, and is
+// reported under the path that tree names it by — the subtree's own path is
+// not one anybody watching the whole tree could read back.
+func TestAWriteThroughASubtreeIsReportedUnderTheWholeTreesPath(t *testing.T) {
+	for name, change := range mutating() {
+		t.Run(name, func(t *testing.T) {
+			var seen told
+			fsys := vfs.WithWriteObserver(subbable{}, &seen)
+			sub := fsys.AsSubber().Sub("/scope").AsSubber().Sub("/area")
+
+			if err := change.send(t.Context(), sub); err != nil {
+				t.Fatalf("%s = %v", name, err)
+			}
+			want := make([]string, len(change.paths))
+			for i, p := range change.paths {
+				want[i] = "/scope/area" + p
+			}
+			if got := seen.reported(); !slices.Equal(got, want) {
+				t.Errorf("%s through a subtree reported %v, want %v", name, got, want)
+			}
+		})
+	}
+}

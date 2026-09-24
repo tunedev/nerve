@@ -211,7 +211,7 @@ func (t telemetered) AsTruncater() Truncater {
 // kind, or nil if it has none. Narrowing onto a subtree does not make a second
 // mount, so the labels are the ones the mount was given.
 func (t telemetered) AsSubber() Subber {
-	return SubOf(t.fsys, func(beneath FileSystem) FileSystem {
+	return SubOf(t.fsys, func(_ string, beneath FileSystem) FileSystem {
 		return telemetered{fsys: beneath, recorder: t.recorder, mount: t.mount, kind: t.kind}
 	})
 }

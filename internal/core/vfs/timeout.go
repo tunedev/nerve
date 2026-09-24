@@ -180,7 +180,7 @@ func (b bounded) AsTruncater() Truncater {
 // AsSubber returns the plugin's subtrees under the same bound, or nil if it has
 // none.
 func (b bounded) AsSubber() Subber {
-	return SubOf(b.fsys, func(beneath FileSystem) FileSystem { return bounded{fsys: beneath, within: b.within} })
+	return SubOf(b.fsys, func(_ string, beneath FileSystem) FileSystem { return bounded{fsys: beneath, within: b.within} })
 }
 
 type boundedSymlinker struct {

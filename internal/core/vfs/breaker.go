@@ -132,7 +132,7 @@ func (g guarded) AsTruncater() Truncater {
 // has none. A subtree is the same dependency, so it is guarded by the same
 // breaker rather than by one of its own.
 func (g guarded) AsSubber() Subber {
-	return SubOf(g.fsys, func(beneath FileSystem) FileSystem { return guarded{fsys: beneath, circuit: g.circuit} })
+	return SubOf(g.fsys, func(_ string, beneath FileSystem) FileSystem { return guarded{fsys: beneath, circuit: g.circuit} })
 }
 
 type guardedSymlinker struct {
