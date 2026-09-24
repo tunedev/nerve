@@ -247,6 +247,9 @@ func main() {
 	for _, path := range []string{"/config", "/livez", "/readyz"} {
 		slog.Info("admin", "url", fmt.Sprintf("http://%s%s", cfg.AdminAddr, path))
 	}
+	if cfg.APIAddr != "" {
+		slog.Info("api", "url", fmt.Sprintf("http://%s", cfg.APIAddr), "max-bytes", apiMaxBytes)
+	}
 
 	// Health is the process's own answer about itself, so the probes stay
 	// answerable when Postgres is not. The composition root holds it because
@@ -264,6 +267,10 @@ func main() {
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 	}
+	servers := []*http.Server{srv}
+	if api := apiServer(cfg.APIAddr, resources); api != nil {
+		servers = append(servers, api)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -273,7 +280,7 @@ func main() {
 	// publishing is a worker waiting, which is what it should be doing.
 	consuming.start(ctx)
 
-	served := serve(ctx, srv, health, cfg.DrainDelayDuration())
+	served := serve(ctx, health, cfg.DrainDelayDuration(), servers...)
 
 	// The mounts are released after the server has stopped answering and after
 	// the worker has finished the job it was on, so nothing is still mid-verb on
@@ -292,33 +299,45 @@ func main() {
 	}
 }
 
-// serve runs the server until the context is cancelled, then drains it. The
-// goroutine it starts ends when ListenAndServe returns, which Shutdown makes
-// it do; the channel is buffered so it cannot outlive this function blocked on
-// a send.
+// serve runs the servers until the context is cancelled, then drains them
+// together. Each goroutine it starts ends when its ListenAndServe returns,
+// which Shutdown makes it do; the channel holds one answer per server so none
+// can outlive this function blocked on a send. A server that fails to listen
+// shuts the rest down, so the process never runs half its surface.
 //
 // Readiness fails the moment the drain begins and liveness keeps passing
-// through it, so whatever routes traffic here stops sending before the server
-// stops answering, and whatever restarts crashed processes leaves this one
-// alone. The listener stays open for drainDelay so that refusal is observable:
+// through it, so whatever routes traffic here stops sending before the servers
+// stop answering, and whatever restarts crashed processes leaves this one
+// alone. The listeners stay open for drainDelay so that refusal is observable:
 // closed at once, the only signal is a refused connection.
-func serve(ctx context.Context, srv *http.Server, health *admin.Health, drainDelay time.Duration) error {
-	listening := make(chan error, 1)
-	go func() { listening <- srv.ListenAndServe() }()
+func serve(ctx context.Context, health *admin.Health, drainDelay time.Duration, servers ...*http.Server) error {
+	listening := make(chan error, len(servers))
+	for _, srv := range servers {
+		go func() { listening <- srv.ListenAndServe() }()
+	}
 
 	select {
 	case err := <-listening:
-		return err
+		return errors.Join(err, shutdown(servers))
 	case <-ctx.Done():
 	}
 
 	health.Drain()
 	slog.Info("nerved draining, not ready", "for", drainDelay)
 	time.Sleep(drainDelay)
+	return shutdown(servers)
+}
 
+// shutdown stops every server inside one grace period.
+func shutdown(servers []*http.Server) error {
 	grace, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
-	return srv.Shutdown(grace)
+
+	var errs []error
+	for _, srv := range servers {
+		errs = append(errs, srv.Shutdown(grace))
+	}
+	return errors.Join(errs...)
 }
 
 // fail reports and exits.

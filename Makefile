@@ -107,6 +107,17 @@ fmt: ## Format
 fmt-check: ## Fail if anything is unformatted
 	@out=$$(gofmt -l $(SRC)); if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
 
+.PHONY: generate
+generate: ## Regenerate the RPC code from proto/
+	$(GO) tool buf lint
+	rm -rf internal/gen
+	$(GO) tool buf generate
+
+.PHONY: generate-check
+generate-check: ## Fail if the generated RPC code is not what proto/ generates
+	@$(MAKE) -s generate
+	@out=$$(git status --porcelain -- internal/gen); if [ -n "$$out" ]; then echo "stale generated code, run make generate:"; echo "$$out"; exit 1; fi
+
 .PHONY: lint
 lint: ## Verify the lint config, then run golangci-lint
 	$(LINT) config verify
@@ -119,7 +130,7 @@ lint: ## Verify the lint config, then run golangci-lint
 # last needs a DuckDB binary, which is not a Go dependency and cannot be one
 # without cgo.
 .PHONY: check
-check: fmt-check lint race repro ## Everything CI runs
+check: fmt-check generate-check lint race repro ## Everything CI runs
 
 # Not part of `check`: this one reads the remote and the forge, and check has to
 # run with nothing started and no network.

@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package nerve.resource.v1;
+
+// ResourceService is resource.Store over the wire: one RPC per verb, so a
+// document is declared, uploaded and completed in three calls and read back in
+// a fourth.
+service ResourceService {
+  // Create declares a resource and reserves its name. A name already taken is
+  // ALREADY_EXISTS.
+  rpc Create(CreateRequest) returns (CreateResponse);
+
+  // Upload puts the content of a declared resource, replacing whatever an
+  // interrupted upload left. A completed resource is ALREADY_EXISTS.
+  rpc Upload(UploadRequest) returns (UploadResponse);
+
+  // Complete finalises a resource under the digest of its content. Completing
+  // one twice returns what the first call did.
+  rpc Complete(CompleteRequest) returns (CompleteResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  // Content reads back the content of a completed resource. One that is not
+  // completed is NOT_FOUND.
+  rpc Content(ContentRequest) returns (ContentResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+// Scope names the workspace a resource belongs to.
+message Scope {
+  string user = 1;
+  string workspace = 2;
+}
+
+// Resource is what the store knows about one upload. size and digest are zero
+// until it is completed.
+message Resource {
+  string name = 1;
+  string content_type = 2;
+  int64 size = 3;
+  string digest = 4;
+  bool complete = 5;
+}
+
+message CreateRequest {
+  Scope scope = 1;
+  string name = 2;
+  string content_type = 3;
+}
+
+message CreateResponse {
+  Resource resource = 1;
+}
+
+message UploadRequest {
+  Scope scope = 1;
+  string name = 2;
+  bytes content = 3;
+}
+
+message UploadResponse {
+  int64 written = 1;
+}
+
+message CompleteRequest {
+  Scope scope = 1;
+  string name = 2;
+}
+
+message CompleteResponse {
+  Resource resource = 1;
+}
+
+message ContentRequest {
+  Scope scope = 1;
+  string name = 2;
+}
+
+message ContentResponse {
+  bytes content = 1;
+}

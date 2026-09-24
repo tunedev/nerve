@@ -139,7 +139,7 @@ func TestDrainIsObservableBeforeShutdown(t *testing.T) {
 	defer cancel()
 
 	served := make(chan error, 1)
-	go func() { served <- serve(ctx, srv, health, drainWindow) }()
+	go func() { served <- serve(ctx, health, drainWindow, srv) }()
 
 	base := "http://" + srv.Addr
 	waitUntilReady(t, base)
@@ -203,6 +203,32 @@ func TestDrainIsObservableBeforeShutdown(t *testing.T) {
 	}
 	if alive == 0 {
 		t.Error("liveness was never observed answering between readiness failing and shutdown being entered")
+	}
+}
+
+// A surface that cannot listen takes the rest down with it. Left running, the
+// process answers probes as ready while half of what it serves is absent.
+func TestServeStopsEveryServerWhenOneCannotListen(t *testing.T) {
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("hold a port: %v", err)
+	}
+	defer taken.Close()
+
+	health := &admin.Health{}
+	up := &http.Server{Addr: freeAddr(t), Handler: admin.Handler(config.Defaults().Effective(nil, nil), health)}
+	blocked := &http.Server{Addr: taken.Addr().String(), Handler: http.NotFoundHandler()}
+
+	served := make(chan error, 1)
+	go func() { served <- serve(t.Context(), health, drainWindow, up, blocked) }()
+
+	select {
+	case err := <-served:
+		if err == nil {
+			t.Fatal("serve returned nil with a server that could not listen")
+		}
+	case <-time.After(serveBudget):
+		t.Fatal("serve kept running with a server that could not listen")
 	}
 }
 
