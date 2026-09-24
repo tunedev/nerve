@@ -3,6 +3,7 @@ package queuefs_test
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -78,6 +79,37 @@ func TestTheStackLosesNoMessageWhenTheBrokerIsGone(t *testing.T) {
 	want := []string{"first", "second"}
 	if told := broker.keys(); !slices.Equal(told, want) {
 		t.Errorf("the broker was told %v once it came back, want %v", told, want)
+	}
+}
+
+// The relay records that it carried a message after the broker has it, so the
+// worker the notification reached can be claiming while that record is still
+// open on the row. The claim waits for it and takes the message.
+func TestAClaimTakesAMessageTheRelayIsStillMarking(t *testing.T) {
+	journal := stackJournal(t, "marking")
+	mustRecord(t, journal, "job", "work")
+
+	release := holdRow(t, "marking", `UPDATE queue_messages SET carried_at = now() WHERE queue = $1`)
+	claimed := claimAsync(journal, "job")
+	release()
+
+	if got := <-claimed; got.err != nil || string(got.body) != "work" {
+		t.Errorf("Claim while the relay marked the row = %q, %v, want %q", got.body, got.err, "work")
+	}
+}
+
+// Waiting behind another claim is not taking the message twice: once the first
+// claim commits, the second finds nothing pending.
+func TestAClaimBehindAnotherClaimFindsNothing(t *testing.T) {
+	journal := stackJournal(t, "claimed")
+	mustRecord(t, journal, "job", "work")
+
+	release := holdRow(t, "claimed", `UPDATE queue_messages SET claimed_at = now() WHERE queue = $1`)
+	claimed := claimAsync(journal, "job")
+	release()
+
+	if got := <-claimed; !errors.Is(got.err, fs.ErrNotExist) {
+		t.Errorf("Claim behind a committed claim = %q, %v, want fs.ErrNotExist", got.body, got.err)
 	}
 }
 
@@ -530,4 +562,57 @@ func TestAWriteToTheTreeIsWorkOverTheBroker(t *testing.T) {
 	if left := queued(t, journal); len(left) != 0 {
 		t.Errorf("the queue still holds %v, want nothing", left)
 	}
+}
+
+func mustRecord(t *testing.T, journal *queuefs.Postgres, key, body string) {
+	t.Helper()
+
+	if err := journal.Record(t.Context(), key, []byte(body), 0o644); err != nil {
+		t.Fatalf("Record(%q) = %v", key, err)
+	}
+}
+
+// holdLockWait is how long a row stays locked before the case lets it go: long
+// enough that a claim started beside it reaches the lock first.
+const holdLockWait = 200 * time.Millisecond
+
+// holdRow runs update against every row of queue inside a transaction it keeps
+// open, and returns what commits it once the lock has been held for
+// holdLockWait.
+func holdRow(t *testing.T, queue, update string) func() {
+	t.Helper()
+
+	pool, err := pgxpool.New(t.Context(), os.Getenv(journalEnv))
+	if err != nil {
+		t.Fatalf("pool = %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	tx, err := pool.Begin(t.Context())
+	if err != nil {
+		t.Fatalf("begin = %v", err)
+	}
+	if _, err := tx.Exec(t.Context(), update, queue); err != nil {
+		t.Fatalf("hold %q = %v", queue, err)
+	}
+	return func() {
+		time.Sleep(holdLockWait)
+		if err := tx.Commit(t.Context()); err != nil {
+			t.Fatalf("commit = %v", err)
+		}
+	}
+}
+
+type claim struct {
+	body []byte
+	err  error
+}
+
+func claimAsync(journal *queuefs.Postgres, key string) <-chan claim {
+	result := make(chan claim, 1)
+	go func() {
+		body, err := journal.Claim(context.Background(), key)
+		result <- claim{body: body, err: err}
+	}()
+	return result
 }
