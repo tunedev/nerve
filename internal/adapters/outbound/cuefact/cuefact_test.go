@@ -24,7 +24,7 @@ func TestACuedSentenceIsATypedRankedFact(t *testing.T) {
 	facts := extract(t, said("My name is Ada. I prefer tabs. Never force push."))
 
 	want := []llm.Fact{
-		{Kind: "identity", Body: "My name is Ada.", Priority: llm.High},
+		{Kind: "identity", Subject: "name", Body: "My name is Ada.", Priority: llm.High},
 		{Kind: "preference", Body: "I prefer tabs.", Priority: llm.Normal},
 		{Kind: "instruction", Body: "Never force push.", Priority: llm.High},
 	}
@@ -34,6 +34,28 @@ func TestACuedSentenceIsATypedRankedFact(t *testing.T) {
 	for i, fact := range facts {
 		if fact != want[i] {
 			t.Errorf("fact %d = %+v, want %+v", i, fact, want[i])
+		}
+	}
+}
+
+// A cue that asks a question with one answer at a time names it, so a later
+// answer replaces the earlier one. A cue that asks none names nothing: liking
+// coffee does not stop anyone liking tea.
+func TestACueAnsweringOneQuestionNamesIt(t *testing.T) {
+	cases := map[string]string{
+		"My name is Ada.":          "name",
+		"I live in Dublin.":        "home",
+		"I work at Stripe.":        "work",
+		"I like tea.":              "",
+		"I'm a Go programmer.":     "",
+		"Never force push.":        "",
+		"We decided to use Go.":    "",
+		"Never change my name is.": "",
+	}
+	for sentence, subject := range cases {
+		facts := extract(t, said(sentence))
+		if len(facts) != 1 || facts[0].Subject != subject {
+			t.Errorf("Extract(%q) = %+v, want one fact naming subject %q", sentence, facts, subject)
 		}
 	}
 }

@@ -31,7 +31,8 @@ import (
 const Role = "user"
 
 // cue is a phrase that says a sentence is worth keeping, with what sort of fact
-// it makes.
+// it makes and, for a phrase that asks a question with one answer at a time,
+// which question.
 //
 // The phrases are matched against the sentence lowercased, so a cue is written
 // lowercase here. A sentence caught by more than one cue takes the first in
@@ -40,6 +41,7 @@ const Role = "user"
 type cue struct {
 	phrase   string
 	kind     string
+	subject  string
 	priority llm.Priority
 }
 
@@ -50,24 +52,28 @@ type cue struct {
 // force push" breaks something. Identity is next because it is the thing a
 // conversation is least likely to restate. What someone merely likes or decided
 // once is ordinary.
+//
+// Only a name, a home and a workplace name a subject. Each is one answer at a
+// time, so saying it again differently replaces it; "i like" and "i am" are not,
+// and a subject on them would make liking coffee stop someone liking tea.
 var cues = []cue{
-	{"never ", "instruction", llm.High},
-	{"always ", "instruction", llm.High},
-	{"don't ", "instruction", llm.High},
-	{"do not ", "instruction", llm.High},
-	{"make sure ", "instruction", llm.High},
-	{"my name is ", "identity", llm.High},
-	{"i work ", "identity", llm.High},
-	{"i live ", "identity", llm.High},
-	{"i am ", "identity", llm.Normal},
-	{"i'm ", "identity", llm.Normal},
-	{"i prefer ", "preference", llm.Normal},
-	{"i like ", "preference", llm.Normal},
-	{"i'd rather ", "preference", llm.Normal},
-	{"i hate ", "preference", llm.Normal},
-	{"we decided ", "decision", llm.Normal},
-	{"we're going to ", "decision", llm.Normal},
-	{"let's use ", "decision", llm.Normal},
+	{"never ", "instruction", "", llm.High},
+	{"always ", "instruction", "", llm.High},
+	{"don't ", "instruction", "", llm.High},
+	{"do not ", "instruction", "", llm.High},
+	{"make sure ", "instruction", "", llm.High},
+	{"my name is ", "identity", "name", llm.High},
+	{"i work ", "identity", "work", llm.High},
+	{"i live ", "identity", "home", llm.High},
+	{"i am ", "identity", "", llm.Normal},
+	{"i'm ", "identity", "", llm.Normal},
+	{"i prefer ", "preference", "", llm.Normal},
+	{"i like ", "preference", "", llm.Normal},
+	{"i'd rather ", "preference", "", llm.Normal},
+	{"i hate ", "preference", "", llm.Normal},
+	{"we decided ", "decision", "", llm.Normal},
+	{"we're going to ", "decision", "", llm.Normal},
+	{"let's use ", "decision", "", llm.Normal},
 }
 
 // hedges are the words people say when they are not committing to what they are
@@ -120,7 +126,7 @@ func factOf(sentence string) (llm.Fact, bool) {
 		if !strings.Contains(said, c.phrase) {
 			continue
 		}
-		return llm.Fact{Kind: c.kind, Body: sentence, Priority: ranked(said, c.priority)}, true
+		return llm.Fact{Kind: c.kind, Subject: c.subject, Body: sentence, Priority: ranked(said, c.priority)}, true
 	}
 	return llm.Fact{}, false
 }

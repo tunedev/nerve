@@ -263,6 +263,44 @@ func TestANarrativeMixingCategoriesIsNotWritten(t *testing.T) {
 	}
 }
 
+// A narrative merging a fact that answers a question is not written. A later
+// answer to that question replaces the memory answering it, and a narrative
+// with the answer folded into it would keep saying the old one beside the new.
+func TestANarrativeMergingAnAnswerIsNotWritten(t *testing.T) {
+	found := &merging{narratives: []llm.Narrative{{Facts: []int{0, 1}, Body: "I live in Dublin; I work in Dublin"}}}
+	consolidator, memories := newConsolidator(t, found)
+	mustBelieve(t, memories, "monday",
+		memory.Fact{Kind: "identity", Subject: "home", Body: "I live in Dublin.", Priority: memory.High},
+		memory.Fact{Kind: "identity", Body: "I am in Dublin most weeks.", Priority: memory.Normal},
+	)
+
+	written, err := consolidator.Consolidate(t.Context(), here, "tuesday")
+	if err != nil {
+		t.Fatalf("Consolidate: %v", err)
+	}
+	if len(written) != 0 {
+		t.Errorf("Consolidate wrote %+v, want nothing: an answer stands on its own", written)
+	}
+}
+
+// The endpoint is shown the question each fact answers, so it can leave
+// answers alone rather than propose a merge the stage will decline.
+func TestTheEndpointIsShownTheQuestionAFactAnswers(t *testing.T) {
+	found := &merging{}
+	consolidator, memories := newConsolidator(t, found)
+	mustBelieve(t, memories, "monday",
+		memory.Fact{Kind: "identity", Subject: "home", Body: "I live in Dublin.", Priority: memory.High},
+		memory.Fact{Kind: "preference", Body: "prefers tabs", Priority: memory.Normal},
+	)
+
+	if _, err := consolidator.Consolidate(t.Context(), here, "tuesday"); err != nil {
+		t.Fatalf("Consolidate: %v", err)
+	}
+	if len(found.saw) != 2 || found.saw[0].Subject != "home" || found.saw[1].Subject != "" {
+		t.Errorf("the endpoint was shown %+v, want the home subject on the first fact alone", found.saw)
+	}
+}
+
 // A narrative naming a position that was not in the batch is a broken answer
 // rather than a judgement, and none of the batch is written on the strength of
 // it: the caller cannot tell which of the other narratives that endpoint meant.

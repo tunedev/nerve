@@ -137,8 +137,14 @@ const (
 // reason a session's metadata keys are the caller's: what sorts of fact there
 // are is a question the endpoint answers, and a port that understood one kind
 // would have to be changed to understand a second.
+//
+// Subject names the one question a fact answers — where the user lives, what
+// they are called — and is empty for a fact that answers none. It is the
+// extractor's vocabulary too, and it is how a later answer to the same question
+// is told apart from a second fact of the same kind.
 type Fact struct {
 	Kind     string
+	Subject  string
 	Body     string
 	Priority Priority
 }

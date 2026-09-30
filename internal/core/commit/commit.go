@@ -178,7 +178,7 @@ func turnsOf(messages []session.Message) []llm.Turn {
 func factsOf(extracted []llm.Fact) []memory.Fact {
 	facts := make([]memory.Fact, len(extracted))
 	for i, fact := range extracted {
-		facts[i] = memory.Fact{Kind: fact.Kind, Body: fact.Body, Priority: priorityOf(fact.Priority)}
+		facts[i] = memory.Fact{Kind: fact.Kind, Subject: fact.Subject, Body: fact.Body, Priority: priorityOf(fact.Priority)}
 	}
 	return facts
 }

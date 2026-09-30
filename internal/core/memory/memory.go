@@ -108,8 +108,14 @@ func (p *Priority) UnmarshalJSON(data []byte) error {
 // reason a session's metadata keys are the caller's: what sorts of fact there
 // are is decided where facts are made, and a store that understood one kind
 // would have to be changed to understand a second.
+//
+// Subject names the one question a fact answers — where the user lives, what
+// they are called — and is empty for a fact that answers none. It is the
+// caller's vocabulary too. Within a kind a question has one answer at a time,
+// so a fact naming a subject replaces the memory that answered it before.
 type Fact struct {
 	Kind     string   `json:"kind"`
+	Subject  string   `json:"subject,omitempty"`
 	Body     string   `json:"body"`
 	Priority Priority `json:"priority"`
 }
@@ -190,6 +196,16 @@ func validSupersedes(replaced []int) error {
 			return fmt.Errorf("memory supersedes %d twice: %w", seq, fs.ErrInvalid)
 		}
 		seen[seq] = true
+	}
+	return nil
+}
+
+// validFacts returns the first refusal validFact makes of the batch.
+func validFacts(facts []Fact) error {
+	for _, f := range facts {
+		if err := validFact(f); err != nil {
+			return err
+		}
 	}
 	return nil
 }

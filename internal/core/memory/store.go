@@ -53,20 +53,30 @@ func NewStore(fsys vfs.FileSystem, root string, now func() time.Time) (*Store, e
 // bytes; a paraphrase is a different claim here and is merged, if it is merged,
 // where meaning is judged.
 //
+// A fact naming a subject answers a question, and it replaces every believed
+// memory answering that question under its kind: the memory it contradicts
+// stops being believed at the moment the fact is written, and a question about
+// an earlier moment still answers with it. Only the last answer a batch gives to
+// a question is written.
+//
 // Adding nothing writes nothing and is not an error: a conversation with
 // nothing worth remembering in it is the ordinary case, not a failed commit.
 //
-// What is added is believed from the moment it is written until something
-// supersedes it, which is what Supersede is for.
+// A batch carrying a fact that cannot be stored is refused whole, including one
+// a later answer in the batch would have left unwritten.
 func (st *Store) Add(ctx context.Context, s workspace.Scope, source string, facts []Fact) ([]Memory, error) {
+	if err := validFacts(facts); err != nil {
+		return nil, fmt.Errorf("add memories from session %q: %w", source, err)
+	}
+	var entries []entry
 	if len(facts) > 0 {
 		believed, err := st.Current(ctx, s)
 		if err != nil {
 			return nil, fmt.Errorf("add memories from session %q: %w", source, err)
 		}
-		facts = fresh(believed, facts)
+		entries = reconcile(believed, fresh(believed, lastAnswers(facts)))
 	}
-	written, err := st.write(ctx, s, source, nil, facts)
+	written, err := st.write(ctx, s, source, entries)
 	if err != nil {
 		return nil, fmt.Errorf("add memories from session %q: %w", source, err)
 	}
@@ -94,24 +104,28 @@ func (st *Store) Supersede(ctx context.Context, s workspace.Scope, source string
 	}
 	ordered := slices.Clone(replaced)
 	slices.Sort(ordered)
+	entries := make([]entry, len(facts))
+	for i, fact := range facts {
+		entries[i] = entry{fact: fact, replaced: ordered}
+	}
 
-	written, err := st.write(ctx, s, source, ordered, facts)
+	written, err := st.write(ctx, s, source, entries)
 	if err != nil {
 		return nil, fmt.Errorf("supersede memories from session %q: %w", source, err)
 	}
 	return written, nil
 }
 
-// write appends facts to the log as memories from source, each recording
-// replaced as what it supersedes.
+// write appends each entry to the log as a memory from source, recording what
+// it supersedes.
 //
-// Every fact is checked before any is written, so a batch carrying one bad fact
-// leaves the log as it found it. A half-written batch is a workspace holding
-// some of what a conversation said and no record of which half.
+// Every entry is checked before any is written, so a batch carrying one bad
+// fact leaves the log as it found it. A half-written batch is a workspace
+// holding some of what a conversation said and no record of which half.
 //
 // Each memory is written once, to a path of its own, and nothing already
 // written is read back and rewritten.
-func (st *Store) write(ctx context.Context, s workspace.Scope, source string, replaced []int, facts []Fact) ([]Memory, error) {
+func (st *Store) write(ctx context.Context, s workspace.Scope, source string, entries []entry) ([]Memory, error) {
 	scoped, err := st.held(s)
 	if err != nil {
 		return nil, err
@@ -121,15 +135,15 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 	if err := vfs.ValidSegment("source session", source); err != nil {
 		return nil, err
 	}
-	if err := validSupersedes(replaced); err != nil {
-		return nil, err
-	}
-	for _, fact := range facts {
-		if err := validFact(fact); err != nil {
+	for _, e := range entries {
+		if err := validSupersedes(e.replaced); err != nil {
+			return nil, err
+		}
+		if err := validFact(e.fact); err != nil {
 			return nil, err
 		}
 	}
-	if len(facts) == 0 {
+	if len(entries) == 0 {
 		return nil, nil
 	}
 
@@ -137,9 +151,11 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 	if err != nil {
 		return nil, err
 	}
-	for _, seq := range replaced {
-		if !slices.Contains(seqs, seq) {
-			return nil, fmt.Errorf("memory %d is not in the log: %w", seq, fs.ErrNotExist)
+	for _, e := range entries {
+		for _, seq := range e.replaced {
+			if !slices.Contains(seqs, seq) {
+				return nil, fmt.Errorf("memory %d is not in the log: %w", seq, fs.ErrNotExist)
+			}
 		}
 	}
 	next := nextSeq(seqs, aside)
@@ -147,9 +163,9 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 		return nil, err
 	}
 
-	written := make([]Memory, 0, len(facts))
-	for i, fact := range facts {
-		m := held{Fact: fact, Source: source, At: st.now().UTC(), Supersedes: replaced}
+	written := make([]Memory, 0, len(entries))
+	for i, e := range entries {
+		m := held{Fact: e.fact, Source: source, At: st.now().UTC(), Supersedes: e.replaced}
 		data, err := encode(m)
 		if err != nil {
 			return nil, err
@@ -158,7 +174,7 @@ func (st *Store) write(ctx context.Context, s workspace.Scope, source string, re
 		if err := scoped.Write(ctx, path.Join(logDir, name(seq)), data); err != nil {
 			return nil, fmt.Errorf("memory %d: %w", seq, err)
 		}
-		written = append(written, Memory{Seq: seq, Fact: fact, Source: source, At: m.At, Supersedes: replaced})
+		written = append(written, Memory{Seq: seq, Fact: e.fact, Source: source, At: m.At, Supersedes: e.replaced})
 	}
 	return written, nil
 }
