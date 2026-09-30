@@ -113,6 +113,12 @@ type Config struct {
 	// resources tree would queue an ingestion of itself.
 	IngestRoot string `json:"ingest-root"`
 
+	// IngestIndex is the prefix of the index mount an ingested document's words
+	// are written into, which is what makes the document findable by meaning.
+	// Empty is a build that indexes nothing: its documents are extracted and
+	// written nowhere else.
+	IngestIndex string `json:"ingest-index"`
+
 	// AdminAddr is where the operator surface listens. It defaults to the
 	// loopback interface because what it answers with — endpoints, hosts, the
 	// shape of the mount table — is for whoever is on the box.
@@ -294,6 +300,7 @@ var fields = []field{
 	{"download-key-file", "file holding the key download grants are signed with; required with resources-root", func(c *Config) *string { return &c.DownloadKeyFile }},
 	{"ingest-queue", "prefix of the queue mount resource writes are queued under; empty ingests nothing", func(c *Config) *string { return &c.IngestQueue }},
 	{"ingest-root", "root on the tree the indexing ledger stands under; required with ingest-queue", func(c *Config) *string { return &c.IngestRoot }},
+	{"ingest-index", "prefix of the index mount ingested text is written into; empty indexes nothing", func(c *Config) *string { return &c.IngestIndex }},
 	{"admin-addr", "host:port for the operator surface", func(c *Config) *string { return &c.AdminAddr }},
 	{"api-addr", "host:port for the resource service over Connect, gRPC and gRPC-Web; empty serves nothing", func(c *Config) *string { return &c.APIAddr }},
 }

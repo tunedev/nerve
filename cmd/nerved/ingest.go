@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tunedev/nerve/internal/adapters/outbound/queuefs"
+	"github.com/tunedev/nerve/internal/adapters/outbound/vectorfs"
 	"github.com/tunedev/nerve/internal/core/ingest"
 	"github.com/tunedev/nerve/internal/core/resource"
 	"github.com/tunedev/nerve/internal/core/vfs"
@@ -78,7 +80,7 @@ type ingesting struct {
 // by design, which would leave a process queueing nothing, saying nothing and
 // looking healthy.
 func consumer(table vfs.FileSystem, mounts []vfs.MountSpec, queue, resourcesRoot string,
-	resources *resource.Store, ledger *ingest.Ledger, processors *ingest.Registry) (*ingesting, error) {
+	resources *resource.Store, ledger *ingest.Ledger, processors *ingest.Registry, indexers ...ingest.Indexer) (*ingesting, error) {
 	if queue == "" {
 		return &ingesting{}, nil
 	}
@@ -93,7 +95,7 @@ func consumer(table vfs.FileSystem, mounts []vfs.MountSpec, queue, resourcesRoot
 			"worker claims a job: %w", queue, jobs, fs.ErrInvalid)
 	}
 
-	spec, err := mountedAt(mounts, queue)
+	spec, err := mountedAt(mounts, "ingest-queue", queue)
 	if err != nil {
 		return nil, err
 	}
@@ -102,25 +104,65 @@ func consumer(table vfs.FileSystem, mounts []vfs.MountSpec, queue, resourcesRoot
 		return nil, fmt.Errorf("ingest-queue %q: %w", queue, err)
 	}
 
-	pipeline := ingest.New(resources, ledger, ingest.Extraction(resources, processors))
-	handle := func(ctx context.Context, key string, _ []byte) error { return pipeline.Ingest(ctx, key) }
+	ingestion := pipeline(resources, ledger, processors, indexers...)
+	handle := func(ctx context.Context, key string, _ []byte) error { return ingestion.Ingest(ctx, key) }
 	return &ingesting{worker: queuefs.NewWorker(table, queue, listener, handle), listener: listener}, nil
 }
 
-// mountedAt is the mount config the queue prefix names. The listener and the
-// mount reach the same broker, so what the listener reaches it with is what the
-// mount was configured with rather than a second pair of settings to keep in
-// step.
+// pipeline is what ingesting one resource is in this build: extraction, then
+// every indexer given the resource at once.
+func pipeline(resources *resource.Store, ledger *ingest.Ledger, processors *ingest.Registry,
+	indexers ...ingest.Indexer) *ingest.Pipeline {
+	return ingest.New(resources, ledger,
+		ingest.Extraction(resources, processors),
+		ingest.NewDispatch(indexers...).Stage())
+}
+
+// mountedAt is the mount config the prefix the setting named names. The queue
+// listener and the queue mount reach the same broker, so what the listener
+// reaches it with is what the mount was configured with rather than a second
+// pair of settings to keep in step.
 //
 // A prefix that is not a mount is refused. It could only be a path inside one,
-// and a queue is a mount.
-func mountedAt(mounts []vfs.MountSpec, prefix string) (vfs.MountSpec, error) {
+// and a queue or an index is a mount.
+func mountedAt(mounts []vfs.MountSpec, setting, prefix string) (vfs.MountSpec, error) {
 	for _, spec := range mounts {
 		if spec.Prefix == prefix {
 			return spec, nil
 		}
 	}
-	return vfs.MountSpec{}, fmt.Errorf("ingest-queue %q names no mount: %w", prefix, fs.ErrNotExist)
+	return vfs.MountSpec{}, fmt.Errorf("%s %q names no mount: %w", setting, prefix, fs.ErrNotExist)
+}
+
+// indexers is what ingestion hands a finalised resource to: an indexer writing
+// its words into the corpus of the index mount config names, or nothing when
+// config names none.
+//
+// The corpus is checked for being a flat key space before anything writes to
+// it. A document key is <user>/<workspace>/<name>, a tree refuses a deep key
+// whose parents do not exist, and every document would fail at the index stage
+// of a process that booted looking healthy.
+//
+// The corpus is written through the plain table: an index write is not a
+// resource arriving.
+func indexers(table vfs.FileSystem, mounts []vfs.MountSpec, index string, resources *resource.Store) ([]ingest.Indexer, error) {
+	if index == "" {
+		return nil, nil
+	}
+	if _, err := mountedAt(mounts, "ingest-index", index); err != nil {
+		return nil, err
+	}
+
+	corpus := path.Join(index, vectorfs.Docs)
+	if caps := table.Capabilities(corpus); !caps.ObjectStore || caps.ReadOnly {
+		return nil, fmt.Errorf("ingest-index %q: %s is not a writable flat key space, and a document key is "+
+			"<user>/<workspace>/<name>: every document would fail at the index stage: %w", index, corpus, fs.ErrInvalid)
+	}
+	indexer, err := ingest.NewTextIndexer(resources, table, corpus)
+	if err != nil {
+		return nil, fmt.Errorf("ingest-index %q: %w", index, err)
+	}
+	return []ingest.Indexer{indexer}, nil
 }
 
 // subtree is the pattern a worker subscribes with: everything under root. A job
@@ -163,10 +205,10 @@ func (i *ingesting) stop() error {
 // describe says what this process ingests, or that it ingests nothing. Which of
 // the two it is is the first thing an operator wondering why an upload never
 // became searchable needs to know.
-func (i *ingesting) describe(queue, ledger string) {
+func (i *ingesting) describe(queue, ledger, index string) {
 	if i.worker == nil {
 		slog.Info("pipeline", "queue", "none", "note", "uploads are taken and nothing is derived from them")
 		return
 	}
-	slog.Info("pipeline", "queue", queue, "group", group, "ledger-root", ledger)
+	slog.Info("pipeline", "queue", queue, "group", group, "ledger-root", ledger, "index", cmp.Or(index, "none"))
 }

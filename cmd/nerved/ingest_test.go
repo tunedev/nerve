@@ -90,15 +90,36 @@ func TestTheSubscriptionIsTheResourcesSubtree(t *testing.T) {
 	}
 }
 
+// An index whose corpus cannot hold a document key would fail every document at
+// the index stage of a process that booted looking healthy, and a prefix that is
+// not a mount is no index at all. Both are refused before anything is ingested.
+func TestAnIngestIndexThatCannotHoldADocumentIsRefusedAtBoot(t *testing.T) {
+	mounts := []vfs.MountSpec{{Prefix: "/index", Kind: memfs.Kind}}
+	table := treeAt(t, "/index", memfs.Kind, nil)
+
+	if _, err := indexers(table, mounts, "/index", nil); !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("indexers(/index over memfs) = %v, want fs.ErrInvalid", err)
+	}
+	if _, err := indexers(table, mounts, "/nothing", nil); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("indexers(/nothing) = %v, want fs.ErrNotExist", err)
+	}
+	none, err := indexers(table, mounts, "", nil)
+	if err != nil || none != nil {
+		t.Errorf("indexers(no index) = %v, %v, want nothing and no error", none, err)
+	}
+}
+
 // An ingest queue with nothing to ingest from, or nowhere to record what it
 // did, is a process that would claim jobs and answer nobody. Both are boot
 // failures rather than a worker running against half a wiring.
 func TestInvalidIngestConfigFailsAtBoot(t *testing.T) {
 	for what, edit := range map[string]func(*config.Config){
-		"a queue with no resources tree":   func(c *config.Config) { c.ResourcesRoot = "" },
-		"a queue with no ledger root":      func(c *config.Config) { c.IngestRoot = "" },
-		"a queue that is not a path":       func(c *config.Config) { c.IngestQueue = "queue" },
-		"a ledger root that is not a path": func(c *config.Config) { c.IngestRoot = "ingest" },
+		"a queue with no resources tree":    func(c *config.Config) { c.ResourcesRoot = "" },
+		"a queue with no ledger root":       func(c *config.Config) { c.IngestRoot = "" },
+		"a queue that is not a path":        func(c *config.Config) { c.IngestQueue = "queue" },
+		"a ledger root that is not a path":  func(c *config.Config) { c.IngestRoot = "ingest" },
+		"an index that is not a path":       func(c *config.Config) { c.IngestIndex = "vectors" },
+		"an index with no queue feeding it": func(c *config.Config) { c.IngestQueue = ""; c.IngestIndex = "/vectors" },
 	} {
 		t.Run(what, func(t *testing.T) {
 			cfg := ingestingConfig(t)
@@ -123,6 +144,7 @@ func ingestingConfig(t *testing.T) config.Config {
 	cfg.DownloadKeyFile = "/dev/null"
 	cfg.IngestQueue = "/queue"
 	cfg.IngestRoot = "/ingest"
+	cfg.IngestIndex = "/vectors"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("the config every case starts from does not boot: %v", err)
 	}

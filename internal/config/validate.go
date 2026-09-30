@@ -48,6 +48,8 @@ func (c Config) Validate() error {
 		optional("ingest-queue", c.IngestQueue, rootedPath),
 		optional("ingest-root", c.IngestRoot, rootedPath),
 		ingestible(c.IngestQueue, c.ResourcesRoot, c.IngestRoot),
+		optional("ingest-index", c.IngestIndex, rootedPath),
+		indexable(c.IngestIndex, c.IngestQueue),
 		listenable("admin-addr", c.AdminAddr),
 		servable(c.APIAddr, c.ResourcesRoot),
 	)
@@ -235,6 +237,16 @@ func ingestible(queue, resources, ledger string) error {
 		named("ingest-queue names a queue but resources-root names no tree to ingest from", resources),
 		named("ingest-queue names a queue but ingest-root names no root to record indexing under", ledger),
 	)
+}
+
+// indexable refuses an index with nothing feeding it. Only the ingest worker
+// writes into the index, so a build that names one and no queue would boot
+// saying it indexes and never write a document.
+func indexable(index, queue string) error {
+	if index == "" {
+		return nil
+	}
+	return named("ingest-index names an index but ingest-queue names no queue to ingest from", queue)
 }
 
 // servable refuses a service address a server cannot bind, and one with no

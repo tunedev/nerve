@@ -206,7 +206,11 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	consuming, err := consumer(table, mounts, cfg.IngestQueue, cfg.ResourcesRoot, resources, ledger, processors)
+	indexing, err := indexers(table, mounts, cfg.IngestIndex, resources)
+	if err != nil {
+		fail(err)
+	}
+	consuming, err := consumer(table, mounts, cfg.IngestQueue, cfg.ResourcesRoot, resources, ledger, processors, indexing...)
 	if err != nil {
 		fail(err)
 	}
@@ -242,7 +246,7 @@ func main() {
 		slog.Info("scratch", "root", cfg.ScratchRoot)
 	}
 	slog.Info("ingest", "formats", processors.MediaTypes())
-	consuming.describe(cfg.IngestQueue, cfg.IngestRoot)
+	consuming.describe(cfg.IngestQueue, cfg.IngestRoot, cfg.IngestIndex)
 	slog.Info("gateway", "providers", gateway.Providers(), "serves", gateway.Capabilities())
 	for _, path := range []string{"/config", "/livez", "/readyz"} {
 		slog.Info("admin", "url", fmt.Sprintf("http://%s%s", cfg.AdminAddr, path))
