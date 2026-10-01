@@ -113,9 +113,9 @@ type merge struct {
 // something other than what was asked — nothing is written on the strength of
 // it, because the rest of that answer cannot be trusted either.
 //
-// A narrative that names one fact, or that merges two categories, is a
-// judgement this stage declines rather than a broken answer: it is passed over
-// and the rest of the run stands. A model is allowed to propose something the
+// A narrative that names one fact, that merges two categories, or that merges a
+// fact answering a question, is a judgement this stage declines rather than a
+// broken answer: it is passed over and the rest of the run stands. A model is allowed to propose something the
 // log does not do, and a workspace whose archival stopped because an endpoint
 // kept proposing it would be worse off than one that merged a little less.
 func mergesOf(believed []memory.Memory, narratives []llm.Narrative) ([]merge, error) {
@@ -133,7 +133,7 @@ func mergesOf(believed []memory.Memory, narratives []llm.Narrative) ([]merge, er
 			claimed[at] = true
 			replaced = append(replaced, believed[at].Seq)
 		}
-		if len(replaced) < 2 || !oneKind(believed, narrative.Facts) {
+		if len(replaced) < 2 || !oneKind(believed, narrative.Facts) || mergesAnAnswer(believed, narrative.Facts) {
 			continue
 		}
 		if narrative.Body == "" {
@@ -160,6 +160,21 @@ func oneKind(believed []memory.Memory, at []int) bool {
 	return true
 }
 
+// mergesAnAnswer reports whether any fact the narrative merges answers a
+// question.
+//
+// An answer stands on its own because a later answer replaces it. Folded into a
+// narrative that names no subject, the old answer would go on being believed
+// beside the new one.
+func mergesAnAnswer(believed []memory.Memory, at []int) bool {
+	for _, i := range at {
+		if believed[i].Fact.Subject != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // merged is the memory a narrative becomes: the endpoint's sentence, filed
 // under the category it merged, ranked at the highest of what it merged.
 //
@@ -179,14 +194,15 @@ func merged(believed []memory.Memory, narrative llm.Narrative) memory.Fact {
 
 // factsOf hands the memories to the endpoint in the endpoint's vocabulary.
 //
-// The sequence, the source and the interval are dropped because the port has no
+// The subject is carried so the endpoint can leave an answer alone. The
+// sequence, the source and the interval are dropped because the port has no
 // use for them: what a consolidator judges is what the claims say, and a port
 // carrying a log's numbering would make the numbering part of the model
 // contract. The positions in this slice are what the answer names instead.
 func factsOf(believed []memory.Memory) []llm.Fact {
 	facts := make([]llm.Fact, len(believed))
 	for i, m := range believed {
-		facts[i] = llm.Fact{Kind: m.Fact.Kind, Body: m.Fact.Body, Priority: priorityOf(m.Fact.Priority)}
+		facts[i] = llm.Fact{Kind: m.Fact.Kind, Subject: m.Fact.Subject, Body: m.Fact.Body, Priority: priorityOf(m.Fact.Priority)}
 	}
 	return facts
 }
